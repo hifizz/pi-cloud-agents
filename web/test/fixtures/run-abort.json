@@ -1,0 +1,574 @@
+[
+ {
+  "type": "snapshot",
+  "entries": [],
+  "tools": [],
+  "compactions": [],
+  "inbox": [],
+  "agent": {
+   "model": {
+    "provider": "faux",
+    "modelId": "faux-1"
+   },
+   "cwd": "/var/folders/yv/tg75xf7d0k97f07d_xl3wfyr0000gn/T/tars-rec-7SkYNQ"
+  },
+  "usage": {
+   "models": {},
+   "tools": {}
+  }
+ },
+ {
+  "type": "events",
+  "events": [
+   {
+    "type": "message_start",
+    "message": {
+     "role": "user",
+     "content": "Run a very long command.",
+     "timestamp": 1791310941718
+    }
+   },
+   {
+    "type": "message_end",
+    "entry": {
+     "model": [
+      {
+       "role": "user",
+       "content": "Run a very long command.",
+       "timestamp": 1791310941718
+      }
+     ],
+     "kind": "pi.user",
+     "id": 8,
+     "conversationId": 2
+    }
+   },
+   {
+    "type": "submission",
+    "record": {
+     "conversationId": 2,
+     "requestId": "rec-1",
+     "type": "input",
+     "status": "placed",
+     "entry": 8,
+     "id": 9
+    }
+   },
+   {
+    "type": "run_start",
+    "inputs": [
+     9
+    ]
+   },
+   {
+    "type": "turn_start"
+   }
+  ]
+ },
+ {
+  "type": "events",
+  "events": [
+   {
+    "type": "message_start",
+    "message": {
+     "role": "system",
+     "content": "",
+     "sections": {
+      "preamble": "You are a TARSBot: a persistent AI teammate with your own Linux computer (an XFCE desktop container shared with the user's other bots).\n- Be concise. Report what you did and what you found.\n- Shell and file tools run inside your computer, not on the user's host.\n- For desktop work, prefer accessibility-tree element tokens over pixel coordinates; take a screenshot to verify results.\n- Never claim success without checking."
+     },
+     "toolsAdded": [
+      {
+       "name": "read",
+       "description": "Read the contents of a text file. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+       "parameters": {
+        "type": "object",
+        "required": [
+         "path"
+        ],
+        "properties": {
+         "path": {
+          "type": "string",
+          "description": "Path to the file to read (relative or absolute)"
+         },
+         "offset": {
+          "type": "number",
+          "description": "Line number to start reading from (1-indexed)"
+         },
+         "limit": {
+          "type": "number",
+          "description": "Maximum number of lines to read"
+         }
+        }
+       }
+      },
+      {
+       "name": "write",
+       "description": "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+       "parameters": {
+        "type": "object",
+        "required": [
+         "path",
+         "content"
+        ],
+        "properties": {
+         "path": {
+          "type": "string",
+          "description": "Path to the file to write (relative or absolute)"
+         },
+         "content": {
+          "type": "string",
+          "description": "Content to write to the file"
+         }
+        }
+       }
+      },
+      {
+       "name": "edit",
+       "description": "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+       "parameters": {
+        "type": "object",
+        "required": [
+         "path",
+         "edits"
+        ],
+        "properties": {
+         "path": {
+          "type": "string",
+          "description": "Path to the file to edit (relative or absolute)"
+         },
+         "edits": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "required": [
+            "oldText",
+            "newText"
+           ],
+           "properties": {
+            "oldText": {
+             "type": "string",
+             "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+            },
+            "newText": {
+             "type": "string",
+             "description": "Replacement text for this targeted edit."
+            }
+           }
+          },
+          "description": "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+         }
+        }
+       }
+      },
+      {
+       "name": "bash",
+       "description": "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+       "parameters": {
+        "type": "object",
+        "required": [
+         "command"
+        ],
+        "properties": {
+         "command": {
+          "type": "string",
+          "description": "Bash command to execute"
+         },
+         "timeout": {
+          "type": "number",
+          "description": "Timeout in seconds (optional, no default timeout)"
+         }
+        }
+       }
+      }
+     ],
+     "timestamp": 1791310941719
+    }
+   },
+   {
+    "type": "message_end",
+    "entry": {
+     "model": [
+      {
+       "role": "system",
+       "content": "",
+       "sections": {
+        "preamble": "You are a TARSBot: a persistent AI teammate with your own Linux computer (an XFCE desktop container shared with the user's other bots).\n- Be concise. Report what you did and what you found.\n- Shell and file tools run inside your computer, not on the user's host.\n- For desktop work, prefer accessibility-tree element tokens over pixel coordinates; take a screenshot to verify results.\n- Never claim success without checking."
+       },
+       "toolsAdded": [
+        {
+         "name": "read",
+         "description": "Read the contents of a text file. Output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+         "parameters": {
+          "type": "object",
+          "required": [
+           "path"
+          ],
+          "properties": {
+           "path": {
+            "type": "string",
+            "description": "Path to the file to read (relative or absolute)"
+           },
+           "offset": {
+            "type": "number",
+            "description": "Line number to start reading from (1-indexed)"
+           },
+           "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to read"
+           }
+          }
+         }
+        },
+        {
+         "name": "write",
+         "description": "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically creates parent directories.",
+         "parameters": {
+          "type": "object",
+          "required": [
+           "path",
+           "content"
+          ],
+          "properties": {
+           "path": {
+            "type": "string",
+            "description": "Path to the file to write (relative or absolute)"
+           },
+           "content": {
+            "type": "string",
+            "description": "Content to write to the file"
+           }
+          }
+         }
+        },
+        {
+         "name": "edit",
+         "description": "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to connect distant changes.",
+         "parameters": {
+          "type": "object",
+          "required": [
+           "path",
+           "edits"
+          ],
+          "properties": {
+           "path": {
+            "type": "string",
+            "description": "Path to the file to edit (relative or absolute)"
+           },
+           "edits": {
+            "type": "array",
+            "items": {
+             "type": "object",
+             "required": [
+              "oldText",
+              "newText"
+             ],
+             "properties": {
+              "oldText": {
+               "type": "string",
+               "description": "Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[].oldText in the same call."
+              },
+              "newText": {
+               "type": "string",
+               "description": "Replacement text for this targeted edit."
+              }
+             }
+            },
+            "description": "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead."
+           }
+          }
+         }
+        },
+        {
+         "name": "bash",
+         "description": "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.",
+         "parameters": {
+          "type": "object",
+          "required": [
+           "command"
+          ],
+          "properties": {
+           "command": {
+            "type": "string",
+            "description": "Bash command to execute"
+           },
+           "timeout": {
+            "type": "number",
+            "description": "Timeout in seconds (optional, no default timeout)"
+           }
+          }
+         }
+        }
+       ],
+       "timestamp": 1791310941719
+      }
+     ],
+     "kind": "pi.system",
+     "id": 11,
+     "conversationId": 2,
+     "byTaskId": 10
+    }
+   }
+  ]
+ },
+ {
+  "type": "events",
+  "events": [
+   {
+    "type": "message_start",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "call-slow",
+       "name": "bash",
+       "arguments": {}
+      }
+     ],
+     "api": "faux:1791310941714:dumem1odgzf",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 777,
+      "output": 11,
+      "cacheRead": 0,
+      "cacheWrite": 777,
+      "totalTokens": 1565,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "pending",
+     "timestamp": 1791310941714
+    }
+   }
+  ]
+ },
+ {
+  "type": "events",
+  "events": [
+   {
+    "type": "message_end",
+    "entry": {
+     "model": [
+      {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "toolCall",
+         "id": "call-slow",
+         "name": "bash",
+         "arguments": {
+          "command": "echo started; sleep 30"
+         }
+        }
+       ],
+       "api": "faux:1791310941714:dumem1odgzf",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 777,
+        "output": 11,
+        "cacheRead": 0,
+        "cacheWrite": 777,
+        "totalTokens": 1565,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "toolUse",
+       "timestamp": 1791310941714
+      }
+     ],
+     "kind": "pi.assistant",
+     "id": 12,
+     "conversationId": 2,
+     "byTaskId": 10
+    }
+   },
+   {
+    "type": "usage_changed",
+    "usage": {
+     "models": {
+      "faux/faux-1": {
+       "input": 777,
+       "output": 11,
+       "cacheRead": 0,
+       "cacheWrite": 777,
+       "totalTokens": 1565,
+       "cost": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0
+       }
+      }
+     },
+     "tools": {}
+    }
+   }
+  ]
+ },
+ {
+  "type": "events",
+  "events": [
+   {
+    "type": "tool_execution_start",
+    "toolCallId": "call-slow",
+    "toolName": "bash",
+    "args": {
+     "command": "echo started; sleep 30"
+    }
+   }
+  ]
+ },
+ {
+  "type": "events",
+  "events": [
+   {
+    "type": "tool_execution_update",
+    "toolCallId": "call-slow",
+    "toolName": "bash",
+    "output": {
+     "set": "started\n"
+    }
+   }
+  ]
+ },
+ {
+  "type": "events",
+  "events": [
+   {
+    "type": "tool_execution_end",
+    "toolCallId": "call-slow",
+    "toolName": "bash",
+    "entry": {
+     "model": [
+      {
+       "role": "toolResult",
+       "toolCallId": "call-slow",
+       "toolName": "bash",
+       "content": [
+        {
+         "type": "text",
+         "text": "started\n"
+        },
+        {
+         "type": "text",
+         "text": "<harness>\n[error] Tool bash was aborted\n</harness>"
+        }
+       ],
+       "isError": true,
+       "timestamp": 1791310942158
+      }
+     ],
+     "data": {
+      "diagnostics": [
+       {
+        "severity": "error",
+        "code": "aborted",
+        "message": "Tool bash was aborted"
+       }
+      ]
+     },
+     "kind": "pi.tool-result",
+     "id": 14,
+     "conversationId": 2,
+     "byTaskId": 13
+    }
+   },
+   {
+    "type": "message_start",
+    "message": {
+     "role": "toolResult",
+     "toolCallId": "call-slow",
+     "toolName": "bash",
+     "content": [
+      {
+       "type": "text",
+       "text": "started\n"
+      },
+      {
+       "type": "text",
+       "text": "<harness>\n[error] Tool bash was aborted\n</harness>"
+      }
+     ],
+     "isError": true,
+     "timestamp": 1791310942158
+    }
+   },
+   {
+    "type": "message_end",
+    "entry": {
+     "model": [
+      {
+       "role": "toolResult",
+       "toolCallId": "call-slow",
+       "toolName": "bash",
+       "content": [
+        {
+         "type": "text",
+         "text": "started\n"
+        },
+        {
+         "type": "text",
+         "text": "<harness>\n[error] Tool bash was aborted\n</harness>"
+        }
+       ],
+       "isError": true,
+       "timestamp": 1791310942158
+      }
+     ],
+     "data": {
+      "diagnostics": [
+       {
+        "severity": "error",
+        "code": "aborted",
+        "message": "Tool bash was aborted"
+       }
+      ]
+     },
+     "kind": "pi.tool-result",
+     "id": 14,
+     "conversationId": 2,
+     "byTaskId": 13
+    }
+   }
+  ]
+ },
+ {
+  "type": "events",
+  "events": [
+   {
+    "type": "turn_end"
+   },
+   {
+    "type": "run_end",
+    "inputs": [
+     9
+    ]
+   },
+   {
+    "type": "submission",
+    "record": {
+     "conversationId": 2,
+     "requestId": "rec-1",
+     "type": "input",
+     "status": "unanswered",
+     "entry": 8,
+     "id": 9,
+     "reason": "aborted"
+    }
+   }
+  ]
+ }
+]

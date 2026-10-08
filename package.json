@@ -1,0 +1,26 @@
+{
+  "name": "tarsbot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TARSBot: self-hosted durable AI teammates on pi-durable + Cua Spaces",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "test:env": "vitest run test/vitest",
+    "start": "node src/server.mjs",
+    "repl": "node src/repl.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.0.4",
+    "@earendil-works/pi-ai": "1.0.4",
+    "@earendil-works/pi-durable": "1.0.4",
+    "@trycua/cua": "0.4.1",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "vitest": "5.0.3"
+  }
+}

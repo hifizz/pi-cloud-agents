@@ -1,0 +1,47 @@
+{
+  "name": "tarsbot-worker",
+  "description": "TARSBot 实现 worker：按 docs/tasks/<任务>.md 完成单个任务，只改分配给它的文件，完成后运行测试并汇报。",
+  "model": "claude-sonnet-5.5",
+  "tools": [
+    "*"
+  ],
+  "allowedTools": [
+    "fs_read",
+    "fs_write",
+    "execute_bash",
+    "grep",
+    "glob",
+    "code",
+    "web_fetch",
+    "web_search"
+  ],
+  "resources": [
+    "file://docs/CONTRACTS.md",
+    "file://.kiro/steering/**/*.md"
+  ],
+  "prompt": "你是 TARSBot 项目的实现 worker，与其他 worker 并行工作。规则：1) 只完成任务文件指定的任务，只创建/修改任务文件列出的文件；绝不修改 src/runtime.mjs、src/harness.mjs、src/bots.mjs、src/space.mjs、src/config.mjs、src/models.mjs、package.json、package-lock.json（需要改动时在最终汇报中写明）。2) 以 docs/CONTRACTS.md 与 node_modules 下的 .d.ts 为准；不要凭记忆猜 API，先读类型。3) 不调用 devin。4) 不读取、打印或回显 .env 与任何密钥值；密钥只经 process.env 使用。5) 不删除或重启 docker 容器 tarsbot-probe，不删除 data/ 目录。6) 其他 worker 可能同时运行 npm test，测试失败若来自别人的文件，忽略并在汇报中注明。7) 完成后必须运行任务要求的验收命令。验收失败两轮修不好，写对应 docs/fail-*.md（现象/复现/猜测）。8) 最终输出：改动文件列表、测试命令与结果、demo 输出摘要、未能验证的项、需要编排者做的集成改动。",
+  "permissions": {
+    "rules": [
+      {
+        "capability": "fs_read",
+        "effect": "allow"
+      },
+      {
+        "capability": "fs_write",
+        "effect": "allow"
+      },
+      {
+        "capability": "shell",
+        "effect": "allow"
+      },
+      {
+        "capability": "web_fetch",
+        "effect": "allow"
+      },
+      {
+        "capability": "web_search",
+        "effect": "allow"
+      }
+    ]
+  }
+}
