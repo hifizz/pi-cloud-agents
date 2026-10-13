@@ -5,7 +5,7 @@
   "type": "module",
   "description": "TARSBot: self-hosted durable AI teammates on pi-durable + Cua Spaces",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
@@ -17,6 +17,7 @@
     "@earendil-works/chord": "1.0.4",
     "@earendil-works/pi-ai": "1.0.4",
     "@earendil-works/pi-durable": "1.0.4",
+    "@fly/sprites": "0.2.3",
     "@trycua/cua": "0.4.1",
     "ws": "8.22.0"
   },

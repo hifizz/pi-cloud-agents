@@ -12,13 +12,66 @@ const PREVIEW_CHARS = 2000;
 
 // ---- rules ----------------------------------------------------------------------------------------------------------
 
+// Git / GitHub policy: pushing your own branch and opening a PR is allowed without asking; anything that can destroy an
+// existing PR or existing code needs a human. Applies to every sandbox mode (cua and sprites alike).
+//
+// Known limits (documented on purpose):
+//  - A bare `git push` (no refspec) cannot be judged: its upstream may be `dev` or `main`. The test repository has no
+//    branch protection, so there is no server-side backstop; we rely on the preamble telling the bot to push only
+//    `tarsbot/*` branches.
+//  - Rules are regexes over the command text. Quoted separators (`;`, `&`, `|` inside quotes) and indirection
+//    (variables, `bash -c`, aliases) are not understood.
+//
+// Chained commands: every push rule only looks at the push segment, i.e. the text after `git ... push` up to the next
+// `;`, `&`, `|` or newline, so `git push origin b && git checkout main` does not trip the baseline-branch rule.
+
+/** `git [-C dir] [-c k=v] ... push` — global options before the subcommand are skipped; `git log --grep push` is not a push. */
+const GIT_PUSH = String.raw`\bgit\s+(?:-\S+\s+(?:(?!push\b)[^-\s]\S*\s+)?)*push(?=\s|$)`;
+/** Zero or more arguments of the same shell segment, then whitespace, ready for one token to follow. */
+const SEG = String.raw`[^\n;|&]*?\s`;
+const END = String.raw`(?=\s|$|[;&|])`;
+const gitPush = (token, flags) => new RegExp(`${GIT_PUSH}${SEG}${token}${END}`, flags);
+
+/** A refspec token whose destination is main / master / dev (`main`, `HEAD:dev`, `x:refs/heads/master`, quoted). */
+const BASELINE = String.raw`['"]?(?:[^\s:'"]*:)?(?:refs/heads/)?(?:main|master|dev)['"]?`;
+
+/** `gh api` arguments in the same segment. */
+const GH_API = String.raw`\bgh\s+api\b[^\n;|&]*?`;
+
 /** Shell patterns that need approval. `pattern` is tested against the whole `command` string. */
 export const DEFAULT_BASH_RULES = [
   { pattern: /\brm\s+(?:\S+\s+)*?-[a-zA-Z]*(?:rf|fr|Rf|fR)[a-zA-Z]*(?=\s|$)/, reason: "recursive force delete (rm -rf)" },
   { pattern: /\brm\b[^\n;|&]*\s-[a-zA-Z]*[rR][a-zA-Z]*(?=\s)[^\n;|&]*\s-[a-zA-Z]*f/, reason: "recursive force delete (rm -r -f)" },
   { pattern: /\brm\b[^\n;|&]*\s-[a-zA-Z]*f[a-zA-Z]*(?=\s)[^\n;|&]*\s-[a-zA-Z]*[rR]/, reason: "recursive force delete (rm -f -r)" },
   { pattern: /\brm\b[^\n;|&]*--recursive[^\n;|&]*--force|\brm\b[^\n;|&]*--force[^\n;|&]*--recursive/, reason: "recursive force delete (rm --recursive --force)" },
-  { pattern: /\bgit\s+(?:-\S+\s+(?:(?!push\b)[^-\s]\S*\s+)?)*push\b/, reason: "git push" },
+  // git push: rewrite remote history
+  {
+    pattern: gitPush(String.raw`(?:--force(?:-with-lease|-if-includes)?(?:=\S*)?|-[a-zA-Z]*f[a-zA-Z]*)`),
+    reason: "git push that rewrites remote history (--force / -f / --force-with-lease / --force-if-includes)",
+  },
+  { pattern: gitPush(String.raw`['"]?\+\S+`), reason: "git push with a +refspec (forced update of a remote ref)" },
+  // git push: delete remote refs
+  {
+    pattern: gitPush(String.raw`(?:--delete|--mirror|--prune|-[a-zA-Z]*d[a-zA-Z]*)`),
+    reason: "git push that deletes remote refs (--delete / -d / --mirror / --prune)",
+  },
+  { pattern: gitPush(String.raw`['"]?:\S+`), reason: "git push of an empty source (:<ref>) deletes a remote ref" },
+  // git push: baseline branches
+  { pattern: gitPush(BASELINE), reason: "git push directly to a baseline branch (main / master / dev)" },
+  // gh: operations on existing PRs / repos / releases
+  { pattern: /\bgh\s+pr\s+merge\b/, reason: "gh pr merge (merges code into the base branch)" },
+  { pattern: /\bgh\s+pr\s+close\b/, reason: "gh pr close (closes an existing PR)" },
+  { pattern: /\bgh\s+repo\s+delete\b/, reason: "gh repo delete (deletes a repository)" },
+  { pattern: /\bgh\s+repo\s+edit\b/, reason: "gh repo edit (changes repository settings)" },
+  { pattern: /\bgh\s+release\s+delete\b/, reason: "gh release delete (deletes a release)" },
+  {
+    pattern: new RegExp(String.raw`${GH_API}\s(?:-X|--method)[\s=]*['"]?(?:POST|PUT|PATCH|DELETE)\b`, "i"),
+    reason: "gh api write request (-X/--method POST, PUT, PATCH or DELETE)",
+  },
+  {
+    pattern: new RegExp(String.raw`${GH_API}\s(?:-[fF]|(?:--field|--raw-field|--input)(?![a-zA-Z-]))`),
+    reason: "gh api with request fields (-f/-F/--field/--raw-field/--input sends a POST by default)",
+  },
   {
     pattern:
       /\b(?:curl|wget)\b[^\n;|&]*(?:(?:-X|--request)[\s=]*['"]?(?:POST|PUT|DELETE|PATCH)\b|--method[\s=]+['"]?(?:POST|PUT|DELETE|PATCH)\b|--data\S*|--post-data|--post-file|\s-d\b)/i,

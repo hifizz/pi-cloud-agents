@@ -10,7 +10,14 @@ TARSBot 是**基于 Pi Durable 核心开发的自托管常驻 AI 队友系统**�
 
 ## 快速开始（macOS + OrbStack）
 
-前置：Node ≥ 22、OrbStack（Docker 运行时）。
+前置：**Node ≥ 24**（本分支 `feat/sprites-shell` 依赖 `@fly/sprites`，要求 Node 24；仓库根目录有 `.nvmrc`）、OrbStack（Docker 运行时）。
+
+切换 Node 24（只影响当前 shell，不改全局默认）：
+
+```bash
+nvm install 24 && nvm use      # 或：fnm install 24 && fnm use
+node -v                        # v24.x
+```
 
 ```bash
 orb start                                   # 启动 Docker

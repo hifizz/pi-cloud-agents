@@ -77,9 +77,11 @@ test("isDangerous: dangerous bash commands", () => {
     "rm -f -r x",
     "rm --recursive --force x",
     "cd / && rm -rf *",
-    "git push",
-    "git push origin main",
     "git -C repo push --force",
+    "git -c core.editor=true push -f origin b",
+    "cd r && git push origin HEAD:main",
+    "git push origin b && git push --force",
+    "echo ok; git push origin master",
     "curl -X POST https://example.com -d a=1",
     "curl -XDELETE https://example.com/x",
     "curl --request PUT https://example.com",
@@ -93,6 +95,94 @@ test("isDangerous: dangerous bash commands", () => {
     "echo x > /dev/sda",
   ]) {
     assert.equal(typeof bash(cmd), "string", `should be dangerous: ${cmd}`);
+  }
+});
+
+test("isDangerous: git/gh operations that destroy PRs or code", () => {
+  const bash = (command) => isDangerous({ name: "bash", arguments: { command } });
+  for (const cmd of [
+    "git push --force origin b",
+    "git push -f",
+    "git push -uf origin b",
+    "git push --force-with-lease",
+    "git push --force-with-lease=b:abc origin b",
+    "git push --force-if-includes",
+    "git push origin +b",
+    "git push origin +HEAD:b",
+    "git push origin --delete b",
+    "git push -d origin b",
+    "git push -ud origin b",
+    "git push origin :b",
+    "git push --mirror",
+    "git push --prune origin",
+    "git push origin main",
+    "git push -u origin master",
+    "git push origin dev",
+    "git push origin HEAD:dev",
+    "git push origin HEAD:refs/heads/main",
+    "git -C repo push origin tarsbot/x:master",
+    "git -c k=v push origin main",
+    "git status && git push origin main",
+    "gh pr merge 3 --squash",
+    "gh pr close 3",
+    "gh repo delete o/r --yes",
+    "gh repo edit o/r --visibility public",
+    "gh release delete v1 -y",
+    "gh api repos/o/r/pulls -f title=x",
+    "gh api repos/o/r/pulls -ftitle=x",
+    "gh api repos/o/r/pulls -F body=@f",
+    "gh api repos/o/r/pulls --field title=x",
+    "gh api repos/o/r/pulls --raw-field title=x",
+    "gh api repos/o/r/pulls --input body.json",
+    "gh api -X DELETE repos/o/r",
+    "gh api -XPATCH repos/o/r",
+    "gh api --method PUT repos/o/r/x",
+    "gh api --method=post repos/o/r/x",
+  ]) {
+    assert.equal(typeof bash(cmd), "string", `should be dangerous: ${cmd}`);
+  }
+});
+
+test("isDangerous: ordinary git/gh work is allowed", () => {
+  const bash = (command) => isDangerous({ name: "bash", arguments: { command } });
+  for (const cmd of [
+    "git push",
+    "git push -u origin tarsbot/fix-x",
+    "git -C repo push -u origin tarsbot/fix-x",
+    "git -c k=v push origin tarsbot/fix-x",
+    "git push origin HEAD",
+    "git push origin tarsbot/dev-docs",
+    "git push origin tarsbot/main-fix",
+    "git push origin tarsbot/fix-f",
+    "git push origin tarsbot/delete-old",
+    "git push origin tarsbot/fix:tarsbot/fix",
+    "git push origin main:tarsbot/x",
+    "git push --dry-run origin tarsbot/x",
+    "git push origin tarsbot/x && git checkout main",
+    "git push origin tarsbot/x; git checkout dev",
+    "git push origin tarsbot/x | tee out.txt",
+    "git checkout main && git pull --ff-only && git push origin tarsbot/x",
+    "git -C main push -u origin tarsbot/x",
+    "git commit -m 'push to main' && git push -u origin tarsbot/x",
+    "git log --grep push",
+    "git status",
+    "git branch -d tarsbot/old",
+    "gh pr create --fill",
+    "gh pr create -t x -b y",
+    "gh pr create --base dev --head tarsbot/x --title t --body 'Opened by TARSBot'",
+    "gh pr edit 3 --body x",
+    "gh pr comment 3 -b hi",
+    "gh pr view 3",
+    "gh pr list --head b",
+    "gh pr diff 3",
+    "gh api repos/o/r/pulls",
+    "gh api -X GET repos/o/r/pulls",
+    "gh api repos/o/r/pulls --jq '.[0].number'",
+    "gh api repos/o/r/pulls --paginate",
+    "gh repo view o/r",
+    "gh release list",
+  ]) {
+    assert.equal(bash(cmd), undefined, `should be safe: ${cmd}`);
   }
 });
 
