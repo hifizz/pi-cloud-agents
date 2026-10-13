@@ -14,7 +14,7 @@ export interface ApprovalsStreamOptions {
 }
 
 export function approvalsUrl(): string {
-  const { protocol, host } = globalThis.location ?? { protocol: "http:", host: "127.0.0.1:8080" };
+  const { protocol, host } = globalThis.location ?? { protocol: "http:", host: "127.0.0.1:8090" };
   return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/api/approvals/stream`;
 }
 

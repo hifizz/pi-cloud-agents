@@ -2,7 +2,7 @@
 # Crash-recovery acceptance (TEST-F01-1/2/3, TEST-F04-0/1). Needs: docker, curl, jq, node, a working model key in .env.
 # Starts/kills/restarts the TARSBot server (node --no-warnings src/server.mjs) and the Space container tarsbot-space,
 # prints PASS/FAIL per scenario and writes the evidence to docs/recovery-test.md.
-# Always leaves a server running on :8080 when it finishes.
+# Always leaves a server running on :8090 when it finishes.
 #
 # Usage: scripts/kill-test.sh [F01-1 F01-2 F01-3 F04]   (default: all)
 set -uo pipefail
@@ -10,7 +10,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 RUN="$(date +%Y%m%d-%H%M%S)"
-BASE="${TARSBOT_URL:-http://127.0.0.1:8080}"
+BASE="${TARSBOT_URL:-http://127.0.0.1:8090}"
 CONTAINER="${TARSBOT_SPACE_CONTAINER:-tarsbot-space}"
 SERVER_CMD=(node --no-warnings src/server.mjs)
 SERVER_PATTERN="node --no-warnings src/server.mjs"

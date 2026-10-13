@@ -4,10 +4,10 @@
 # Prerequisites (done by the orchestrator, not by this script):
 #   - src/runtime.mjs installs `Approval` from src/ext/approval.mjs in productionExtensions(), after CodingTools.
 #   - the server mounts `register` from src/routes/approvals.mjs as a route plugin.
-#   - `npm start` is running (default http://127.0.0.1:8080) with a Cua Space available.
+#   - `npm start` is running (default http://127.0.0.1:8090) with a Cua Space available.
 #
 # Usage:  scripts/approval-test.sh [bot-name]
-# Env:    TARSBOT_URL (default http://127.0.0.1:8080)
+# Env:    TARSBOT_URL (default http://127.0.0.1:8090)
 #
 # What it does:
 #   1. creates a bot (or reuses it) and asks it to run `rm -rf /tmp/approval-demo` in the Space
@@ -18,7 +18,7 @@
 # the call does not show up in /api/approvals again. Kill the server WITHOUT approving: after restart it is listed again.
 set -euo pipefail
 
-BASE="${TARSBOT_URL:-http://127.0.0.1:8080}"
+BASE="${TARSBOT_URL:-http://127.0.0.1:8090}"
 BOT="${1:-approval-demo}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 

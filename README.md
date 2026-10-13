@@ -16,18 +16,18 @@ TARSBot 是**基于 Pi Durable 核心开发的自托管常驻 AI 队友系统**�
 orb start                                   # 启动 Docker
 npm install && (cd web && npm install && npm run build)
 scripts/space-up.sh                         # 起 Space 容器 tarsbot-space（127.0.0.1:3211）
-npm start                                   # http://127.0.0.1:8080
+npm start                                   # http://127.0.0.1:8090
 ```
 
 `.env`（不提交）必填：`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`（OpenAI 兼容模型网关）、`EXA_API_KEY`（web_search）。默认模型 `glm-5.3-flash`，用 `TARSBOT_MODEL` 覆盖；已有 Bot 换模型：停掉 server 后 `node scripts/set-model.mjs <bot> <modelId>`。
 
 ## 使用
 
-打开 `http://127.0.0.1:8080`：
+打开 `http://127.0.0.1:8090`（本分支端口：API 8090、viewer 3309、Vite dev 5183，与 main 的 8080/3299/5173 错开）：
 
 - **左栏**：Bot 列表与定时例程（routines，跨重启定时任务）。
 - **中栏**：聊天。可以看到思考与工具调用卡片；Bot 忙时可 `steer`（当前工具轮结束后生效）、`queue` 或 abort；可从任意消息 **fork** 出新 Bot（继承分叉点之前的历史）。
-- **右栏**：实时桌面（经 127.0.0.1:3299 viewer 代理，带签名 ticket）。你的光标和 Bot 的光标相互独立，可随时接管（比如手动登录）再交还。
+- **右栏**：实时桌面（经 127.0.0.1:3309 viewer 代理，带签名 ticket）。你的光标和 Bot 的光标相互独立，可随时接管（比如手动登录）再交还。
 - 危险操作（`rm -rf`、`git push`、send/deploy 类工具等）会先停在**审批条**，批准一次后随任务持久化，重启不再重复询问。
 
 命令行替代：`npm run repl` —— 与 server 共用 `data/alice.sqlite`，**不能和 server 同时运行**（存储只允许一个写进程）。
@@ -47,7 +47,7 @@ npm start                                   # http://127.0.0.1:8080
 
 ## 安全（部署前必读）
 
-- API（8080）与 viewer 代理（3299）**没有鉴权**，只绑定 127.0.0.1。上云主机前必须先加鉴权，并且只经 Tailscale 或私网暴露。**禁止把 Space 的 3211 端口暴露在公网。**
+- API（8090）与 viewer 代理（3309）**没有鉴权**，只绑定 127.0.0.1。上云主机前必须先加鉴权，并且只经 Tailscale 或私网暴露。**禁止把 Space 的 3211 端口暴露在公网。**
 - 密钥只存在于宿主机 server 进程环境变量，不写进 Space。Space 内的登录态视为完全信任边界 —— 能用 `bash` 的主体即拥有全部已登录应用。
 - 审批规则见 `src/ext/approval.mjs`。
 

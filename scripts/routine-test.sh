@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # TEST-F06-1 demo against a REAL running server (run after integration). ~3-4 minutes.
-# Usage: scripts/routine-test.sh [bot]      env: TARSBOT_URL (default http://127.0.0.1:8080)
+# Usage: scripts/routine-test.sh [bot]      env: TARSBOT_URL (default http://127.0.0.1:8090)
 # The server restart step is manual because this script does not own the server process.
 set -euo pipefail
-BASE="${TARSBOT_URL:-http://127.0.0.1:8080}"
+BASE="${TARSBOT_URL:-http://127.0.0.1:8090}"
 BOT="${1:-tars}"
 PROMPT='Run `uptime` and report the result in one line.'
 

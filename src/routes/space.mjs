@@ -8,7 +8,7 @@ import { getSpace, getSpaceConfig, getSpaceInfo } from "../space.mjs";
 import { startViewerProxy } from "../viewer-proxy.mjs";
 
 const run = promisify(execFile);
-const PROXY_PORT = Number(process.env.TARSBOT_VIEWER_PORT ?? 3299);
+const PROXY_PORT = Number(process.env.TARSBOT_VIEWER_PORT ?? 3309);
 let proxy = null;
 
 /** Base URL of the real cua-spacesd (without /viewer/). */
@@ -24,7 +24,7 @@ async function spacesdBase() {
 async function ensureProxy(target) {
   if (proxy?.target === target) return proxy.url;
   if (proxy) proxy.server.close();
-  const origins = [`http://127.0.0.1:${config.port}`, `http://localhost:${config.port}`, "http://127.0.0.1:5173", "http://localhost:5173"];
+  const origins = [`http://127.0.0.1:${config.port}`, `http://localhost:${config.port}`, "http://127.0.0.1:5183", "http://localhost:5183"];
   const started = await startViewerProxy({ target, port: PROXY_PORT, allowOrigins: origins });
   proxy = { ...started, target };
   return started.url;

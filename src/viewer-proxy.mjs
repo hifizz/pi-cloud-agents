@@ -16,7 +16,7 @@ export function allowFraming(csp, origins) {
 /**
  * @param {{ target: string, port?: number, host?: string, allowOrigins: string[] }} opts target like http://127.0.0.1:3211
  */
-export function startViewerProxy({ target, port = 3299, host = "127.0.0.1", allowOrigins }) {
+export function startViewerProxy({ target, port = 3309, host = "127.0.0.1", allowOrigins }) {
   const t = new URL(target);
   const server = http.createServer((req, res) => {
     const upstream = http.request(

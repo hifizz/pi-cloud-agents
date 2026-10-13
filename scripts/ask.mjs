@@ -4,7 +4,7 @@ import WebSocket from "ws";
 
 const args = process.argv.slice(2);
 const [bot, prompt] = args;
-const base = process.env.TARSBOT_URL ?? "http://127.0.0.1:8080";
+const base = process.env.TARSBOT_URL ?? "http://127.0.0.1:8090";
 const timeoutS = Number(args[args.indexOf("--timeout") + 1]) || 300;
 const whenBusy = args.includes("--steer") ? "steer" : undefined;
 

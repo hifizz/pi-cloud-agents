@@ -20,7 +20,7 @@ export interface BotStreamOptions {
 }
 
 export function streamUrl(botId: string): string {
-  const { protocol, host } = globalThis.location ?? { protocol: "http:", host: "127.0.0.1:8080" };
+  const { protocol, host } = globalThis.location ?? { protocol: "http:", host: "127.0.0.1:8090" };
   return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/api/bots/${encodeURIComponent(botId)}/stream`;
 }
 

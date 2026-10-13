@@ -16,7 +16,7 @@ if (existsSync(envFile) && !process.env.TARSBOT_NO_DOTENV) {
 }
 
 export const config = {
-  port: Number(process.env.TARSBOT_PORT ?? 8080),
+  port: Number(process.env.TARSBOT_PORT ?? 8090),
   host: "127.0.0.1",
   dataDir: resolve(ROOT, process.env.TARSBOT_DATA_DIR ?? "data"),
   get dbPath() {

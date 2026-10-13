@@ -3,7 +3,7 @@
 //                                   [--runs 3] [--l2-runs 5] [--timeout 360] [--report-only]
 // Runs model → mode → level, serially. Results are appended to bench/results.jsonl (resume: finished runs are skipped)
 // and docs/gui-success.md is regenerated after every run.
-// Needs the TARSBot server (with src/routes/bench.mjs) on TARSBOT_URL (default http://127.0.0.1:8080) and the Space
+// Needs the TARSBot server (with src/routes/bench.mjs) on TARSBOT_URL (default http://127.0.0.1:8090) and the Space
 // container (default tarsbot-space). The Space site lives in /opt/bench; secrets are per-run and never served over HTTP.
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const BASE = process.env.TARSBOT_URL ?? "http://127.0.0.1:8080";
+const BASE = process.env.TARSBOT_URL ?? "http://127.0.0.1:8090";
 const CONTAINER = process.env.TARSBOT_SPACE_CONTAINER ?? "tarsbot-space";
 const SITE = "http://127.0.0.1:8765";
 const RESULTS = join(ROOT, "bench", "results.jsonl");
