@@ -1,5 +1,5 @@
 // REST wrapper for the TARSBot backend (src/api.mjs). Same-origin; Vite proxies /api in dev.
-import type { BotSummary, ForkInput, NewBotInput, NewRoutineInput, RoutineItem } from "../types";
+import type { BotSummary, ForkInput, NewBotInput, NewRoutineInput, RoutineItem, SpaceInfo } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -69,5 +69,5 @@ export const api = {
   createRoutine: (input: NewRoutineInput) => request<RoutineItem>("POST", "/api/routines", input),
   cancelRoutine: (id: string) => request<{ ok: true; id: string }>("POST", `/api/routines/${enc(id)}/cancel`, {}),
   /** Not part of the Task 8 API yet: expected `{ viewerUrl: string }`. Callers must tolerate failure. */
-  space: () => request<{ viewerUrl?: string }>("GET", "/api/space"),
+  space: () => request<SpaceInfo>("GET", "/api/space"),
 };
