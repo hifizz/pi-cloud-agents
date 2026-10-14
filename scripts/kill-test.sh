@@ -357,7 +357,7 @@ API_SPACE="$(curl -s "$BASE/api/space" | jq -c '{name, viewerUrl, id: .info.id}'
   echo "- Server: \`${SERVER_CMD[*]}\`, log \`logs/server-$RUN.log\`"
   echo "- Space: container \`$CONTAINER\` (image \`$(docker inspect -f '{{.Config.Image}}' "$CONTAINER" | cut -c1-80)\`), restart policy \`$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$CONTAINER")\`, volume \`$(docker inspect -f '{{range .Mounts}}{{.Name}}:{{.Destination}}{{end}}' "$CONTAINER")\`"
   echo "- \`GET /api/space\` after the run: \`$API_SPACE\`"
-  echo "- Model: \`${TARSBOT_MODEL:-glm-5.3}\` via tokenrouter (key from the environment, never printed)"
+  echo "- Model: \`${TARSBOT_MODEL:-glm-5.3-flash}\` via tokenrouter (key from the environment, never printed)"
   echo
   echo "## Summary"
   echo

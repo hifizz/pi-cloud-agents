@@ -12,7 +12,7 @@
 
 | 模块 | 导出 |
 |---|---|
-| `src/config.mjs` | `config`（`port`、`host`、`dataDir`、`dbPath`、`botsPath`、`provider="tokenrouter"`、`defaultModelId="glm-5.3"`、`spaceCwd`）、`defaultModel()`、`ROOT` |
+| `src/config.mjs` | `config`（`port`、`host`、`dataDir`、`dbPath`、`botsPath`、`provider="tokenrouter"`、`defaultModelId="glm-5.3-flash"`、`spaceCwd`）、`defaultModel()`、`ROOT` |
 | `src/models.mjs` | `createTarsModels()`、`tokenRouterProvider()`（OpenAI 兼容，`TOKEN_ROUTER_BASE_URL`/`TOKEN_ROUTER_API_KEY`） |
 | `src/harness.mjs` | `ctx`（BACKGROUND_CONTEXT）、`openHarness({storage?, models?, extensions?, env?, settings?, resume?})` → `{harness, registry, models}` |
 | `src/bots.mjs` | `class BotRegistry(harness, {path?})`：`list()`、`get(idOrName)`、`conversation(idOrName)`、`createBot({name, model?, instructions?, thinkingLevel?, cwd?, extensions?, tools?})`、`register(bot)` |
