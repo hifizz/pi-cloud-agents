@@ -39,3 +39,23 @@ export function splitLines(text: string, maxLines: number): { shown: string; tot
   if (lines.length <= maxLines) return { shown: text, total: lines.length, truncated: false };
   return { shown: lines.slice(0, maxLines).join("\n"), total: lines.length, truncated: true };
 }
+
+/** "42s" / "3m 07s" */
+export function fmtDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+}
+
+export function firstLine(s: string): string {
+  const [line = "", ...rest] = s.split("\n");
+  return rest.length ? `${line} …` : line;
+}
+
+/** Keep the END of long strings (file names matter more than directories). */
+export function tailClip(s: string, max = 64): string {
+  return s.length > max ? `…${s.slice(s.length - max + 1)}` : s;
+}
+
+export function clip(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}

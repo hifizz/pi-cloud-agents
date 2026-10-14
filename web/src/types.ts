@@ -91,6 +91,10 @@ export interface ToolPart {
   images?: ImagePart[];
   /** Harness diagnostics (e.g. "Tool bash was aborted"). */
   diagnostics?: string[];
+  /** Structured tool result details (e.g. the edit tool's diff). Shape is tool-specific. */
+  details?: unknown;
+  /** Epoch ms when the result arrived. */
+  endedAt?: number;
 }
 
 export type Part = TextPart | ThinkingPart | ToolPart | ImagePart;
@@ -108,6 +112,10 @@ export interface ChatMessage {
   /** Set on assistant messages that ended abnormally. */
   error?: string;
   stopReason?: string;
+  /** Epoch ms of the underlying model message (turn timing). */
+  at?: number;
+  /** Visual tone for system notes. */
+  tone?: "error";
 }
 
 export interface Usage {

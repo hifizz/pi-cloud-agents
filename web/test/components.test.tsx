@@ -36,11 +36,11 @@ describe("MessageList", () => {
 
     // tool card: header visible, output hidden until expanded
     const card = screen.getByTestId("tool-card");
-    expect(card).toHaveTextContent("bash");
+    expect(card).toHaveTextContent("Shell");
     expect(card).toHaveTextContent("ls -la");
     expect(card).toHaveTextContent("done");
     expect(screen.queryByLabelText("bash output")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /bash/ }));
+    await user.click(screen.getByRole("button", { name: /shell/i }));
     expect(screen.getByLabelText("bash output")).toHaveTextContent("notes.txt");
   });
 
@@ -53,7 +53,7 @@ describe("MessageList", () => {
         messages={[{ id: "a", role: "assistant", parts: [{ type: "tool", id: "x", name: "bash", args: {}, status: "done", output: long }] }]}
       />,
     );
-    await user.click(screen.getByRole("button", { name: /bash/ }));
+    await user.click(screen.getByRole("button", { name: /shell/i }));
     expect(screen.getByLabelText("bash output")).not.toHaveTextContent("line 499");
     await user.click(screen.getByRole("button", { name: /show all 500 lines/i }));
     expect(screen.getByLabelText("bash output")).toHaveTextContent("line 499");

@@ -154,9 +154,10 @@ export default function App() {
         {bot ? (
           <>
             <MessageList messages={vm.messages} busy={vm.busy} onFork={setForkAt} />
-            {vm.inbox.length > 0 && <p className="px-4 pb-1 text-xs text-zinc-500">{vm.inbox.length} message(s) queued</p>}
             <Composer
               busy={vm.busy}
+              model={model}
+              queued={vm.inbox.length}
               onSend={onSend}
               onAbort={() => void guard(() => api.abort(bot.id)).catch(() => {})}
             />

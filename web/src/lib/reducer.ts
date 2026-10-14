@@ -216,12 +216,16 @@ function applyToolResult(vm: ConversationVM, entry: Wire): ConversationVM {
     };
     if (images.length) next.images = images;
     else delete next.images;
+    if (msg.details !== undefined) next.details = msg.details;
+    if (typeof msg.timestamp === "number") next.endedAt = msg.timestamp;
     const messages = diags.map((d) => String(d?.message ?? "")).filter(Boolean);
     if (messages.length) next.diagnostics = messages;
     else delete next.diagnostics;
     return next;
   });
 }
+
+const at = (msg: Wire): { at?: number } => (typeof msg?.timestamp === "number" ? { at: msg.timestamp } : {});
 
 function applyEntry(vm: ConversationVM, entry: Wire): ConversationVM {
   if (!entry || typeof entry !== "object") return vm;
@@ -230,7 +234,7 @@ function applyEntry(vm: ConversationVM, entry: Wire): ConversationVM {
   switch (entry.kind) {
     case "pi.user": {
       if (!msg) return vm;
-      return { ...vm, messages: upsertMessage(vm.messages, { id, entryId: entry.id, role: "user", parts: userParts(msg.content) }) };
+      return { ...vm, messages: upsertMessage(vm.messages, { id, entryId: entry.id, role: "user", parts: userParts(msg.content), ...at(msg) }) };
     }
     case "pi.assistant": {
       if (!msg) return vm;
@@ -243,6 +247,7 @@ function applyEntry(vm: ConversationVM, entry: Wire): ConversationVM {
         entryId: entry.id,
         role: "assistant",
         parts: assistantParts(msg.content, prevParts, stash),
+        ...at(msg),
         ...(msg.stopReason && msg.stopReason !== "stop" && msg.stopReason !== "toolUse" ? { stopReason: msg.stopReason } : {}),
         ...(msg.errorMessage ? { error: String(msg.errorMessage) } : {}),
       };
@@ -393,6 +398,7 @@ function reduceEvent(vm: ConversationVM, ev: Wire): ConversationVM {
         messages: upsertMessage(vm.messages, {
           id: `task_failed:${ev.taskId}`,
           role: "system",
+          tone: "error",
           parts: [{ type: "text", text: `Task failed (${ev.kind}): ${ev.message}` }],
         }),
       };
