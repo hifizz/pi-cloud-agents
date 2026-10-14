@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { formatDuration } from "../../../lib/format";
 import type { ToolPart, ToolStatus } from "../../../types";
 import { ActivityRow } from "../primitives/ActivityRow";
 import { Icon } from "../primitives/Icon";
@@ -56,6 +57,7 @@ export function ToolCall({ tool }: { tool: ToolPart }) {
       trailing={
         <>
           {tool.status === "done" && r.stat?.(tool)}
+          <Elapsed tool={tool} />
           <StatusLabel status={tool.status} />
         </>
       }
@@ -71,5 +73,30 @@ export function ToolCall({ tool }: { tool: ToolPart }) {
         {images.length > 0 && <ImageStrip images={images} size="lg" />}
       </>
     </ActivityRow>
+  );
+}
+
+/** Final server-measured duration; while running, a live counter since this row first saw the tool running. */
+function Elapsed({ tool }: { tool: ToolPart }) {
+  const running = tool.status === "running";
+  const [since] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  const ms = tool.durationMs ?? (running ? now - since : undefined);
+  if (ms === undefined) return null;
+  const label = formatDuration(ms);
+  return (
+    <span
+      className="font-mono text-[11px] tabular-nums text-zinc-500"
+      title={running ? "Elapsed (since this page saw it start)" : "Execution time (approval wait excluded)"}
+      aria-label={running ? `elapsed ${label}` : `took ${label}`}
+      data-testid="tool-duration"
+    >
+      {label}
+    </span>
   );
 }

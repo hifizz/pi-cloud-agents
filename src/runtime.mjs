@@ -8,6 +8,7 @@ import { Search } from "./ext/search.mjs";
 import { History } from "./ext/history.mjs";
 import { Routines } from "./ext/routines.mjs";
 import { Approval } from "./ext/approval.mjs";
+import { Timing } from "./ext/timing.mjs";
 import { spaceEnv } from "./env.mjs";
 
 /**
@@ -17,7 +18,8 @@ import { spaceEnv } from "./env.mjs";
  */
 export async function productionExtensions({ sandbox = config.sandbox } = {}) {
   const desktop = sandbox === "sprites" ? [] : [(await import("./ext/desktop.mjs")).Desktop];
-  return [Preamble, CodingTools, ...desktop, Search, History, Routines, Approval];
+  // Timing after Approval: its beforeTool runs once a verdict exists, so approval wait is not counted.
+  return [Preamble, CodingTools, ...desktop, Search, History, Routines, Approval, Timing];
 }
 
 /** Production ExecutionEnv factory: read/write/edit/bash run inside the Cua Space (cua) or the Sprite (sprites). */

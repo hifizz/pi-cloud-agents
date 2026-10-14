@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { emptyVM, reduce, type Frame } from "../src/lib/reducer";
 import type { ChatMessage, ConversationVM, ToolPart } from "../src/types";
 import { FIXTURES, loadFixture, snapshotAfter } from "./helpers";
+import { formatDuration } from "../src/lib/format";
 
 const replay = (frames: Frame[], from = emptyVM()) => frames.reduce(reduce, from);
 const toolsOf = (vm: ConversationVM): ToolPart[] =>
@@ -152,6 +153,34 @@ describe("reducer: tool edge cases", () => {
       ],
     });
     expect(toolsOf(vm)[0]).toMatchObject({ status: "error", resultText: "boom", images: [{ type: "image", data: "AAAA", mimeType: "image/png" }] });
+  });
+
+  it("execution time comes from details.tarsbotTiming", () => {
+    const vm = reduce(base(), {
+      type: "events",
+      events: [
+        {
+          type: "tool_execution_end",
+          toolCallId: "t1",
+          toolName: "bash",
+          entry: {
+            id: 3,
+            kind: "pi.tool-result",
+            model: [{ role: "toolResult", toolCallId: "t1", toolName: "bash", isError: false, content: [{ type: "text", text: "ok" }], details: { tarsbotTiming: { durationMs: 1234 } } }],
+            data: { diagnostics: [] },
+          },
+        },
+      ],
+    });
+    expect(toolsOf(vm)[0]).toMatchObject({ status: "done", durationMs: 1234 });
+  });
+
+  it("formatDuration", () => {
+    expect(formatDuration(850)).toBe("850 ms");
+    expect(formatDuration(4210)).toBe("4.2 s");
+    expect(formatDuration(42_000)).toBe("42 s");
+    expect(formatDuration(125_000)).toBe("2m 05s");
+    expect(formatDuration(3_780_000)).toBe("1h 03m");
   });
 
   it("toolcall_delta streams arguments", () => {

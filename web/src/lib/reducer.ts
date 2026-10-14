@@ -217,6 +217,9 @@ function applyToolResult(vm: ConversationVM, entry: Wire): ConversationVM {
     if (images.length) next.images = images;
     else delete next.images;
     if (msg.details !== undefined) next.details = msg.details;
+    const durationMs = msg.details?.tarsbotTiming?.durationMs;
+    if (typeof durationMs === "number") next.durationMs = durationMs;
+    else delete next.durationMs;
     if (typeof msg.timestamp === "number") next.endedAt = msg.timestamp;
     const messages = diags.map((d) => String(d?.message ?? "")).filter(Boolean);
     if (messages.length) next.diagnostics = messages;

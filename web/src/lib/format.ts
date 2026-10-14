@@ -40,6 +40,16 @@ export function splitLines(text: string, maxLines: number): { shown: string; tot
   return { shown: lines.slice(0, maxLines).join("\n"), total: lines.length, truncated: true };
 }
 
+/** Compact duration: "850 ms", "4.2 s", "2m 05s", "1h 03m". */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`;
+  const s = Math.floor(ms / 1000);
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}
+
 /** "42s" / "3m 07s" */
 export function fmtDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));

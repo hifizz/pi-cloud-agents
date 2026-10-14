@@ -325,7 +325,7 @@ test("sprites mode: no Desktop extension and nothing Cua-related is loaded (runt
   const out = childLoaded(LOAD_CODE, { TARSBOT_SANDBOX: "sprites", TARSBOT_SPRITE_NAME: "tars-test" });
   assert.deepEqual(out.loaded, []);
   assert.deepEqual(out.body, { sandbox: "sprites", name: "tars-test" });
-  assert.deepEqual(out.exts, ["tarsbot.preamble", "coding-tools", "tarsbot.search", "tarsbot.history", "tarsbot.routines", "tarsbot.approval"]);
+  assert.deepEqual(out.exts, ["tarsbot.preamble", "coding-tools", "tarsbot.search", "tarsbot.history", "tarsbot.routines", "tarsbot.approval", "tarsbot.timing"]);
 });
 
 test("cua mode: Desktop extension is installed (loaded lazily from runtime.mjs)", () => {

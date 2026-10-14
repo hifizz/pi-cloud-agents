@@ -93,6 +93,8 @@ export interface ToolPart {
   diagnostics?: string[];
   /** Structured tool result details (e.g. the edit tool's diff). Shape is tool-specific. */
   details?: unknown;
+  /** Server-measured execution time (approval wait excluded), from the result's details.tarsbotTiming. */
+  durationMs?: number;
   /** Epoch ms when the result arrived. */
   endedAt?: number;
 }
