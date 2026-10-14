@@ -52,6 +52,27 @@ npm start                                   # http://127.0.0.1:8090
 | `scripts/routine-test.sh` | 验证定时例程 |
 | `scripts/gui-bench.mjs` | GUI 操控成功率基准 |
 
+## Sprite 初始化
+
+`TARSBOT_SANDBOX=sprites` 时，Bot 的 shell 跑在远端 Fly.io Sprite 上。首次使用（或改坏后修复）运行：
+
+```bash
+scripts/sprite-setup.sh                  # 幂等；每步打印 OK / SKIP / FAIL，有 FAIL 时退出码为 1
+scripts/sprite-setup.sh --no-policy      # 不动 network policy
+scripts/sprite-setup.sh --reset-policy   # 清空 network policy（出站不受限）后退出；不带该参数重跑即重新套用白名单
+scripts/sprite-setup.sh --recheckpoint   # 用当前状态替换 "v-setup" checkpoint
+scripts/sprite-setup.sh --no-npm         # 跳过 clone / npm install / npm test 自检
+```
+
+`.env` 需要 `SPRITES_TOKEN`、`TARSBOT_SPRITE_NAME`、`GITHUB_TOKEN`（仅限测试仓库的 fine-grained PAT）、`TARSBOT_GIT_EMAIL`。脚本只操作 `TARSBOT_SPRITE_NAME` 指定的 Sprite，token 只经环境变量按次注入（`GH_TOKEN`），不写入 Sprite 磁盘。
+
+步骤：Sprite 不存在则创建 → 检查 `gh`（缺失才安装到 `~/.local`）→ 写 git credential helper（读 `$GH_TOKEN`）并设置 `user.name=TARSBot` / `user.email` → `mkdir ~/workspace` → network policy 出站白名单 → 自检 → checkpoint。
+
+- **network policy**：放行 `github.com`、`api.github.com`、`codeload.github.com`、`objects.githubusercontent.com`、`raw.githubusercontent.com`、`release-assets.githubusercontent.com`、`registry.npmjs.org`、`pypi.org`、`files.pythonhosted.org`，其余全部拒绝（含 DNS）。因此 `apt`、`example.com` 等不可用。应用后脚本会验证白名单域名可达；若不可达则自动回滚为不受限并报 FAIL。
+- **自检**：`git ls-remote`、`gh repo view`、在 `/tmp/setup-check` clone 测试仓库并跑 `node -v`（需 ≥ 24）/ `npm install` / `npm test`（结束后删除）、白名单与非白名单域名可达性、`/home/sprite` 与 `git config --global -l` 中无 token。
+- **checkpoint**：名称 `v-setup` 保存在 checkpoint 的 comment 里（id 由平台分配，如 `v10`）；已存在则 SKIP。有任一步 FAIL 时不创建 checkpoint。初始 checkpoint `v1` 请勿删除。
+- 实测记录见 [`docs/sprites-probe.md`](docs/sprites-probe.md)（P9 network policy、P10 checkpoint）。
+
 ## 安全（部署前必读）
 
 - API（8090）与 viewer 代理（3309）**没有鉴权**，只绑定 127.0.0.1。上云主机前必须先加鉴权，并且只经 Tailscale 或私网暴露。**禁止把 Space 的 3211 端口暴露在公网。**
