@@ -190,3 +190,21 @@ L2 证明"能像编码 agent 一样工作"；L3 证明 Pi Durable 的差异化�
 6. S4-recovery
 
 同一时间不能有两个任务修改同一文件：S1-bash 与 S4-keepalive 都改 `src/sandbox/sprites.mjs`，S4-keepalive 必须在 S1-bash 合入后开始。`src/runtime.mjs` 只有 S2-runtime-ui 修改。
+
+## 11. 当前状态（2026-10-14）
+
+| 级别 | 状态 | 证据 |
+|---|---|---|
+| L0 连通 | ✅ | `docs/acceptance/L1/`；`TARSBOT_SANDBOX=sprites npm run test:env` 24/24 |
+| L1 Bot 操作 shell | ✅ | `docs/acceptance/L1/` |
+| L2 PR 流程 | ✅ | `docs/sprites-l2.md`、`docs/acceptance/L2/` |
+| L3 持久性 | ✅ | `docs/sprites-recovery-test.md`、`docs/acceptance/L3/` |
+
+**S4-keepalive 不实现。** 慢速探针（`docs/sprites-probe.md`）显示：exec 期间不会被暂停（90 s、300 s 的命令都正常返回），两次 exec 之间空闲后再执行不需要重试（约 0.7 s），空闲 50–135 s 也没有观察到 VM 暂停。保活 API（Tasks API）本身可用，但无法证明它有收益，因此没有加代码；`spritesBash` 每次 exec 新建连接，也没有长连接需要保活。如果以后在更长的 exec（15 / 30 分钟，未测）或更长的空闲后观察到真正的暂停，再按 `docs/tasks/S4-keepalive.md` 的"活动租约"设计补上。
+
+**未验证 / 遗留：**
+- 单条 exec 的时长上限：只确认 ≥ 5 分钟，默认超时 10 分钟未经实测。
+- Sprite 真正被暂停后的行为：没有观察到暂停，该场景无法复现。
+- Sprite 规格（8 核 16 GB）无法调整，`createSprite({cpus, ramMB})` 被服务端忽略；计费按实际用量。
+- 测试仓库没有分支保护、没有 CI；PR #1–#3 作为验收证据保留。
+- 模型行为的方差：每个场景只跑了 1–2 次，模型为 glm-5.3-flash。
