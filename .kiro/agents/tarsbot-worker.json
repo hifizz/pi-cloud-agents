@@ -41,7 +41,16 @@
       {
         "capability": "web_search",
         "effect": "allow"
+      },
+      {
+        "capability": "skill",
+        "effect": "allow"
       }
     ]
+  },
+  "kiroUpgrade": {
+    "revision": 2,
+    "fingerprint": "sha256:b7c02f6d3cf7387da64a67a092b0419a988c41c2c0dc0be096f65db2cec56198",
+    "source": "sha256:fc5f6b9cb9209a661d7b837e0dbec38e8b19f2f642b77762a98ef4f94c45cd52"
   }
 }
