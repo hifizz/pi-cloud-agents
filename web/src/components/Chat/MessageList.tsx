@@ -9,11 +9,14 @@ export function MessageList({
   messages,
   busy,
   onFork,
+  onOpenDiff,
 }: {
   messages: ChatMessage[];
   busy: boolean;
   /** When given, messages with an entry id show a "Fork from here" button. */
   onFork?: (entryId: number | string) => void;
+  /** When given, changed-files cards show an "Open diff" button. */
+  onOpenDiff?: (turnKey: string, path?: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -24,6 +27,7 @@ export function MessageList({
   const handlers = useMemo(
     () => ({
       onFork,
+      onOpenDiff,
       onToggleTurn: (key: string) =>
         setExpanded((prev) => {
           const next = new Set(prev);
@@ -31,7 +35,7 @@ export function MessageList({
           return next;
         }),
     }),
-    [onFork],
+    [onFork, onOpenDiff],
   );
 
   useEffect(() => {
@@ -51,21 +55,21 @@ export function MessageList({
           stick.current = near;
           setAway(!near);
         }}
-        className="h-full overflow-y-auto px-4"
+        className="h-full overflow-y-auto px-[18px]"
         role="log"
         aria-live="polite"
         aria-label="Conversation"
       >
-        <div className="mx-auto flex max-w-3xl flex-col py-6">
+        <div className="mx-auto flex max-w-[720px] flex-col pb-24 pt-[26px]">
           {rows.length === 0 && (
             <div className="mt-10 text-center">
-              <Icon name="sparkle" className="mx-auto size-5 text-zinc-700" />
-              <p className="mt-3 text-sm text-zinc-500">No messages yet. Give this bot a task below.</p>
+              <Icon name="sparkle" className="mx-auto size-5 text-fg-faint" />
+              <p className="mt-3 text-sm text-fg-muted">No messages yet. Give this bot a task below.</p>
             </div>
           )}
           <FeedRowList rows={rows} handlers={handlers} />
           {working && (
-            <p className="mt-4 flex items-center gap-2 text-xs text-zinc-500">
+            <p className="mt-4 flex items-center gap-2 text-xs text-fg-muted">
               <Spinner />
               Working…
             </p>
@@ -79,7 +83,7 @@ export function MessageList({
             const el = ref.current;
             if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
           }}
-          className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900/95 px-3 py-1 text-xs text-zinc-300 shadow-lg hover:bg-zinc-800 hover:text-white focus-visible:outline-2 focus-visible:outline-sky-400"
+          className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[#2e2e2e] bg-[#1c1c1c] px-3 py-1 text-xs text-fg-dim shadow-lg shadow-black/50 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
         >
           <Icon name="arrowDown" className="size-3" />
           Jump to latest

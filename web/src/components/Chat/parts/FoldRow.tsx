@@ -8,16 +8,17 @@ export function FoldRow({ label, steps, open, onToggle }: { label: string; steps
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="group/fold flex w-full items-center gap-2 text-left text-sm text-zinc-500 hover:text-zinc-200 focus-visible:outline-2 focus-visible:outline-sky-400"
+      className="group/fold flex w-full items-center gap-2 text-left text-sm text-fg-dim hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
       <Icon name="chevron" className={cx("transition-transform", open && "rotate-90")} />
       <span>{label}</span>
       {steps > 0 && (
-        <span className="text-zinc-600">
+        <span className="text-fg-muted">
           · {steps} step{steps === 1 ? "" : "s"}
         </span>
       )}
-      <span aria-hidden="true" className="h-px flex-1 bg-zinc-800/80 group-hover/fold:bg-zinc-700" />
+      <span aria-hidden="true" className="h-px flex-1 bg-line group-hover/fold:bg-line-strong" />
+      {!open && <Icon name="chevron" className="size-3 text-[#5a5a5a]" />}
     </button>
   );
 }

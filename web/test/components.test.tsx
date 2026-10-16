@@ -96,6 +96,12 @@ describe("MessageList", () => {
 });
 
 describe("Composer", () => {
+  it("renders context and status slots", () => {
+    render(<Composer busy={false} onSend={() => {}} onAbort={() => {}} context={<div>ctx-slot</div>} status={<p>status-slot</p>} />);
+    expect(screen.getByText("ctx-slot")).toBeInTheDocument();
+    expect(screen.getByText("status-slot")).toBeInTheDocument();
+  });
+
   it("idle: shows Send only; Enter sends, Shift+Enter inserts a newline", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();

@@ -12,7 +12,7 @@ export interface ForkDialogProps {
 }
 
 const field =
-  "w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus-visible:outline-2 focus-visible:outline-sky-400";
+  "w-full rounded-md border border-line-strong bg-field px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent";
 
 export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onClose }: ForkDialogProps) {
   const options = defaultModelId && !MODEL_OPTIONS.includes(defaultModelId) ? [defaultModelId, ...MODEL_OPTIONS] : MODEL_OPTIONS;
@@ -46,21 +46,21 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
         aria-modal="true"
         aria-labelledby="fork-title"
         onKeyDown={(e) => e.key === "Escape" && onClose()}
-        className="w-96 max-w-[90vw] rounded-lg border border-zinc-700 bg-zinc-950 p-4 shadow-xl"
+        className="w-96 max-w-[90vw] rounded-lg border border-line-strong bg-raised p-4 shadow-xl"
       >
-        <h2 id="fork-title" className="text-sm font-semibold text-zinc-100">
+        <h2 id="fork-title" className="text-sm font-semibold text-fg">
           Fork from here
         </h2>
-        <p className="mt-0.5 text-xs text-zinc-500">New bot continues from this point of “{parentName}”.</p>
+        <p className="mt-0.5 text-xs text-fg-muted">New bot continues from this point of “{parentName}”.</p>
         <form onSubmit={submit} className="mt-3 space-y-3">
           <div>
-            <label htmlFor="fork-name" className="mb-1 block text-xs text-zinc-400">
+            <label htmlFor="fork-name" className="mb-1 block text-xs text-fg-muted">
               New bot name
             </label>
             <input id="fork-name" ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} required className={field} autoComplete="off" />
           </div>
           <div>
-            <label htmlFor="fork-model" className="mb-1 block text-xs text-zinc-400">
+            <label htmlFor="fork-model" className="mb-1 block text-xs text-fg-muted">
               Model
             </label>
             <select id="fork-model" value={modelId} onChange={(e) => setModelId(e.target.value)} className={field}>
@@ -71,12 +71,12 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
               ))}
             </select>
           </div>
-          <label className="flex items-center gap-2 text-sm text-zinc-200">
-            <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="h-4 w-4 accent-sky-500" />
+          <label className="flex items-center gap-2 text-sm text-fg-dim">
+            <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="h-4 w-4 accent-[#4b8dff]" />
             Read-only tools
           </label>
           {error && (
-            <p role="alert" className="text-xs text-red-400">
+            <p role="alert" className="text-xs text-bad">
               {error}
             </p>
           )}
@@ -84,14 +84,14 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-sky-400"
+              className="rounded-md border border-line-strong px-3 py-1.5 text-sm text-fg-dim hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={submitting || !name.trim()}
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-40"
+              className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
             >
               Fork
             </button>

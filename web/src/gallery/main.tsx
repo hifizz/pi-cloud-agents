@@ -1,4 +1,4 @@
-// Dev-only gallery of the chat component library: `npm run dev` -> http://localhost:5173/gallery.html
+// Dev-only gallery of the chat component library: `npm run dev` -> http://127.0.0.1:5183/gallery.html
 // Not part of the production build (vite only builds index.html). Use it to eyeball every part / tool renderer.
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -71,8 +71,8 @@ const notes: ChatMessage[] = [
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="flex min-h-0 flex-col border-b border-zinc-800">
-      <h2 className="border-b border-zinc-900 bg-zinc-900/50 px-4 py-1.5 font-mono text-xs text-zinc-500">{title}</h2>
+    <section className="flex min-h-0 flex-col border-b border-line">
+      <h2 className="border-b border-line bg-raised px-4 py-1.5 font-mono text-xs text-fg-muted">{title}</h2>
       {children}
     </section>
   );
@@ -81,12 +81,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Gallery() {
   const [log, setLog] = useState("");
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="min-h-screen bg-surface text-fg">
       <Section title="settled turn (folded behind “Worked for …”)">
         <div className="h-[1000px] flex flex-col"><MessageList messages={settled} busy={false} onFork={() => {}} /></div>
       </Section>
       <Section title="live turn (running / failed / interrupted)">
         <div className="h-[520px] flex flex-col"><MessageList messages={live} busy /></div>
+      </Section>
+      <Section title="settled turn with Open diff (console)">
+        <div className="h-[1000px] flex flex-col"><MessageList messages={settled} busy={false} onOpenDiff={(turnKey, path) => console.log("openDiff", turnKey, path)} /></div>
       </Section>
       <Section title="notes: compaction, system, aborted, error">
         <div className="h-[460px] flex flex-col"><MessageList messages={notes} busy={false} /></div>
@@ -94,7 +97,15 @@ function Gallery() {
       <Section title="composer (idle / busy)">
         <Composer busy={false} model="tokenrouter/glm-5.3-flash" onSend={(t) => setLog(t)} onAbort={() => {}} />
         <Composer busy queued={2} model="tokenrouter/glm-5.3-flash" onSend={(t) => setLog(t)} onAbort={() => {}} />
-        <p className="px-4 pb-2 font-mono text-xs text-zinc-600">last: {log}</p>
+        <Composer
+          busy={false}
+          model="swe-2"
+          onSend={(t) => setLog(t)}
+          onAbort={() => {}}
+          context={<div className="mt-2 rounded-lg border border-line bg-raised px-3 py-1.5 text-xs text-fg-dim">sprite · /home/sprite/workspace</div>}
+          status={<p className="mt-1.5 text-center text-[11px] text-fg-muted">connected · 12.3k tokens</p>}
+        />
+        <p className="px-4 pb-2 font-mono text-xs text-fg-faint">last: {log}</p>
       </Section>
     </div>
   );

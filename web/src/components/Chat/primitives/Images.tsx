@@ -16,7 +16,7 @@ export function ImageStrip({ images, size = "sm", alt = "Tool result" }: { image
             type="button"
             onClick={() => setZoom(src(img))}
             aria-label="Enlarge image"
-            className="overflow-hidden rounded-lg border border-zinc-800 transition-colors hover:border-zinc-600 focus-visible:outline-2 focus-visible:outline-sky-400"
+            className="overflow-hidden rounded-lg border border-line transition-colors hover:border-line-strong focus-visible:outline-2 focus-visible:outline-accent"
           >
             <img src={src(img)} alt={`${alt} thumbnail`} className={cx("w-auto object-cover", size === "lg" ? "max-h-56" : "h-20")} />
           </button>
@@ -42,7 +42,7 @@ export function Lightbox({ src, alt, onClose }: { src: string; alt: string; onCl
         type="button"
         autoFocus
         onClick={onClose}
-        className="absolute right-4 top-4 rounded-md bg-zinc-800 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-sky-400"
+        className="absolute right-4 top-4 rounded-md bg-selected px-3 py-1 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"
       >
         Close
       </button>

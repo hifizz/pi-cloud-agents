@@ -13,7 +13,7 @@ export function Thinking({ text, streaming }: { text: string; streaming: boolean
       expandable={text.trim().length > 0}
       trailing={streaming ? <Spinner /> : undefined}
     >
-      <div className="whitespace-pre-wrap text-[13px] leading-relaxed text-zinc-500">{text}</div>
+      <div className="whitespace-pre-wrap text-[13.5px] italic leading-relaxed text-fg-muted">{text}</div>
     </ActivityRow>
   );
 }

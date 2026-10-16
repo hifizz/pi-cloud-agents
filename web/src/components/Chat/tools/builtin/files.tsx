@@ -39,6 +39,6 @@ export const readTool: ToolRenderer = {
     const range = offset || limit ? `:${offset ?? 1}${limit ? `–${(offset ?? 1) + limit - 1}` : ""}` : "";
     return pathOf(t) + range;
   },
-  stat: (t) => (t.status === "done" && t.output ? <span className="text-zinc-600">{t.output.split("\n").length} lines</span> : null),
+  stat: (t) => (t.status === "done" && t.output ? <span className="text-fg-faint">{t.output.split("\n").length} lines</span> : null),
   Body: ReadBody,
 };

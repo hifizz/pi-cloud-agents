@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MessageList } from "../src/components/Chat/MessageList";
@@ -104,6 +104,44 @@ describe("rendering", () => {
     expect(within(edit).getByRole("group", { name: "edit diff" })).toHaveTextContent("new");
     await user.click(within(search).getByRole("button"));
     expect(within(search).getByRole("link", { name: /pi/i })).toHaveAttribute("href", "https://pi.dev/docs");
+  });
+});
+
+describe("files card: Open diff", () => {
+  const edits = () =>
+    turn([
+      { type: "text", text: "On it." },
+      tool({ id: "2", name: "edit", args: { path: "/x/a.txt" }, details: { diff: "-1 a\n+1 b" } }),
+      tool({ id: "3", name: "edit", args: { path: "/x/b.txt" }, details: { diff: "-1 c\n+1 d" } }),
+      { type: "text", text: "Done." },
+    ]);
+  const turnKey = () => {
+    const files = deriveFeed(edits(), { busy: false, expanded: new Set() }).find((r) => r.type === "files");
+    if (files?.type !== "files") throw new Error("no files row");
+    return files.turnKey;
+  };
+
+  it("with onOpenDiff: Open diff and file rows call back with (turnKey, path)", async () => {
+    const user = userEvent.setup();
+    const onOpenDiff = vi.fn();
+    render(<MessageList messages={edits()} busy={false} onOpenDiff={onOpenDiff} />);
+    const section = screen.getByRole("region", { name: "Changed files" });
+    await user.click(within(section).getByRole("button", { name: "Open diff" }));
+    expect(onOpenDiff).toHaveBeenLastCalledWith(turnKey(), "/x/a.txt");
+    await user.click(within(section).getByRole("button", { name: /2 changed files/i }));
+    await user.click(within(section).getByRole("button", { name: /b\.txt/ }));
+    expect(onOpenDiff).toHaveBeenLastCalledWith(turnKey(), "/x/b.txt");
+    expect(within(section).queryByRole("group", { name: /diff of/i })).not.toBeInTheDocument();
+  });
+
+  it("without onOpenDiff: no Open diff button, rows expand inline", async () => {
+    const user = userEvent.setup();
+    render(<MessageList messages={edits()} busy={false} />);
+    const section = screen.getByRole("region", { name: "Changed files" });
+    expect(within(section).queryByRole("button", { name: "Open diff" })).not.toBeInTheDocument();
+    await user.click(within(section).getByRole("button", { name: /2 changed files/i }));
+    await user.click(within(section).getByRole("button", { name: /b\.txt/ }));
+    expect(within(section).getByRole("group", { name: /diff of \/x\/b\.txt/i })).toBeInTheDocument();
   });
 });
 

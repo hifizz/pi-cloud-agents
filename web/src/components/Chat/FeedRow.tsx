@@ -13,6 +13,8 @@ import { ToolCall } from "./tools/ToolCall";
 export interface FeedRowHandlers {
   onToggleTurn: (turnKey: string) => void;
   onFork?: (entryId: number | string) => void;
+  /** Open the Changes (diff) panel at this turn, optionally scrolled to one file. Passed to FilesChanged. */
+  onOpenDiff?: (turnKey: string, path?: string) => void;
 }
 
 function PartView({ row }: { row: Extract<Row, { type: "part" }> }) {
@@ -34,7 +36,7 @@ function ForkButton({ entryId, onFork, className }: { entryId: number | string; 
     <button
       type="button"
       onClick={() => onFork(entryId)}
-      className={`flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 px-1.5 py-0.5 text-xs text-zinc-400 opacity-0 shadow-sm hover:bg-zinc-900 hover:text-zinc-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-sky-400 group-hover/row:opacity-100 ${className ?? ""}`}
+      className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 py-0.5 text-xs text-fg-dim opacity-0 shadow-sm hover:bg-hover hover:text-fg focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent group-hover/row:opacity-100 ${className ?? ""}`}
     >
       <Icon name="fork" className="size-3" />
       Fork from here
@@ -58,7 +60,7 @@ export function FeedRowView({ row, handlers }: { row: Row; handlers: FeedRowHand
         </>
       );
     case "files":
-      return <FilesChanged files={row.files} />;
+      return <FilesChanged files={row.files} turnKey={row.turnKey} onOpenDiff={handlers.onOpenDiff} />;
     case "notice":
       return <TurnNotice message={row.message} />;
     case "message": {

@@ -26,13 +26,13 @@ function CodeFence({ children }: { children?: ReactNode }) {
   return (
     <div className="group/code relative my-3">
       <pre>{children}</pre>
-      <div className="absolute right-1.5 top-1.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
+      <div className="absolute right-1.5 top-1.5 flex items-center gap-1.5 text-[11px] text-fg-muted">
         {lang && <span className="font-mono">{lang}</span>}
         <button
           type="button"
           onClick={() => void copy()}
           aria-label="Copy code"
-          className="rounded p-1 opacity-0 hover:bg-zinc-800 hover:text-zinc-200 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-sky-400 group-hover/code:opacity-100"
+          className="rounded p-1 opacity-0 hover:bg-selected hover:text-fg focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent group-hover/code:opacity-100"
         >
           <Icon name={copied ? "check" : "copy"} />
         </button>

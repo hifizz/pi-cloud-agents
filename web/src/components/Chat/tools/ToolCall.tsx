@@ -13,20 +13,20 @@ function StatusLabel({ status }: { status: ToolStatus }) {
   switch (status) {
     case "running":
       return (
-        <span className="flex items-center gap-1.5 text-amber-400">
+        <span className="flex items-center gap-1.5 text-warn">
           <Spinner />
           running
         </span>
       );
     case "error":
       return (
-        <span className="flex items-center gap-1 text-red-400">
+        <span className="flex items-center gap-1 text-bad">
           <Icon name="alert" className="size-3" />
           failed
         </span>
       );
     case "interrupted":
-      return <span className="text-amber-500">interrupted</span>;
+      return <span className="text-warn">interrupted</span>;
     case "done":
       return <span className="sr-only">done</span>;
   }
@@ -66,7 +66,7 @@ export function ToolCall({ tool }: { tool: ToolPart }) {
       <>
         {Body ? <Body tool={tool} /> : null}
         {notes.map((d, i) => (
-          <p key={i} className="text-xs text-amber-400">
+          <p key={i} className="text-xs text-warn">
             {d}
           </p>
         ))}
@@ -91,7 +91,7 @@ function Elapsed({ tool }: { tool: ToolPart }) {
   const label = formatDuration(ms);
   return (
     <span
-      className="font-mono text-[11px] tabular-nums text-zinc-500"
+      className="font-mono text-[11px] tabular-nums text-fg-muted"
       title={running ? "Elapsed (since this page saw it start)" : "Execution time (approval wait excluded)"}
       aria-label={running ? `elapsed ${label}` : `took ${label}`}
       data-testid="tool-duration"

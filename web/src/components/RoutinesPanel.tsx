@@ -19,10 +19,12 @@ export function formatNext(nextAt: number | undefined): string {
 }
 
 const field =
-  "w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 focus-visible:outline-2 focus-visible:outline-sky-400";
+  "w-full rounded-md border border-line-strong bg-field px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent";
 
-export function RoutinesPanel({ bots }: { bots: BotSummary[] }) {
-  const [open, setOpen] = useState(false);
+/** `embedded`: rendered as a panel body — no collapsible header, loads and polls from mount. */
+export function RoutinesPanel({ bots, embedded = false }: { bots: BotSummary[]; embedded?: boolean }) {
+  const [expanded, setOpen] = useState(false);
+  const open = embedded || expanded;
   const [routines, setRoutines] = useState<RoutineItem[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [botId, setBotId] = useState("");
@@ -78,40 +80,40 @@ export function RoutinesPanel({ bots }: { bots: BotSummary[] }) {
 
   const active = routines.filter((r) => r.enabled);
 
+  const outlineBtn =
+    "rounded-md border border-line-strong px-2 py-0.5 text-xs text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent";
+
   return (
-    <section aria-label="Routines" className="border-t border-zinc-800">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-400 hover:bg-zinc-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-sky-400"
-      >
-        <span>Routines{open && active.length > 0 ? ` (${active.length})` : ""}</span>
-        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
-      </button>
+    <section aria-label="Routines" className={embedded ? undefined : "border-t border-line"}>
+      {!embedded && (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-fg-muted hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+        >
+          <span>Routines{open && active.length > 0 ? ` (${active.length})` : ""}</span>
+          <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+        </button>
+      )}
 
       {open && (
-        <div className="max-h-72 space-y-2 overflow-y-auto px-3 pb-3">
+        <div className={embedded ? "space-y-3 p-4" : "max-h-72 space-y-2 overflow-y-auto px-3 pb-3"}>
           {error && (
-            <p role="alert" className="text-xs text-red-400">
+            <p role="alert" className="text-xs text-bad">
               {error}
             </p>
           )}
-          {active.length === 0 && <p className="text-xs text-zinc-500">No routines.</p>}
+          {active.length === 0 && <p className="text-xs text-fg-muted">No routines.</p>}
           <ul className="space-y-2">
             {active.map((r) => (
-              <li key={r.id} data-testid="routine-item" className="rounded-md border border-zinc-800 p-2 text-xs">
-                <p className="break-words text-zinc-200">{r.prompt}</p>
-                <p className="mt-1 text-zinc-500">
+              <li key={r.id} data-testid="routine-item" className="rounded-lg border border-line bg-raised p-3 text-xs">
+                <p className="break-words text-fg">{r.prompt}</p>
+                <p className="mt-1 text-fg-muted">
                   {r.bot ?? "unknown bot"} · {formatInterval(r)}
                 </p>
-                <p className="text-zinc-500">Next: {formatNext(r.nextAt)}</p>
-                <button
-                  type="button"
-                  onClick={() => void cancel(r.id)}
-                  aria-label={`Cancel routine: ${r.prompt}`}
-                  className="mt-1 rounded border border-zinc-700 px-2 py-0.5 text-zinc-300 hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-sky-400"
-                >
+                <p className="text-fg-muted">Next: {formatNext(r.nextAt)}</p>
+                <button type="button" onClick={() => void cancel(r.id)} aria-label={`Cancel routine: ${r.prompt}`} className={`mt-2 ${outlineBtn}`}>
                   Cancel
                 </button>
               </li>
@@ -121,7 +123,7 @@ export function RoutinesPanel({ bots }: { bots: BotSummary[] }) {
           {showForm ? (
             <form onSubmit={submit} aria-label="New routine" className="space-y-2">
               <div>
-                <label htmlFor="routine-bot" className="mb-1 block text-xs text-zinc-400">
+                <label htmlFor="routine-bot" className="mb-1 block text-xs text-fg-muted">
                   Bot
                 </label>
                 <select id="routine-bot" value={chosenBot} onChange={(e) => setBotId(e.target.value)} className={field}>
@@ -133,13 +135,13 @@ export function RoutinesPanel({ bots }: { bots: BotSummary[] }) {
                 </select>
               </div>
               <div>
-                <label htmlFor="routine-prompt" className="mb-1 block text-xs text-zinc-400">
+                <label htmlFor="routine-prompt" className="mb-1 block text-xs text-fg-muted">
                   Prompt
                 </label>
                 <textarea id="routine-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={2} required className={field} />
               </div>
               <div>
-                <label htmlFor="routine-minutes" className="mb-1 block text-xs text-zinc-400">
+                <label htmlFor="routine-minutes" className="mb-1 block text-xs text-fg-muted">
                   Every (minutes)
                 </label>
                 <input id="routine-minutes" type="number" min={1} step="any" value={minutes} onChange={(e) => setMinutes(e.target.value)} required className={field} />
@@ -148,26 +150,17 @@ export function RoutinesPanel({ bots }: { bots: BotSummary[] }) {
                 <button
                   type="submit"
                   disabled={submitting || !chosenBot || !prompt.trim()}
-                  className="flex-1 rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-40"
+                  className="flex-1 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
                 >
                   Create routine
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-sky-400"
-                >
+                <button type="button" onClick={() => setShowForm(false)} className="rounded-md border border-line-strong px-3 py-1.5 text-sm text-fg-dim hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent">
                   Close
                 </button>
               </div>
             </form>
           ) : (
-            <button
-              type="button"
-              onClick={() => setShowForm(true)}
-              disabled={bots.length === 0}
-              className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-200 hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-sky-400 disabled:opacity-40"
-            >
+            <button type="button" onClick={() => setShowForm(true)} disabled={bots.length === 0} className={`${outlineBtn} disabled:opacity-40`}>
               New routine
             </button>
           )}

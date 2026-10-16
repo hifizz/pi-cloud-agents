@@ -8,9 +8,9 @@ const AUTH_ERRORS: Record<string, string> = {
 };
 
 const inputCls =
-  "w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus-visible:outline-2 focus-visible:outline-sky-400";
+  "w-full rounded-md border border-line-strong bg-field px-3 py-2 text-sm text-fg focus-visible:outline-2 focus-visible:outline-accent";
 const btnCls =
-  "w-full rounded-md border border-zinc-700 px-3 py-2 text-center text-sm text-zinc-100 hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-sky-400 disabled:opacity-40";
+  "w-full rounded-md border border-line-strong px-3 py-2 text-center text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
 
 export function LoginPage({ onLoggedIn }: { onLoggedIn: (email: string) => void }) {
   const [email, setEmail] = useState("");
@@ -43,11 +43,11 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: (email: string) => void 
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-zinc-950 p-4 text-zinc-100">
+    <main className="flex min-h-screen items-center justify-center bg-surface p-4 text-fg">
       <div className="w-full max-w-sm space-y-5">
         <h1 className="text-center text-xl font-semibold">pi-cloud-agents</h1>
         {error && (
-          <p role="alert" className="rounded-md bg-red-950 px-3 py-2 text-sm text-red-200">
+          <p role="alert" className="rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
             {error}
           </p>
         )}
@@ -56,13 +56,13 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: (email: string) => void 
         </a>
         <form onSubmit={(e) => void submit(e)} className="space-y-3">
           <div className="space-y-1">
-            <label htmlFor="login-email" className="text-xs text-zinc-400">
+            <label htmlFor="login-email" className="text-xs text-fg-muted">
               邮箱
             </label>
             <input id="login-email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
           </div>
           <div className="space-y-1">
-            <label htmlFor="login-password" className="text-xs text-zinc-400">
+            <label htmlFor="login-password" className="text-xs text-fg-muted">
               密码
             </label>
             <input id="login-password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />

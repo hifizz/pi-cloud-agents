@@ -1,5 +1,39 @@
 @import "tailwindcss";
 
+/* Design tokens (UI refresh, docs/UI-PLAN.md §2). Ported from the work-session-v2 reference.
+   Use them as Tailwind utilities: bg-surface, bg-rail, bg-raised, border-line, text-fg-dim, text-accent, … */
+@theme {
+  --color-surface: #0a0a0a;
+  --color-rail: #030303;
+  --color-raised: #141414;
+  --color-field: #151515;
+  --color-hover: #151515;
+  --color-selected: #1e1e1e;
+  --color-line: #1f1f1f;
+  --color-line-soft: #181818;
+  --color-line-strong: #272727;
+  --color-fg: #ededed;
+  --color-fg-dim: #a1a1a1;
+  --color-fg-muted: #6f6f6f;
+  --color-fg-faint: #565656;
+  --color-accent: #4b8dff;
+  --color-brand: #1668e3;
+  --color-ok: #3fb950;
+  --color-bad: #f85149;
+  --color-warn: #d29922;
+  --color-diff-add: rgb(12 24 20);
+  --color-diff-del: rgb(28 17 16);
+  --color-syn-kw: #c792ea;
+  --color-syn-str: #e5a76b;
+  --color-syn-num: #f0a868;
+  --color-syn-type: #4ec9b0;
+  --color-syn-fn: #82aaff;
+  --color-syn-pun: #8d8d8d;
+  --color-syn-cm: #5f7a5f;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", Menlo, Consolas, ui-monospace, monospace;
+}
+
 :root {
   color-scheme: dark;
 }
@@ -12,10 +46,22 @@ body,
 
 body {
   margin: 0;
-  background: #09090b;
-  color: #f4f4f5;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  background: var(--color-surface);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* Thin dark scrollbars everywhere. */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* No ligatures in code. */
+code, pre, .font-mono { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
 
 /* Markdown content (no typography plugin). */
 .md > :first-child { margin-top: 0; }
@@ -33,7 +79,7 @@ body {
 .md h3, .md h4 { font-size: 1.05em; }
 .md a { color: #60a5fa; text-decoration: none; }
 .md a:hover { text-decoration: underline; }
-.md code { background: #18181b; border: 1px solid #27272a; border-radius: 5px; padding: 0.08em 0.35em; font-size: 0.86em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.md code { background: #181818; border: 1px solid #262626; border-radius: 5px; padding: 0.08em 0.35em; font-size: 0.86em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .md pre { background: rgb(0 0 0 / 0.35); border: 1px solid #27272a; border-radius: 10px; padding: 0.7em 0.9em; overflow-x: auto; margin: 0; font-size: 0.86em; line-height: 1.6; }
 .md pre code { background: none; border: 0; padding: 0; font-size: inherit; }
 .md blockquote { border-left: 2px solid #3f3f46; margin: 0 0 0.8em; padding-left: 0.9em; color: #a1a1aa; }
@@ -43,5 +89,5 @@ body {
 .md hr { border: 0; border-top: 1px solid #27272a; margin: 1.2em 0; }
 
 /* Streaming caret sits at the end of the last block instead of on its own line. */
-.md-streaming > :last-child::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 3px; vertical-align: -0.15em; background: #a1a1aa; animation: md-blink 1s steps(2) infinite; }
+.md-streaming > :last-child::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 3px; vertical-align: -0.15em; background: var(--color-fg-dim); animation: md-blink 1s steps(2) infinite; }
 @keyframes md-blink { 50% { opacity: 0; } }

@@ -18,7 +18,7 @@ export type FeedRow =
   | { type: "part"; key: string; message: ChatMessage; part: Part; streaming: boolean; fork: boolean }
   | { type: "notice"; key: string; message: ChatMessage }
   | { type: "fold"; key: string; turnKey: string; label: string; steps: number; open: boolean; rows: FeedRow[] }
-  | { type: "files"; key: string; files: ChangedFile[] };
+  | { type: "files"; key: string; turnKey: string; files: ChangedFile[] };
 
 type Block = { kind: "turn"; key: string; user?: ChatMessage; assistants: ChatMessage[] } | { kind: "solo"; message: ChatMessage };
 
@@ -141,10 +141,46 @@ export function deriveFeed(messages: ChatMessage[], opts: { busy: boolean; expan
 
     if (!live) {
       const files = changedFiles(tools);
-      if (files.length > 0) rows.push({ type: "files", key: `files:${block.key}`, files });
+      if (files.length > 0) rows.push({ type: "files", key: `files:${block.key}`, turnKey: block.key, files });
     }
   });
   return rows;
+}
+
+/** Files changed by one settled turn. `key` equals the feed's turn key (the `turnKey` of its fold/files rows). */
+export interface TurnChange {
+  key: string;
+  /** 1-based position among all turns of the conversation (including turns without changes). */
+  index: number;
+  /** First line of the user's message, if any. */
+  title?: string;
+  files: ChangedFile[];
+  add: number;
+  del: number;
+}
+
+/** Per-turn file changes, oldest first; only settled turns with at least one changed file. Same rules as the feed's files row. */
+export function turnChanges(messages: ChatMessage[], opts: { busy: boolean }): TurnChange[] {
+  const blocks = toBlocks(messages);
+  const turns = blocks.filter((b): b is Extract<Block, { kind: "turn" }> => b.kind === "turn");
+  const out: TurnChange[] = [];
+  turns.forEach((turn, i) => {
+    const live = (opts.busy && i === turns.length - 1) || turn.assistants.some((a) => a.pending);
+    if (live) return;
+    const tools = turn.assistants.flatMap((a) => a.parts.flatMap((p) => (p.type === "tool" ? [p] : [])));
+    const files = changedFiles(tools);
+    if (files.length === 0) return;
+    const text = turn.user?.parts.find((p) => p.type === "text")?.text;
+    out.push({
+      key: turn.key,
+      index: i + 1,
+      title: text?.split("\n").find((l) => l.trim())?.trim(),
+      files,
+      add: files.reduce((n, f) => n + f.add, 0),
+      del: files.reduce((n, f) => n + f.del, 0),
+    });
+  });
+  return out;
 }
 
 /** Thinking / tool / fold rows read as one compact activity list. */

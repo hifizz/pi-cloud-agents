@@ -9,10 +9,10 @@ export function Output({ text, label, tone = "default", header, className }: { t
   const [showAll, setShowAll] = useState(false);
   const { shown, total, truncated } = splitLines(text, showAll ? Number.POSITIVE_INFINITY : MAX_LINES);
   return (
-    <div className={cx("overflow-hidden rounded-lg border border-zinc-800 bg-black/30", className)}>
+    <div className={cx("overflow-hidden rounded-lg border border-[#1d1d1d] bg-[#0b0b0b]", className)}>
       {header && (
-        <pre className={cx("overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11.8px] leading-[1.65] text-zinc-200", text && "border-b border-zinc-800")}>
-          <span className="select-none text-zinc-600">$ </span>
+        <pre className={cx("overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11.8px] leading-[1.65] text-fg", text && "border-b border-[#1d1d1d]")}>
+          <span className="select-none text-fg-faint">$ </span>
           {header}
         </pre>
       )}
@@ -20,8 +20,8 @@ export function Output({ text, label, tone = "default", header, className }: { t
         aria-label={label}
         tabIndex={0}
         className={cx(
-          "max-h-96 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11.8px] leading-[1.65] focus-visible:outline-2 focus-visible:outline-sky-400",
-          tone === "error" ? "text-red-300/90" : "text-zinc-400",
+          "max-h-[230px] overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11.8px] leading-[1.65] focus-visible:outline-2 focus-visible:outline-accent",
+          tone === "error" ? "text-bad" : "text-fg-dim",
         )}
       >
         {shown}
@@ -30,7 +30,7 @@ export function Output({ text, label, tone = "default", header, className }: { t
         <button
           type="button"
           onClick={() => setShowAll(true)}
-          className="w-full border-t border-zinc-800 px-3 py-1 text-left text-xs text-sky-400 hover:bg-zinc-900 focus-visible:outline-2 focus-visible:outline-sky-400"
+          className="w-full border-t border-[#1d1d1d] px-3 py-1 text-left text-xs text-accent hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"
         >
           Show all {total} lines
         </button>

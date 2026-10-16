@@ -16,7 +16,7 @@ export interface ActivityRowProps {
   onToggle: () => void;
   /** Disable the toggle when there is nothing to expand. */
   expandable?: boolean;
-  /** Status colour for the icon; there is deliberately no side rail. */
+  /** Status colour for the icon. */
   tone?: "default" | "running" | "error" | "warn";
   testId?: string;
   titleAttr?: string;
@@ -25,32 +25,25 @@ export interface ActivityRowProps {
   children?: ReactNode;
 }
 
-const ICON_TONE = { default: "text-zinc-500", running: "text-amber-400", error: "text-red-400", warn: "text-amber-500" } as const;
+const ICON_TONE = { default: "text-fg-muted", running: "text-warn", error: "text-bad", warn: "text-warn" } as const;
 
 /** The collapsible "one line per action" row used for every tool call. Content goes in `children`. */
 export function ActivityRow({ icon, title, detail, trailing, open, onToggle, expandable = true, tone = "default", testId, titleAttr, preview, children }: ActivityRowProps) {
-  // One leading slot: icon at rest, chevron on hover/open (always a chevron when there is no icon).
-  const showChevron = expandable && (!icon || open);
   return (
-    <div data-testid={testId}>
+    <div data-testid={testId} className="border-l border-[#202020] pl-3">
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={expandable ? open : undefined}
         title={titleAttr}
-        className="group/act flex w-full min-w-0 items-center gap-2 rounded py-0.5 text-left text-[13.5px] text-zinc-400 hover:text-zinc-100 focus-visible:outline-2 focus-visible:outline-sky-400"
+        className="group/act flex w-full min-w-0 items-center gap-2 rounded py-0.5 text-left text-[13.5px] text-fg-dim hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
-        <span className="relative size-3.5 shrink-0">
-          {icon && <Icon name={icon} className={cx("absolute inset-0 transition-opacity duration-150 ease-out", ICON_TONE[tone], expandable && (open ? "opacity-0" : "group-hover/act:opacity-0 group-focus-visible/act:opacity-0"))} />}
-          {expandable && (
-            <Icon
-              name="chevron"
-              className={cx("absolute inset-0 text-zinc-500 transition-[transform,opacity] duration-150 ease-out", open && "rotate-90", showChevron ? "opacity-100" : "opacity-0 group-hover/act:opacity-100 group-focus-visible/act:opacity-100")}
-            />
-          )}
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          {expandable && <Icon name="chevron" className={cx("text-fg-faint transition-transform duration-150 ease-out", open && "rotate-90")} />}
         </span>
-        <span className="shrink-0 text-zinc-300">{title}</span>
-        {detail ? <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-500">{detail}</span> : <span className="flex-1" />}
+        {icon && <Icon name={icon} className={cx("shrink-0", ICON_TONE[tone])} />}
+        <span className="shrink-0 text-fg-dim group-hover/act:text-fg">{title}</span>
+        {detail ? <span className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted">{detail}</span> : <span className="flex-1" />}
         {trailing && <span className="flex shrink-0 items-center gap-2 text-[11.5px]">{trailing}</span>}
       </button>
       {preview && (

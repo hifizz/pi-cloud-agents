@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, api, auth } from "./lib/api";
+import { ApiError, api } from "./lib/api";
 import { useBotStream } from "./hooks/useBotStream";
 import { BotList } from "./components/BotList";
-import { EnvironmentPane } from "./components/EnvironmentPane";
-import { UsageBadge } from "./components/UsageBadge";
 import { ApprovalBar } from "./components/ApprovalBar";
 import { ForkDialog } from "./components/ForkDialog";
-import { RoutinesPanel } from "./components/RoutinesPanel";
 import { useApprovals } from "./hooks/useApprovals";
+import { useSpace } from "./hooks/useSpace";
 import { MessageList } from "./components/Chat/MessageList";
 import { Composer, type SendMode } from "./components/Chat/Composer";
+import { WorkspaceShell } from "./shell/WorkspaceShell";
+import { PanelHost } from "./shell/PanelHost";
+import { SessionHeader } from "./shell/SessionHeader";
+import { StatusLine, WorktreeStrip } from "./shell/ComposerContext";
+import { RailFooter, RailHeader } from "./shell/rail";
+import { usePanelState } from "./shell/usePanelState";
+import { useRailState } from "./shell/useRailState";
+import { PANELS } from "./panels";
 import type { BotSummary, ForkInput, NewBotInput } from "./types";
-
-const headerBtn =
-  "rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-sky-400 disabled:opacity-40";
 
 export default function App({ email, onLoggedOut }: { email?: string; onLoggedOut?: () => void } = {}) {
   const [bots, setBots] = useState<BotSummary[]>([]);
@@ -22,6 +25,9 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const { vm, status } = useBotStream(selectedId);
   const approvals = useApprovals();
   const [forkAt, setForkAt] = useState<number | string>();
+  const rail = useRailState();
+  const panels = usePanelState(PANELS[0]?.id);
+  const { space, failed: spaceFailed } = useSpace();
 
   const refresh = useCallback(async () => {
     try {
@@ -96,95 +102,96 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const model = vm.agent.modelId ? `${vm.agent.provider ?? ""}/${vm.agent.modelId}` : bot ? `${bot.model.provider}/${bot.model.modelId}` : "";
 
-  return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-100">
-      <div className="flex w-60 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
-        <div className="min-h-0 flex-1">
-          <BotList bots={bots} selectedId={selectedId} onSelect={setSelectedId} onCreate={onCreate} pendingApprovals={pendingByBot} />
-        </div>
-        <RoutinesPanel bots={bots} />
+  const onCompact = () => void guard(() => api.compact(bot!.id)).catch(() => {});
+  const onReset = () => {
+    if (window.confirm("Reset this bot's context? History before the reset is no longer sent to the model.")) {
+      void guard(() => api.reset(bot!.id)).catch(() => {});
+    }
+  };
+
+  const railNode = (
+    <>
+      <RailHeader onCollapse={rail.close} />
+      <div className="min-h-0 flex-1">
+        <BotList bots={bots} selectedId={selectedId} onSelect={setSelectedId} onCreate={onCreate} pendingApprovals={pendingByBot} />
       </div>
+      <RailFooter email={email} onLoggedOut={onLoggedOut} />
+    </>
+  );
 
-      <main className="flex min-w-0 flex-1 flex-col" aria-label="Chat">
-        <header className="flex flex-wrap items-center gap-3 border-b border-zinc-800 px-4 py-2.5">
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-sm font-semibold">{bot ? bot.name : "TARSBot"}</h1>
-            {bot && <p className="truncate font-mono text-xs text-zinc-500">{model}</p>}
-          </div>
-          {status !== "open" && bot && (
-            <span role="status" className="text-xs text-amber-400">
-              {status === "reconnecting" ? "Reconnecting…" : status === "connecting" ? "Connecting…" : "Disconnected"}
-            </span>
-          )}
-          {vm.compacting > 0 && <span className="text-xs text-zinc-400">Compacting…</span>}
-          <UsageBadge usage={vm.usage} />
-          <button type="button" className={headerBtn} disabled={!bot || vm.busy} onClick={() => void guard(() => api.compact(bot!.id)).catch(() => {})}>
-            Compact
+  const mainNode = (
+    <>
+      <SessionHeader
+        bot={bot}
+        vm={vm}
+        status={status}
+        space={space}
+        railOpen={rail.open}
+        panelOpen={panels.open}
+        onExpandRail={rail.show}
+        onTogglePanel={panels.toggle}
+        onCompact={onCompact}
+        onReset={onReset}
+      />
+
+      <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />
+      {otherPending > 0 && (
+        <p className="border-b border-warn/30 bg-warn/10 px-4 py-1 text-xs text-warn">
+          {otherPending} approval{otherPending === 1 ? "" : "s"} pending on other bots
+        </p>
+      )}
+
+      {error && (
+        <div role="alert" className="flex items-center justify-between bg-bad/10 px-4 py-1.5 text-xs text-bad">
+          <span>{error}</span>
+          <button type="button" onClick={() => setError(undefined)} className="underline focus-visible:outline-2 focus-visible:outline-accent">
+            Dismiss
           </button>
-          <button
-            type="button"
-            className={headerBtn}
-            disabled={!bot}
-            onClick={() => {
-              if (window.confirm("Reset this bot's context? History before the reset is no longer sent to the model.")) {
-                void guard(() => api.reset(bot!.id)).catch(() => {});
-              }
-            }}
-          >
-            Reset
-          </button>
-          {email && (
-            <div className="flex items-center gap-2 border-l border-zinc-800 pl-3">
-              <span className="max-w-48 truncate text-xs text-zinc-400" title={email}>
-                {email}
-              </span>
-              <button
-                type="button"
-                className={headerBtn}
-                onClick={() => {
-                  void auth.logout().catch(() => {}).finally(() => onLoggedOut?.());
-                }}
-              >
-                退出
-              </button>
-            </div>
-          )}
-        </header>
+        </div>
+      )}
 
-        <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />
-        {otherPending > 0 && (
-          <p className="border-b border-amber-700/40 bg-amber-950/20 px-4 py-1 text-xs text-amber-300">
-            {otherPending} approval{otherPending === 1 ? "" : "s"} pending on other bots
-          </p>
-        )}
+      {bot ? (
+        <>
+          <MessageList
+            messages={vm.messages}
+            busy={vm.busy}
+            onFork={setForkAt}
+            onOpenDiff={(turnKey, path) => panels.openPanel("diff", { turnKey, path })}
+          />
+          <Composer
+            busy={vm.busy}
+            model={model}
+            queued={vm.inbox.length}
+            onSend={onSend}
+            onAbort={() => void guard(() => api.abort(bot.id)).catch(() => {})}
+            context={<WorktreeStrip space={space} cwd={vm.agent.cwd} />}
+            status={<StatusLine busy={vm.busy} queued={vm.inbox.length} status={status} />}
+          />
+        </>
+      ) : (
+        <p className="m-auto text-sm text-fg-muted">Create or select a bot to start.</p>
+      )}
+    </>
+  );
 
-        {error && (
-          <div role="alert" className="flex items-center justify-between bg-red-950 px-4 py-1.5 text-xs text-red-200">
-            <span>{error}</span>
-            <button type="button" onClick={() => setError(undefined)} className="underline focus-visible:outline-2 focus-visible:outline-sky-400">
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {bot ? (
-          <>
-            <MessageList messages={vm.messages} busy={vm.busy} onFork={setForkAt} />
-            <Composer
-              busy={vm.busy}
-              model={model}
-              queued={vm.inbox.length}
-              onSend={onSend}
-              onAbort={() => void guard(() => api.abort(bot.id)).catch(() => {})}
-            />
-          </>
-        ) : (
-          <p className="m-auto text-sm text-zinc-500">Create or select a bot to start.</p>
-        )}
-      </main>
-
-      <EnvironmentPane />
-
+  return (
+    <>
+      <WorkspaceShell
+        railOpen={rail.open}
+        panelOpen={panels.open}
+        rail={railNode}
+        main={mainNode}
+        panel={
+          <PanelHost
+            panels={PANELS}
+            active={panels.active}
+            onSelect={panels.select}
+            onClose={panels.close}
+            ctx={{ bot, bots, vm, space, spaceFailed }}
+            focus={panels.focus}
+          />
+        }
+      />
       {bot && forkAt !== undefined && (
         <ForkDialog
           parentName={bot.name}
@@ -194,6 +201,6 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           onClose={() => setForkAt(undefined)}
         />
       )}
-    </div>
+    </>
   );
 }

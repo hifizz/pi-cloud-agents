@@ -33,7 +33,7 @@ function clip(s: string): string {
 }
 
 const btn =
-  "rounded-md px-3 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 disabled:opacity-40";
+  "rounded-md px-3 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40";
 
 export function ApprovalBar({ items, onResolve }: ApprovalBarProps) {
   const [busyId, setBusyId] = useState<string>();
@@ -54,23 +54,23 @@ export function ApprovalBar({ items, onResolve }: ApprovalBarProps) {
   };
 
   return (
-    <section aria-label="Pending approvals" className="border-b border-amber-700/60 bg-amber-950/40">
+    <section aria-label="Pending approvals" className="border-b border-warn/40 bg-warn/10">
       <ul>
         {items.map((item) => {
           const summary = summarizeArgs(item.toolName, item.args);
           return (
             <li key={item.taskId} data-testid="approval-item" className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="text-amber-100">
+                <p className="text-fg">
                   <span className="font-semibold">Approval needed:</span> <span className="font-mono">{item.toolName}</span>
                 </p>
-                {summary && <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-zinc-200">{summary}</pre>}
-                {item.reason && <p className="mt-0.5 text-xs text-amber-300">Reason: {item.reason}</p>}
+                {summary && <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-fg-dim">{summary}</pre>}
+                {item.reason && <p className="mt-0.5 text-xs text-warn">Reason: {item.reason}</p>}
               </div>
               <div className="flex shrink-0 gap-2">
                 <button
                   type="button"
-                  className={`${btn} bg-emerald-600 text-white hover:bg-emerald-500`}
+                  className={`${btn} bg-ok/90 text-black hover:bg-ok`}
                   disabled={busyId === item.taskId}
                   onClick={() => void resolve(item.taskId, true)}
                 >
@@ -78,7 +78,7 @@ export function ApprovalBar({ items, onResolve }: ApprovalBarProps) {
                 </button>
                 <button
                   type="button"
-                  className={`${btn} border border-red-500 text-red-200 hover:bg-red-950`}
+                  className={`${btn} border border-bad/70 text-bad hover:bg-bad/10`}
                   disabled={busyId === item.taskId}
                   onClick={() => void resolve(item.taskId, false)}
                 >
@@ -90,7 +90,7 @@ export function ApprovalBar({ items, onResolve }: ApprovalBarProps) {
         })}
       </ul>
       {error && (
-        <p role="alert" className="px-4 pb-2 text-xs text-red-300">
+        <p role="alert" className="px-4 pb-2 text-xs text-bad">
           {error}
         </p>
       )}
