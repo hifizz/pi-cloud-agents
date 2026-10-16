@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { SpaceInfo } from "../types";
 
-/** Fixed by the server in sprites mode (config.spaceCwd). */
+/** Fallback when the server does not report `cwd` (config.spaceCwd). */
 const SPRITE_WORKDIR = "/home/sprite/workspace";
 
 export function EnvironmentPane() {
@@ -26,17 +26,17 @@ export function EnvironmentPane() {
         <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Environment</h2>
       </div>
       {info ? (
-        <dl className="m-3 space-y-2 rounded border border-zinc-800 bg-zinc-900/50 p-3 text-sm" data-testid="sprite-card">
+        <dl className="m-3 space-y-2 rounded border border-zinc-800 bg-zinc-900/50 p-3 text-sm" data-testid="sprite-card" data-sandbox={info.sandbox}>
           <div>
             <dt className="text-xs text-zinc-500">执行环境</dt>
             <dd className="text-zinc-200">
-              Sprite <code className="rounded bg-zinc-800 px-1 py-0.5 text-xs">{info.name ?? "(未配置)"}</code>
+              {info.sandbox === "e2b" ? "E2B" : "Sprite"} <code className="rounded bg-zinc-800 px-1 py-0.5 text-xs">{info.name ?? "(未配置)"}</code>
             </dd>
           </div>
           <div>
             <dt className="text-xs text-zinc-500">工作目录</dt>
             <dd>
-              <code className="rounded bg-zinc-800 px-1 py-0.5 text-xs text-zinc-200">{SPRITE_WORKDIR}</code>
+              <code className="rounded bg-zinc-800 px-1 py-0.5 text-xs text-zinc-200">{info.cwd ?? SPRITE_WORKDIR}</code>
             </dd>
           </div>
         </dl>

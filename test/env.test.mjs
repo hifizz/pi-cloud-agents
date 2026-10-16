@@ -428,15 +428,22 @@ function child(code, vars = {}, nodeArgs = []) {
   }
 }
 
-test("config: sandbox settings (pure function); TARSBOT_SANDBOX is ignored", async () => {
+test("config: sandbox settings (pure function) select by TARSBOT_SANDBOX", async () => {
   const { sandboxSettings } = await import("../src/config.mjs");
-  assert.deepEqual(sandboxSettings({}), { sandbox: "sprites", spriteName: undefined, home: "/home/sprite", spaceCwd: "/home/sprite/workspace" });
-  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "docker", TARSBOT_SPRITE_NAME: "s1" }), {
-    sandbox: "sprites",
-    spriteName: "s1",
-    home: "/home/sprite",
-    spaceCwd: "/home/sprite/workspace",
-  });
+  const sprites = (name) => ({ sandbox: "sprites", sandboxName: name, spriteName: name, home: "/home/sprite", spaceCwd: "/home/sprite/workspace" });
+  assert.deepEqual(sandboxSettings({}), sprites(undefined));
+  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "" }), sprites(undefined));
+  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "sprites", TARSBOT_SPRITE_NAME: "s1" }), sprites("s1"));
+  const e2b = (name) => ({ sandbox: "e2b", sandboxName: name, spriteName: undefined, home: "/home/user", spaceCwd: "/home/user/workspace" });
+  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "e2b", TARSBOT_SPRITE_NAME: "ignored" }), e2b("pi-cloud-agents"));
+  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "e2b", TARSBOT_E2B_NAME: "mine" }), e2b("mine"));
+  assert.throws(() => sandboxSettings({ TARSBOT_SANDBOX: "docker" }), /docker.*sprites, e2b/);
+});
+
+test("config: invalid TARSBOT_SANDBOX fails at import", () => {
+  const r = child(`await import(${JSON.stringify(CONFIG_URL)})`, { TARSBOT_SANDBOX: "bogus" });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /Unknown TARSBOT_SANDBOX "bogus"; expected one of: sprites, e2b/);
 });
 
 test("config: fields and TARSBOT_HOST", () => {
@@ -444,6 +451,18 @@ test("config: fields and TARSBOT_HOST", () => {
   assert.deepEqual(JSON.parse(child(show, {}).stdout), ["sprites", null, "/home/sprite", "/home/sprite/workspace", "127.0.0.1"]);
   const sp = child(show, { TARSBOT_SPRITE_NAME: "tars-x", TARSBOT_HOST: "0.0.0.0" });
   assert.deepEqual(JSON.parse(sp.stdout), ["sprites", "tars-x", "/home/sprite", "/home/sprite/workspace", "0.0.0.0"]);
+});
+
+test("e2b: env id is e2b:<name> and `~` resolves to /home/user", () => {
+  const code = `
+    const { SandboxEnv } = await import(${JSON.stringify(ENV_URL)});
+    const { config } = await import(${JSON.stringify(CONFIG_URL)});
+    const bash = async () => ({ stdout: "", stderr: "", exitCode: 0 });
+    const env = new SandboxEnv({ cwd: config.spaceCwd, bash, home: config.home });
+    console.log(JSON.stringify([env.id, config.spaceCwd, (await env.absolutePath("~")).value, (await env.absolutePath("~/n.txt")).value]));`;
+  const r = child(code, { TARSBOT_SANDBOX: "e2b" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), ["e2b:pi-cloud-agents", "/home/user/workspace", "/home/user", "/home/user/n.txt"]);
 });
 
 test("`~` resolves to /home/sprite and ids are sprites:<name>", () => {
@@ -472,7 +491,7 @@ const HOOKS = `
 import { registerHooks } from "node:module";
 globalThis.__resolved = [];
 globalThis.__cmds = [];
-const stub = (name) => "export async function " + name + "(c){ globalThis.__cmds.push([" + JSON.stringify(name) + ", c]); return { stdout: '', stderr: '', exitCode: 0 }; }";
+const stub = (name) => "export async function bash(c){ globalThis.__cmds.push([" + JSON.stringify(name) + ", c]); return { stdout: '', stderr: '', exitCode: 0 }; } export function info(){ return { sandbox: 'sprites', name: null }; }";
 registerHooks({
   resolve(spec, ctx, next) {
     if (/sandbox\\/sprites\\.mjs$/.test(spec)) {
@@ -517,9 +536,16 @@ test("spaceEnv() never loads @trycua/cua; bash goes to sprites.mjs", () => {
   assert.match(out.cmds.at(-1)[1], /cd '\/home\/sprite\/workspace'/);
 });
 
-test("spaceEnv() factory requires TARSBOT_SPRITE_NAME", () => {
+test("spaceEnv() factory requires TARSBOT_SPRITE_NAME on sprites only", () => {
   const code = `const { spaceEnv } = await import(${JSON.stringify(ENV_URL)}); spaceEnv()({});`;
   const r = child(code, {});
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /TARSBOT_SPRITE_NAME/);
+});
+
+test("spaceEnv() under e2b needs no sprite name", () => {
+  const code = `const { spaceEnv } = await import(${JSON.stringify(ENV_URL)}); const e = spaceEnv()({}); console.log(e.id, e.cwd)`;
+  const r = child(code, { TARSBOT_SANDBOX: "e2b" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "e2b:pi-cloud-agents /home/user/workspace");
 });

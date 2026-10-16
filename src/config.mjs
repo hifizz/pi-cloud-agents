@@ -15,18 +15,30 @@ if (existsSync(envFile) && !process.env.TARSBOT_NO_DOTENV) {
   }
 }
 
+/** Selectable sandboxes (TARSBOT_SANDBOX). The first is the default. */
+const SANDBOX_KINDS = ["sprites", "e2b"];
+
 /**
- * Sandbox settings. Sprites (Fly.io) is the only sandbox; TARSBOT_SANDBOX is ignored.
- * Pure: `config` below feeds it `process.env`.
+ * Sandbox settings, chosen by TARSBOT_SANDBOX (unset/empty -> sprites). Pure: `config` below feeds it `process.env`.
  */
 export function sandboxSettings(vars = process.env) {
-  const home = "/home/sprite";
-  return {
-    sandbox: "sprites",
-    spriteName: vars.TARSBOT_SPRITE_NAME || undefined,
-    home,
-    spaceCwd: `${home}/workspace`,
-  };
+  const sandbox = vars.TARSBOT_SANDBOX || "sprites";
+  if (sandbox === "e2b") {
+    const home = "/home/user";
+    return {
+      sandbox,
+      sandboxName: vars.TARSBOT_E2B_NAME || "pi-cloud-agents",
+      spriteName: undefined,
+      home,
+      spaceCwd: `${home}/workspace`,
+    };
+  }
+  if (sandbox === "sprites") {
+    const home = "/home/sprite";
+    const name = vars.TARSBOT_SPRITE_NAME || undefined;
+    return { sandbox, sandboxName: name, spriteName: name, home, spaceCwd: `${home}/workspace` };
+  }
+  throw new Error(`Unknown TARSBOT_SANDBOX "${sandbox}"; expected one of: ${SANDBOX_KINDS.join(", ")}`);
 }
 
 export const config = {

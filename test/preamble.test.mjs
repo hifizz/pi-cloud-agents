@@ -5,7 +5,8 @@ import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { openHarness, ctx } from "../src/harness.mjs";
 import { BotRegistry } from "../src/bots.mjs";
-import { Preamble, PREAMBLE, createPreamble } from "../src/ext/preamble.mjs";
+import { createHash } from "node:crypto";
+import { Preamble, PREAMBLE, createPreamble, preambleFor } from "../src/ext/preamble.mjs";
 
 const textOf = (m) => (typeof m.content === "string" ? m.content : m.content.map((c) => c.text ?? "").join(""));
 
@@ -36,6 +37,22 @@ test("sprites text: workflow, recovery checks and safety rules", () => {
   assert.doesNotMatch(t, /\b(?:ghp_|gho_|github_pat_)\w*/);
   assert.doesNotMatch(t, /xfce|desktop/i);
   assert.doesNotMatch(t, /\b\d+\.\d+\.\d+\b/, "no pinned tool versions");
+});
+
+test("preambleFor(sprites) is byte-identical to the pre-E2B text; e2b differs only in machine facts", () => {
+  // sha256 of the Sprites PREAMBLE as shipped before sandbox selection was added.
+  const sha = (t) => createHash("sha256").update(t).digest("hex");
+  assert.equal(sha(preambleFor("sprites")), "2651d52f1ff46e77bb55786777bc848fbb96b1a3b0e8cbe8c5a00a27687eea45");
+  const s = preambleFor("sprites");
+  const e = preambleFor("e2b");
+  assert.ok(e.includes('an E2B sandbox: Linux, user "user", HOME /home/user'));
+  assert.ok(e.includes("~/workspace (/home/user/workspace)"));
+  assert.ok(!/uutils/i.test(e) && /uutils/.test(s));
+  assert.doesNotMatch(e, /sprite/i);
+  for (const needle of ["Never print GH_TOKEN", "Never use --force", "main, master or dev", "stop that operation", "gh pr list --head", "Opened by TARSBot", "git log --oneline -5"]) {
+    assert.ok(e.includes(needle), `e2b missing: ${needle}`);
+  }
+  assert.throws(() => preambleFor("nope"), /Unknown sandbox/);
 });
 
 function fauxSystemCapture() {

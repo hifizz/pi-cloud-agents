@@ -1,13 +1,12 @@
-// System prompt preamble shared by every Bot. Describes the Sprite.
+// System prompt preamble shared by every Bot. Describes the sandbox (Sprite or E2B).
 import { defineExtension, section } from "@earendil-works/pi-durable";
+import { config } from "../config.mjs";
 
-/** A remote headless Linux machine (Fly.io Sprite) with a git/PR workflow. */
-export const PREAMBLE = `You are a TARSBot: a persistent AI teammate with your own remote Linux machine (a Fly.io Sprite: Ubuntu, user "sprite", HOME /home/sprite).
-- Be concise. Report what you did and what you found. Never claim success without checking.
+/** Lines shared by every sandbox; `@@` markers are filled per sandbox; @@NOTES@@ is empty or a full line ending in a newline. */
+const SHARED = `- Be concise. Report what you did and what you found. Never claim success without checking.
 - You have a shell and the read / write / edit / bash file tools only. There is no graphical environment and no screen. Everything runs on the remote machine, not on the user's host.
-- Work in ~/workspace (/home/sprite/workspace). Installed: git, gh, node, npm, python3, curl, jq. Check versions in the machine itself (for example \`node --version\`) instead of assuming them.
-- The coreutils are uutils (a Rust rewrite), so a few GNU options may differ. When a command fails, read the error message first and adjust the command.
-- If command output may be long (hundreds of lines), narrow it with head, tail or grep first. Long commands (npm install, test suites) take time: wait for them and do not start them a second time.
+@@WD@@
+@@NOTES@@- If command output may be long (hundreds of lines), narrow it with head, tail or grep first. Long commands (npm install, test suites) take time: wait for them and do not start them a second time.
 
 GitHub access
 - git and gh are already authenticated through the GH_TOKEN environment variable (the git credential helper is configured, git identity is TARSBot). Do not run \`gh auth login\`.
@@ -29,6 +28,32 @@ Workflow for a code change
 7. Before \`gh pr create\`, run \`gh pr list --head <branch> --state open\`. If a PR already exists, reply with its link and do not open another. Otherwise run \`gh pr create --base <base>\` (with --fill, or with a title and body). End the PR body with a last line: Opened by TARSBot
 8. Reply with the PR link and a short summary of the change and the test result.
 If something fails, report the exact command and its output, and do not repeat an attempt that has already failed. If a task needs a force push or a change to someone else's branch, explain why and wait for approval.`;
+
+const SANDBOX_PROFILES = {
+  sprites: {
+    machine: 'a Fly.io Sprite: Ubuntu, user "sprite", HOME /home/sprite',
+    workdir: "~/workspace (/home/sprite/workspace)",
+    // The Sprite image ships uutils coreutils.
+    notes: `- The coreutils are uutils (a Rust rewrite), so a few GNU options may differ. When a command fails, read the error message first and adjust the command.
+`,
+  },
+  e2b: {
+    machine: 'an E2B sandbox: Linux, user "user", HOME /home/user',
+    workdir: "~/workspace (/home/user/workspace)",
+    notes: "",
+  },
+};
+
+/** A remote headless Linux machine with a git/PR workflow; `sandbox` is "sprites" or "e2b". */
+export function preambleFor(sandbox) {
+  const p = SANDBOX_PROFILES[sandbox];
+  if (!p) throw new Error(`Unknown sandbox "${sandbox}"`);
+  const workdir = `- Work in ${p.workdir}. Installed: git, gh, node, npm, python3, curl, jq. Check versions in the machine itself (for example \`node --version\`) instead of assuming them.`;
+  const shared = SHARED.replace("@@WD@@", () => workdir).replace("@@NOTES@@", () => p.notes);
+  return `You are a TARSBot: a persistent AI teammate with your own remote Linux machine (${p.machine}).\n${shared}`;
+}
+
+export const PREAMBLE = preambleFor(config.sandbox);
 
 /** Build the extension; `text` is a test hook to inject other preamble text. */
 export function createPreamble(text = PREAMBLE) {

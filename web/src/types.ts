@@ -160,6 +160,7 @@ export type StreamStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 /** GET /api/space. */
 export interface SpaceInfo {
-  sandbox: "sprites";
+  sandbox: "sprites" | "e2b";
   name: string | null;
+  cwd?: string;
 }

@@ -256,7 +256,7 @@ test("route plugins, HttpError, params and query", async () => {
 // ── /api/space and the sandbox mode (S2-runtime-ui) ──────────────────────────────────────────────────────────────
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-test("GET /api/space returns { sandbox, name }", async () => {
+test("GET /api/space returns { sandbox, name, cwd }", async () => {
   const { register } = await import("../src/routes/space.mjs");
   const prev = process.env.TARSBOT_SPRITE_NAME;
   process.env.TARSBOT_SPRITE_NAME = "tars-test";
@@ -264,7 +264,7 @@ test("GET /api/space returns { sandbox, name }", async () => {
   try {
     const r = await j(t.base, "GET", "/api/space");
     assert.equal(r.status, 200);
-    assert.deepEqual(r.body, { sandbox: "sprites", name: "tars-test" });
+    assert.deepEqual(r.body, { sandbox: "sprites", name: "tars-test", cwd: "/home/sprite/workspace" });
   } finally {
     if (prev === undefined) delete process.env.TARSBOT_SPRITE_NAME;
     else process.env.TARSBOT_SPRITE_NAME = prev;
@@ -297,7 +297,9 @@ test("production extensions and route plugins (no Desktop extension)", () => {
   const dataDir = mkdtempSync(join(tmpdir(), "api-routes-"));
   try {
     const out = child(LOAD_CODE, { TARSBOT_SPRITE_NAME: "tars-test", TARSBOT_DATA_DIR: dataDir });
-    assert.deepEqual(out.body, { sandbox: "sprites", name: "tars-test" });
+    assert.deepEqual(out.body, { sandbox: "sprites", name: "tars-test", cwd: "/home/sprite/workspace" });
+    const e2b = child(LOAD_CODE, { TARSBOT_SANDBOX: "e2b", TARSBOT_DATA_DIR: dataDir });
+    assert.deepEqual(e2b.body, { sandbox: "e2b", name: "pi-cloud-agents", cwd: "/home/user/workspace" });
     assert.deepEqual(out.exts, ["tarsbot.preamble", "coding-tools", "tarsbot.search", "tarsbot.history", "tarsbot.routines", "tarsbot.approval", "tarsbot.timing"]);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });

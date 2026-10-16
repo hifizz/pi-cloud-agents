@@ -1,19 +1,20 @@
 // ExecutionEnv adapter: pi-durable's FileSystem + Shell implemented on top of a remote Linux sandbox.
-// The sandbox is a Fly Sprite (see ./sandbox/<provider>.mjs).
+// The sandbox (Fly Sprite or E2B, chosen by TARSBOT_SANDBOX) lives in ./sandbox/<provider>.mjs.
 // Everything goes through one primitive, `bash(command, {timeoutMs}) -> {stdout, stderr, exitCode, timedOut}`
-// (default: spritesBash from ./sandbox/sprites.mjs, loaded lazily;
+// (default: `bash` of the configured sandbox via loadSandbox(), loaded lazily;
 // non-streaming `/bin/sh -c`). Binary data travels as base64.
 // Methods never throw; they return Result values (FileError / ExecutionError).
 import { posix } from "node:path";
 import { ExecutionError, FileError, LineScanner, err, ok } from "@earendil-works/pi-durable/env";
 import { config } from "./config.mjs";
+import { loadSandbox } from "./sandbox/index.mjs";
 
 /** Largest file `openBinaryReader` loads into memory. */
 export const MAX_READER_BYTES = 32 * 1024 * 1024;
 /**
- * Raw bytes per write command. A Sprite exec puts the whole command into a WebSocket URL (limit ~64,000 chars after
- * percent-encoding; base64 `+ / =` grow 3x), so 12 KiB raw (16 KB base64, <= ~49 KB encoded even for adversarial data)
- * is safe on both sandboxes.
+ * Raw bytes per write command. The tightest limit is Sprites: an exec puts the whole command into a WebSocket URL
+ * (limit ~64,000 chars after percent-encoding; base64 `+ / =` grow 3x), so 12 KiB raw (16 KB base64, <= ~49 KB
+ * encoded even for adversarial data) is safe on every sandbox.
  */
 export const WRITE_CHUNK_BYTES = 12 * 1024;
 const DEFAULT_HOME = config.home;
@@ -99,15 +100,15 @@ function parseStat(path, line) {
 const requireDir = (dir) =>
   `if [ ! -d ${q(dir)} ]; then if [ -e ${q(dir)} ]; then echo 'Not a directory' >&2; else echo 'No such file or directory' >&2; fi; exit 1; fi`;
 
-/** Run `command` in the sandbox (the Sprite module is loaded lazily). */
+/** Run `command` in the configured sandbox (its module is loaded lazily). */
 async function defaultBash(command, options) {
-  const { spritesBash } = await import("./sandbox/sprites.mjs");
-  return spritesBash(command, options);
+  const { bash } = await loadSandbox();
+  return bash(command, options);
 }
 
 /** Env id for the sandbox: equal ids see the same files. */
 function defaultEnvId() {
-  return `sprites:${config.spriteName ?? "default"}`;
+  return `${config.sandbox}:${config.sandboxName ?? "default"}`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -234,7 +235,7 @@ class NamesDirReader {
 // Environment
 
 export class SandboxEnv {
-  /** Equal ids see the same files: every SandboxEnv talks to the one shared sandbox (`sprites:<name>`). */
+  /** Equal ids see the same files: every SandboxEnv talks to the one shared sandbox (`<sandbox>:<name>`). */
   id;
   cwd;
   #bash;
@@ -250,7 +251,7 @@ export class SandboxEnv {
    * @param {(command: string, o: {timeoutMs?: number}) => Promise<{stdout: string, stderr: string, exitCode?: number, timedOut?: boolean}>} [opts.bash]
    * @param {string|null} [opts.shell] program that runs string commands (`-c`); default /bin/bash (LLM commands use bashisms). null = plain sh.
    * @param {string} [opts.home] sandbox home that `~` resolves to (default `config.home`)
-   * @param {string} [opts.id] default: `sprites:<TARSBOT_SPRITE_NAME>`
+   * @param {string} [opts.id] default: `<sandbox>:<sandbox name>`, e.g. `sprites:<TARSBOT_SPRITE_NAME>`
    */
   constructor({ cwd, bash = defaultBash, shell = "/bin/bash", home = DEFAULT_HOME, id, fsTimeoutMs, watchIntervalMs } = {}) {
     if (typeof cwd !== "string" || !cwd) throw new TypeError("SandboxEnv requires a cwd");
@@ -667,7 +668,7 @@ export class SandboxEnv {
 
 /**
  * Harness `env` factory: `({cwd, conversationId}) => ExecutionEnv` bound to the shared sandbox
- * (the Sprite). `config.spaceCwd` is created on first use.
+ * (the Sprite or the E2B sandbox). `config.spaceCwd` is created on first use.
  */
 export function spaceEnv() {
   const ensured = new Map();
@@ -684,7 +685,7 @@ export function spaceEnv() {
   };
   return ({ cwd } = {}) => {
     const dir = cwd ?? config.spaceCwd;
-    if (!config.spriteName) throw new Error("TARSBOT_SPRITE_NAME is required");
+    if (config.sandbox === "sprites" && !config.spriteName) throw new Error("TARSBOT_SPRITE_NAME is required");
     return new SandboxEnv({
       cwd: dir,
       id: defaultEnvId(),
