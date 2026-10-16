@@ -54,7 +54,7 @@ cd web && npm run typecheck                       # 前端类型检查
 
 fly deploy                                        # 手动部署（push main 也会经 Fly GitHub 集成自动部署）
 fly logs                                          # 线上日志
-fly ssh console -C "node scripts/set-password.mjs <email>"   # 线上设置密码
+fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --regid=node --init-groups node /app/scripts/set-password.mjs <email>
 ```
 
 ## 开发规则

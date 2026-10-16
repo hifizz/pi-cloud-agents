@@ -19,7 +19,9 @@ fly deploy --app pi-cloud-agents                         # 同时发布已暂存
 fly scale count 1 --app pi-cloud-agents                  # 确认只有 1 台
 fly certs add pi.zilin.im --app pi-cloud-agents          # 然后在 Cloudflare 手动加 DNS 记录（DNS only）
 fly certs show pi.zilin.im --app pi-cloud-agents
-fly ssh console --app pi-cloud-agents -C "node scripts/set-password.mjs <email>"
+fly ssh console --app pi-cloud-agents
+# 进入后以 node 用户执行（以 root 执行可能让 /data 下 sqlite 的 -wal/-shm 变成 root 所有，server 将无法写入）：
+setpriv --reuid=node --regid=node --init-groups node /app/scripts/set-password.mjs <email>
 ```
 
 Google OAuth 客户端创建后补充：把 `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` 写入本地 `.env`，再运行 `scripts/fly-secrets.sh` 和 `fly deploy`。回调地址：`https://pi.zilin.im/api/auth/google/callback`。
