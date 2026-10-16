@@ -5,10 +5,10 @@
 //   sprite-exec.mjs exec [--timeout-ms N] <command>   stdout/stderr of the command; exit code = command's (124 on timeout, 125 on SDK error)
 //   sprite-exec.mjs status                            prints the platform status field (cold|warm|running|...) of the Sprite
 //
-// Safety: refuses to run unless TARSBOT_SPRITE_NAME is exactly "tarsbot-dev". Everything printed is scrubbed of secrets.
+// Safety: refuses to run unless TARSBOT_SPRITE_NAME is exactly "pi-cloud-agents". Everything printed is scrubbed of secrets.
 import { spritesBash } from "../src/sandbox/sprites.mjs";
 
-const NAME = "tarsbot-dev";
+const NAME = "pi-cloud-agents";
 if (process.env.TARSBOT_SPRITE_NAME !== NAME) {
   console.error(`refusing to run: TARSBOT_SPRITE_NAME must be exactly "${NAME}"`);
   process.exit(2);

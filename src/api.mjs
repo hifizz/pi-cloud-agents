@@ -1,8 +1,13 @@
 // HTTP + WebSocket API (spec I01). Node `http` + `ws`, hand-written minimal router.
-// SECURITY: there is no authentication. The server is meant to bind to 127.0.0.1 only.
+// SECURITY: this file itself does no authentication. Authentication is a route plugin (src/routes/auth.mjs) that
+// installs a global guard via `app.guard(fn)`; without it (e.g. bare createApi in tests) the API is open, so only bind
+// such a server to 127.0.0.1.
 //
 // Route plugins: `routes` is an array of `register(app)` functions (or modules exporting `register`), called after the
-// built-in routes. `app` offers get/post/ws, and `app.ctx = {harness, bots}`.
+// built-in routes. `app` offers get/post/ws/guard, and `app.ctx = {harness, bots}`.
+// `app.guard(fn)`: fn(req, {kind: "http" | "ws", path}) may be async; it returns normally to allow, or throws
+// HttpError (HTTP: JSON error with that status; WS: 401 and the socket is destroyed). HTTP guards run before route
+// matching for every /api/* request; WS guards run on every upgrade. Static files are never guarded.
 //
 // Bot "busy"/"queued" come from the Bot's conversation view state (`conv.viewState()`):
 //   busy   = docs["pi.live"].run is present  (a run is active, see LiveState.run)
@@ -110,8 +115,13 @@ export function createApi({ harness, bots, routes = [], staticDir } = {}) {
   const httpRoutes = [];
   const wsRoutes = [];
   const sockets = new Set();
+  const guards = [];
 
   const app = {
+    guard: (fn) => {
+      if (typeof fn !== "function") throw new Error("guard must be a function");
+      guards.push(fn);
+    },
     ctx: { harness, bots },
     get: (path, handler) => httpRoutes.push({ method: "GET", ...compilePath(path), handler }),
     post: (path, handler) => httpRoutes.push({ method: "POST", ...compilePath(path), handler }),
@@ -335,6 +345,9 @@ export function createApi({ harness, bots, routes = [], staticDir } = {}) {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       const path = url.pathname;
+      if (guards.length && path.startsWith("/api/")) {
+        for (const g of guards) await g(req, { kind: "http", path });
+      }
       const hit = matchRoute(
         httpRoutes.filter((r) => r.method === req.method),
         path,
@@ -360,8 +373,19 @@ export function createApi({ harness, bots, routes = [], staticDir } = {}) {
   });
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
-  server.on("upgrade", (req, socket, head) => {
+  const refuse = (socket, line) => {
+    socket.write(`HTTP/1.1 ${line}\r\nConnection: close\r\n\r\n`);
+    socket.destroy();
+  };
+  server.on("upgrade", async (req, socket, head) => {
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (guards.length) {
+      try {
+        for (const g of guards) await g(req, { kind: "ws", path: url.pathname });
+      } catch {
+        return refuse(socket, "401 Unauthorized");
+      }
+    }
     const hit = matchRoute(wsRoutes, url.pathname);
     if (!hit) {
       socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");

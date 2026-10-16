@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, api } from "./lib/api";
+import { ApiError, api, auth } from "./lib/api";
 import { useBotStream } from "./hooks/useBotStream";
 import { BotList } from "./components/BotList";
-import { DesktopPane } from "./components/DesktopPane";
+import { EnvironmentPane } from "./components/EnvironmentPane";
 import { UsageBadge } from "./components/UsageBadge";
 import { ApprovalBar } from "./components/ApprovalBar";
 import { ForkDialog } from "./components/ForkDialog";
@@ -15,7 +15,7 @@ import type { BotSummary, ForkInput, NewBotInput } from "./types";
 const headerBtn =
   "rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-sky-400 disabled:opacity-40";
 
-export default function App() {
+export default function App({ email, onLoggedOut }: { email?: string; onLoggedOut?: () => void } = {}) {
   const [bots, setBots] = useState<BotSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | undefined>(() => globalThis.localStorage?.getItem("tarsbot.bot") ?? undefined);
   const [error, setError] = useState<string>();
@@ -133,6 +133,22 @@ export default function App() {
           >
             Reset
           </button>
+          {email && (
+            <div className="flex items-center gap-2 border-l border-zinc-800 pl-3">
+              <span className="max-w-48 truncate text-xs text-zinc-400" title={email}>
+                {email}
+              </span>
+              <button
+                type="button"
+                className={headerBtn}
+                onClick={() => {
+                  void auth.logout().catch(() => {}).finally(() => onLoggedOut?.());
+                }}
+              >
+                退出
+              </button>
+            </div>
+          )}
         </header>
 
         <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />
@@ -167,7 +183,7 @@ export default function App() {
         )}
       </main>
 
-      <DesktopPane />
+      <EnvironmentPane />
 
       {bot && forkAt !== undefined && (
         <ForkDialog

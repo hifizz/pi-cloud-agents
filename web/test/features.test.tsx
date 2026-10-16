@@ -58,7 +58,7 @@ describe("reducer: entryId", () => {
 describe("ApprovalBar", () => {
   const items: ApprovalItem[] = [
     { taskId: "41", conversationId: "2", toolName: "bash", args: { command: "rm -rf /tmp/x" }, reason: "recursive force delete (rm -rf)" },
-    { taskId: "42", conversationId: "2", toolName: "desktop_click", args: { x: 1, y: 2 }, reason: "matches tool name" },
+    { taskId: "42", conversationId: "2", toolName: "write", args: { x: 1, y: 2 }, reason: "matches tool name" },
   ];
 
   it("renders nothing without items", () => {

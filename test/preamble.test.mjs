@@ -5,31 +5,12 @@ import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { openHarness, ctx } from "../src/harness.mjs";
 import { BotRegistry } from "../src/bots.mjs";
-import { config } from "../src/config.mjs";
-import { Preamble, PREAMBLE, PREAMBLE_CUA, PREAMBLE_SPRITES, createPreamble, preambleFor } from "../src/ext/preamble.mjs";
-
-/** The cua text exactly as it was before sprites mode existed. */
-const ORIGINAL_CUA = `You are a TARSBot: a persistent AI teammate with your own Linux computer (an XFCE desktop container shared with the user's other bots).
-- Be concise. Report what you did and what you found.
-- Shell and file tools run inside your computer, not on the user's host.
-- For desktop work, prefer accessibility-tree element tokens over pixel coordinates; take a screenshot to verify results.
-- Never claim success without checking.`;
+import { Preamble, PREAMBLE, createPreamble } from "../src/ext/preamble.mjs";
 
 const textOf = (m) => (typeof m.content === "string" ? m.content : m.content.map((c) => c.text ?? "").join(""));
 
-test("cua text is verbatim the original preamble", () => {
-  assert.equal(PREAMBLE_CUA, ORIGINAL_CUA);
-  assert.equal(PREAMBLE, ORIGINAL_CUA);
-});
-
-test("preambleFor picks the text for each sandbox", () => {
-  assert.equal(preambleFor("cua"), PREAMBLE_CUA);
-  assert.equal(preambleFor("sprites"), PREAMBLE_SPRITES);
-  assert.notEqual(PREAMBLE_CUA, PREAMBLE_SPRITES);
-});
-
 test("sprites text: workflow, recovery checks and safety rules", () => {
-  const t = PREAMBLE_SPRITES;
+  const t = PREAMBLE;
   for (const needle of [
     "gh pr list --head",
     "--state open",
@@ -57,11 +38,6 @@ test("sprites text: workflow, recovery checks and safety rules", () => {
   assert.doesNotMatch(t, /\b\d+\.\d+\.\d+\b/, "no pinned tool versions");
 });
 
-test("cua text keeps its desktop description", () => {
-  assert.match(PREAMBLE_CUA, /XFCE desktop/);
-  assert.doesNotMatch(PREAMBLE_CUA, /GH_TOKEN|gh pr/);
-});
-
 function fauxSystemCapture() {
   const seen = [];
   const f = fauxProvider();
@@ -82,27 +58,24 @@ function fauxSystemCapture() {
   return { models, seen, model: { provider: "faux", modelId: "faux-1" } };
 }
 
-for (const sandbox of ["sprites", "cua"]) {
-  test(`harness system prompt carries the ${sandbox} preamble`, async () => {
-    const { models, seen, model } = fauxSystemCapture();
-    const { harness } = await openHarness({ storage: new MemoryStorage(), models, extensions: [createPreamble(() => sandbox)] });
-    try {
-      const bots = new BotRegistry(harness, { path: null });
-      const bot = await bots.createBot({ name: `p-${sandbox}`, model });
-      const conv = await bots.conversation(bot.id);
-      const settled = await (await conv.submit({ type: "input", content: "hi" }, ctx)).wait(ctx);
-      assert.equal(settled.status, "done");
-      assert.equal(seen.length, 1);
-      const other = sandbox === "sprites" ? PREAMBLE_CUA : PREAMBLE_SPRITES;
-      assert.ok(seen[0].includes(preambleFor(sandbox)), "system prompt contains the preamble text");
-      assert.ok(!seen[0].includes(other), "and not the other mode's text");
-    } finally {
-      await harness.close(ctx);
-    }
-  });
-}
+test("harness system prompt carries the injected preamble text", async () => {
+  const { models, seen, model } = fauxSystemCapture();
+  const { harness } = await openHarness({ storage: new MemoryStorage(), models, extensions: [createPreamble("CUSTOM PREAMBLE TEXT")] });
+  try {
+    const bots = new BotRegistry(harness, { path: null });
+    const bot = await bots.createBot({ name: "p-custom", model });
+    const conv = await bots.conversation(bot.id);
+    const settled = await (await conv.submit({ type: "input", content: "hi" }, ctx)).wait(ctx);
+    assert.equal(settled.status, "done");
+    assert.equal(seen.length, 1);
+    assert.ok(seen[0].includes("CUSTOM PREAMBLE TEXT"));
+    assert.ok(!seen[0].includes(PREAMBLE));
+  } finally {
+    await harness.close(ctx);
+  }
+});
 
-test("default Preamble uses config.sandbox in the harness", async () => {
+test("default Preamble carries PREAMBLE in the harness", async () => {
   const { models, seen, model } = fauxSystemCapture();
   const { harness } = await openHarness({ storage: new MemoryStorage(), models, extensions: [Preamble] });
   try {
@@ -110,7 +83,7 @@ test("default Preamble uses config.sandbox in the harness", async () => {
     const bot = await bots.createBot({ name: "p-default", model });
     const conv = await bots.conversation(bot.id);
     await (await conv.submit({ type: "input", content: "hi" }, ctx)).wait(ctx);
-    assert.ok(seen[0].includes(preambleFor(config.sandbox)));
+    assert.ok(seen[0].includes(PREAMBLE));
   } finally {
     await harness.close(ctx);
   }

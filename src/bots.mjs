@@ -7,7 +7,7 @@ import { config, defaultModel } from "./config.mjs";
 import { ctx } from "./harness.mjs";
 
 /** Tools a read-only fork (REQ-F07) may keep, by name. */
-export const READ_ONLY_TOOLS = ["read", "desktop_screenshot", "desktop_elements", "desktop_windows", "web_search", "search_history"];
+export const READ_ONLY_TOOLS = ["read", "web_search", "search_history"];
 
 export class BotRegistry {
   /** @param {any} harness @param {{ path?: string|null }} [opts] path=null keeps the registry in memory */

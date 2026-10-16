@@ -29,7 +29,6 @@ export async function main() {
   const api = createApi({ harness, bots, staticDir: join(ROOT, "web", "dist"), routes: await loadRoutes() });
   const { port } = await api.listen(config.port, config.host);
   console.log(`TARSBot listening on http://${config.host}:${port}`);
-  console.log("WARNING: API has no authentication; bound to 127.0.0.1 only");
 
   let closing = false;
   const shutdown = async (signal) => {

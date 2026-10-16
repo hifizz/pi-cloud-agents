@@ -1,9 +1,8 @@
 // ExecutionEnv adapter: pi-durable's FileSystem + Shell implemented on top of a remote Linux sandbox.
-// The sandbox is chosen by `config.sandbox`: a Cua Space (`cua`, default) or a Fly Sprite (`sprites`).
-// The class is still called `CuaEnv` for historical reasons; it serves both sandboxes.
+// The sandbox is a Fly Sprite (see ./sandbox/<provider>.mjs).
 // Everything goes through one primitive, `bash(command, {timeoutMs}) -> {stdout, stderr, exitCode, timedOut}`
-// (default: spaceBash from ./space.mjs for `cua`, spritesBash from ./sandbox/sprites.mjs for `sprites`; both are
-// non-streaming `/bin/sh -c`). The module of the other sandbox is never imported. Binary data travels as base64.
+// (default: spritesBash from ./sandbox/sprites.mjs, loaded lazily;
+// non-streaming `/bin/sh -c`). Binary data travels as base64.
 // Methods never throw; they return Result values (FileError / ExecutionError).
 import { posix } from "node:path";
 import { ExecutionError, FileError, LineScanner, err, ok } from "@earendil-works/pi-durable/env";
@@ -48,7 +47,7 @@ export function mapFileError(stderr, path) {
   return new FileError(code, text || "command failed", path);
 }
 
-/** POSIX path resolution relative to `cwd`; `~` means the Space home. */
+/** POSIX path resolution relative to `cwd`; `~` means the sandbox home. */
 export function resolvePath(cwd, path, home = DEFAULT_HOME) {
   let p = String(path);
   if (p === "~") p = home;
@@ -100,19 +99,15 @@ function parseStat(path, line) {
 const requireDir = (dir) =>
   `if [ ! -d ${q(dir)} ]; then if [ -e ${q(dir)} ]; then echo 'Not a directory' >&2; else echo 'No such file or directory' >&2; fi; exit 1; fi`;
 
-/** Run `command` in the configured sandbox. Only the selected sandbox's module is ever loaded. */
+/** Run `command` in the sandbox (the Sprite module is loaded lazily). */
 async function defaultBash(command, options) {
-  if (config.sandbox === "sprites") {
-    const { spritesBash } = await import("./sandbox/sprites.mjs");
-    return spritesBash(command, options);
-  }
-  const { spaceBash } = await import("./space.mjs");
-  return spaceBash(command, options);
+  const { spritesBash } = await import("./sandbox/sprites.mjs");
+  return spritesBash(command, options);
 }
 
-/** Env id for the configured sandbox: equal ids see the same files. */
+/** Env id for the sandbox: equal ids see the same files. */
 function defaultEnvId() {
-  return config.sandbox === "sprites" ? `sprites:${config.spriteName ?? "default"}` : "cua:main";
+  return `sprites:${config.spriteName ?? "default"}`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -238,8 +233,8 @@ class NamesDirReader {
 // ---------------------------------------------------------------------------------------------------------------
 // Environment
 
-export class CuaEnv {
-  /** Equal ids see the same files: every CuaEnv talks to the one shared sandbox (`cua:main` or `sprites:<name>`). */
+export class SandboxEnv {
+  /** Equal ids see the same files: every SandboxEnv talks to the one shared sandbox (`sprites:<name>`). */
   id;
   cwd;
   #bash;
@@ -255,10 +250,10 @@ export class CuaEnv {
    * @param {(command: string, o: {timeoutMs?: number}) => Promise<{stdout: string, stderr: string, exitCode?: number, timedOut?: boolean}>} [opts.bash]
    * @param {string|null} [opts.shell] program that runs string commands (`-c`); default /bin/bash (LLM commands use bashisms). null = plain sh.
    * @param {string} [opts.home] sandbox home that `~` resolves to (default `config.home`)
-   * @param {string} [opts.id] default: `cua:main`, or `sprites:<TARSBOT_SPRITE_NAME>` in sprites mode
+   * @param {string} [opts.id] default: `sprites:<TARSBOT_SPRITE_NAME>`
    */
   constructor({ cwd, bash = defaultBash, shell = "/bin/bash", home = DEFAULT_HOME, id, fsTimeoutMs, watchIntervalMs } = {}) {
-    if (typeof cwd !== "string" || !cwd) throw new TypeError("CuaEnv requires a cwd");
+    if (typeof cwd !== "string" || !cwd) throw new TypeError("SandboxEnv requires a cwd");
     this.id = id ?? defaultEnvId();
     this.cwd = cwd;
     this.#bash = bash;
@@ -285,7 +280,7 @@ export class CuaEnv {
       return err(new FileError("unknown", cause.message, path, cause));
     }
     if (signal?.aborted) return abortedFile(path);
-    if (r.timedOut) return err(new FileError("unknown", "Space command timed out", path));
+    if (r.timedOut) return err(new FileError("unknown", "Sandbox command timed out", path));
     if (r.exitCode !== 0) return err(mapFileError(r.stderr || `exit ${r.exitCode ?? "signal"}`, path));
     return ok({ stdout: r.stdout ?? "", stderr: r.stderr ?? "" });
   }
@@ -672,7 +667,7 @@ export class CuaEnv {
 
 /**
  * Harness `env` factory: `({cwd, conversationId}) => ExecutionEnv` bound to the shared sandbox
- * (Cua Space or Sprite, per `config.sandbox`). `config.spaceCwd` is created on first use.
+ * (the Sprite). `config.spaceCwd` is created on first use.
  */
 export function spaceEnv() {
   const ensured = new Map();
@@ -689,8 +684,8 @@ export function spaceEnv() {
   };
   return ({ cwd } = {}) => {
     const dir = cwd ?? config.spaceCwd;
-    if (config.sandbox === "sprites" && !config.spriteName) throw new Error("TARSBOT_SANDBOX=sprites requires TARSBOT_SPRITE_NAME");
-    return new CuaEnv({
+    if (!config.spriteName) throw new Error("TARSBOT_SPRITE_NAME is required");
+    return new SandboxEnv({
       cwd: dir,
       id: defaultEnvId(),
       home: config.home,

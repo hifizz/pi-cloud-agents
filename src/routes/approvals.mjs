@@ -2,7 +2,7 @@
 //   GET  /api/approvals            → pending approvals [{taskId, conversationId, toolName, args, reason, requestedAt}]
 //   POST /api/approvals/:taskId    {approved: boolean} → {ok: true}; 404 when not pending
 //   WS   /api/approvals/stream     → {type:"approvals", items} on connect and after every change
-// SECURITY: like the rest of the API there is no authentication; the server binds to 127.0.0.1 only.
+// SECURITY: this plugin does no authentication itself; the global guard from routes/auth.mjs (app.guard) protects it.
 import { HttpError } from "../api.mjs";
 import { approvals } from "../ext/approval.mjs";
 

@@ -208,7 +208,7 @@ test("isDangerous: safe commands and tools pass", () => {
   }
   assert.equal(isDangerous({ name: "read", arguments: { command: "rm -rf /" } }), undefined, "only the bash tool is scanned");
   assert.equal(isDangerous({ name: "bash", arguments: {} }), undefined);
-  assert.equal(isDangerous({ name: "desktop_click", arguments: {} }), undefined);
+  assert.equal(isDangerous({ name: "read", arguments: {} }), undefined);
 });
 
 test("isDangerous: tool-name set", () => {

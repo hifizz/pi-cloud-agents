@@ -1,6 +1,5 @@
 // Tool renderer registry: tool name -> how it looks in the feed.
 // Built-in tools live in ./builtin/*; custom extensions call `registerTool` (e.g. from a plugin module).
-import { desktopTools } from "./builtin/desktop";
 import { editTool, readTool, writeTool } from "./builtin/files";
 import { genericTool } from "./builtin/generic";
 import { bashTool } from "./builtin/shell";
@@ -15,7 +14,6 @@ const registry = new Map<string, ToolRenderer>(
     edit: editTool,
     web_search: webSearchTool,
     search_history: searchHistoryTool,
-    ...desktopTools,
   }),
 );
 

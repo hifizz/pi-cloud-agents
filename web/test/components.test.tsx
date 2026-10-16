@@ -68,7 +68,7 @@ describe("MessageList", () => {
           {
             id: "a",
             role: "assistant",
-            parts: [{ type: "tool", id: "x", name: "desktop_screenshot", args: {}, status: "done", output: "", images: [{ type: "image", data: "AAAA", mimeType: "image/png" }] }],
+            parts: [{ type: "tool", id: "x", name: "slow_shot", args: {}, status: "done", output: "", images: [{ type: "image", data: "AAAA", mimeType: "image/png" }] }],
           },
         ]}
       />,

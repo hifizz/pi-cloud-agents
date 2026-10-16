@@ -18,7 +18,7 @@ describe("tool registry", () => {
   it("resolves built-ins, namespaced names and falls back to generic", () => {
     expect(resolveTool("bash").title).toBe("Shell");
     expect(resolveTool("mcp__fs__read").title).toBe("Read");
-    expect(resolveTool("desktop_click").title).toBe("Click");
+    expect(resolveTool("write").title).toBe("Write");
     expect(resolveTool("totally_new").title).toBe("totally_new");
   });
   it("lets extensions register a renderer", () => {

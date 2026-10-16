@@ -1,5 +1,5 @@
-// Sprites (Fly.io) shell primitive: `bash(command, {timeoutMs}) -> {stdout, stderr, exitCode, timedOut}`, the same shape
-// as spaceBash(), so CuaEnv can run on top of it. Behaviour is dictated by the measurements in docs/sprites-probe.md:
+// Sprites (Fly.io) shell primitive: `bash(command, {timeoutMs}) -> {stdout, stderr, exitCode, timedOut}`; SandboxEnv runs
+// on top of it (alias `bash`/`info` below). Behaviour is dictated by the measurements in docs/sprites-probe.md:
 //  - Uses sprite.spawn(); execFile() rejects on non-zero exit and never closes stdin, exec() splits on spaces.
 //  - The remote command is delayed by `sleep` (startDelaySec): a command that prints >64 KB immediately after start
 //    randomly loses ALL output on the platform side (connection closes ~11 s later with no exit status).
@@ -268,3 +268,6 @@ export async function spritesBash(command, { timeoutMs } = {}) {
 export function getSpriteInfo() {
   return { sandbox: "sprites", name: process.env.TARSBOT_SPRITE_NAME || null };
 }
+
+/** Provider interface (docs/CLOUD-PLAN.md §3): `bash` and `info`. */
+export { spritesBash as bash, getSpriteInfo as info };

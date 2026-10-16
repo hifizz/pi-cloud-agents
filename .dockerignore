@@ -1,0 +1,14 @@
+.env
+.env.*
+data
+logs
+node_modules
+web/node_modules
+web/dist
+.git
+docs/acceptance
+vendor-ref
+scratch
+bench
+*.log
+.DS_Store

@@ -13,7 +13,7 @@ const PREVIEW_CHARS = 2000;
 // ---- rules ----------------------------------------------------------------------------------------------------------
 
 // Git / GitHub policy: pushing your own branch and opening a PR is allowed without asking; anything that can destroy an
-// existing PR or existing code needs a human. Applies to every sandbox mode (cua and sprites alike).
+// existing PR or existing code needs a human. Applies to every Bot.
 //
 // Known limits (documented on purpose):
 //  - A bare `git push` (no refspec) cannot be judged: its upstream may be `dev` or `main`. The test repository has no

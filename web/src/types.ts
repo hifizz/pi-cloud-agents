@@ -158,10 +158,8 @@ export interface ConversationVM {
 
 export type StreamStatus = "connecting" | "open" | "reconnecting" | "closed";
 
-/** GET /api/space. `sandbox` is absent on older servers (treated as "cua"). */
+/** GET /api/space. */
 export interface SpaceInfo {
-  sandbox?: "cua" | "sprites";
-  /** Cua Space name, or the Sprite name. */
-  name?: string;
-  viewerUrl?: string;
+  sandbox: "sprites";
+  name: string | null;
 }

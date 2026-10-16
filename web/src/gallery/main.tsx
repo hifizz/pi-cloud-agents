@@ -7,8 +7,6 @@ import type { ChatMessage, ToolPart } from "../types";
 import "../index.css";
 
 const T0 = Date.now() - 95_000;
-const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="#27272a"/><rect x="0" y="0" width="640" height="28" fill="#3f3f46"/><text x="24" y="120" fill="#a1a1aa" font-size="28" font-family="sans-serif">desktop screenshot</text></svg>`;
-const PNG = btoa(SVG);
 
 const tool = (id: string, name: string, args: Record<string, unknown>, output = "", extra: Partial<ToolPart> = {}): ToolPart => ({
   type: "tool",
@@ -32,17 +30,12 @@ const settled: ChatMessage[] = [
       { type: "thinking", text: "I should search first, then look at the page, then edit README.md." },
       { type: "text", text: "On it — I'll **search**, look at the page, then update the README." },
       tool("s1", "web_search", { query: "pi durable install" }, "1. Pi Durable — install\n   https://pi.dev/docs/install\n   Published: 2026-05-01\n   Install with npm i @earendil-works/pi-durable and open a harness.\n\n2. Examples\n   https://github.com/earendil-works/examples\n   Sample projects."),
-      tool("d1", "desktop_launch", { name: "chromium", urls: ["https://pi.dev/docs/install"] }, "launched pid 4242"),
-      tool("d2", "desktop_screenshot", {}, "", { images: [{ type: "image", data: PNG, mimeType: "image/svg+xml" }] }),
-      tool("d3", "desktop_click", { pid: 4242, element_token: "s00000001:13" }, "clicked"),
-      tool("d4", "desktop_type", { pid: 4242, text: "npm install" }, "typed"),
-      tool("d5", "desktop_key", { keys: ["ctrl", "l"] }, "key sent"),
-      tool("r1", "read", { path: "/home/cua/project/README.md", offset: 1, limit: 40 }, "# Project\n\nOld install steps\n"),
-      tool("b1", "bash", { command: "cd /home/cua/project && git status --short\nnpm test" }, "M README.md\n\n> test\nall 12 tests passed"),
-      tool("e1", "edit", { path: "/home/cua/project/README.md", edits: [{ oldText: "Old install steps", newText: "npm i @earendil-works/pi-durable" }] }, "Successfully replaced 1 block(s) in /home/cua/project/README.md.", {
+      tool("r1", "read", { path: "/home/sprite/workspace/project/README.md", offset: 1, limit: 40 }, "# Project\n\nOld install steps\n"),
+      tool("b1", "bash", { command: "cd /home/sprite/workspace/project && git status --short\nnpm test" }, "M README.md\n\n> test\nall 12 tests passed"),
+      tool("e1", "edit", { path: "/home/sprite/workspace/project/README.md", edits: [{ oldText: "Old install steps", newText: "npm i @earendil-works/pi-durable" }] }, "Successfully replaced 1 block(s) in /home/sprite/workspace/project/README.md.", {
         details: { diff: " 1 # Project\n 2 \n-3 Old install steps\n+3 npm i @earendil-works/pi-durable\n 4 " },
       }),
-      tool("w1", "write", { path: "/home/cua/project/INSTALL.md", content: "# Install\n\n```sh\nnpm i @earendil-works/pi-durable\n```\n" }, "Wrote 54 bytes"),
+      tool("w1", "write", { path: "/home/sprite/workspace/project/INSTALL.md", content: "# Install\n\n```sh\nnpm i @earendil-works/pi-durable\n```\n" }, "Wrote 54 bytes"),
       tool("h1", "search_history", { query: "install" }, "1. [user] (entry 4) …install steps…"),
       tool("m1", "mcp__github__create_issue", { title: "Docs drift", body: "README was stale" }, '{"number": 12}'),
       { type: "text", text: "Done. The README now points at the **npm** install command, and I added `INSTALL.md`.\n\n```sh\nnpm i @earendil-works/pi-durable\n```\n\n| file | change |\n|---|---|\n| README.md | updated |\n| INSTALL.md | new |" },

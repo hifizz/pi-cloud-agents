@@ -7,7 +7,6 @@ import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { openHarness, ctx } from "../src/harness.mjs";
 import { BotRegistry, READ_ONLY_TOOLS } from "../src/bots.mjs";
 import { Preamble } from "../src/ext/preamble.mjs";
-import { Desktop } from "../src/ext/desktop.mjs";
 import { Search } from "../src/ext/search.mjs";
 import { History } from "../src/ext/history.mjs";
 import { createApi } from "../src/api.mjs";
@@ -23,7 +22,7 @@ async function setup(responses, { routes } = {}) {
   const { harness } = await openHarness({
     storage: new MemoryStorage(),
     models,
-    extensions: [Preamble, CodingTools, Desktop, Search, History],
+    extensions: [Preamble, CodingTools, Search, History],
   });
   const bots = new BotRegistry(harness, { path: null });
   return { harness, bots, routes, faux: f };
@@ -53,7 +52,7 @@ test("TEST-F07-1: readOnly fork inherits history and cannot use write tools", as
     assert.equal((await say(bots, parent.id, "How many people live there?")).status, "done");
 
     const parentTools = await toolNames(bots, parent.id);
-    for (const t of ["bash", "write", "edit", "desktop_click", "read", "search_history"]) assert.ok(parentTools.includes(t), `parent has ${t}`);
+    for (const t of ["bash", "write", "edit", "read", "search_history"]) assert.ok(parentTools.includes(t), `parent has ${t}`);
 
     const child = await bots.forkBot("parent", { name: "reviewer", readOnly: true });
     assert.equal(child.parent.botId, parent.id);
@@ -75,8 +74,8 @@ test("TEST-F07-1: readOnly fork inherits history and cannot use write tools", as
     const childTools = await toolNames(bots, child.id);
     assert.ok(childTools.length > 0);
     for (const t of childTools) assert.ok(READ_ONLY_TOOLS.includes(t), `unexpected tool ${t}`);
-    for (const t of ["bash", "write", "edit", "desktop_click"]) assert.ok(!childTools.includes(t), `child must not have ${t}`);
-    for (const t of ["read", "search_history", "web_search", "desktop_screenshot"]) assert.ok(childTools.includes(t), `child keeps ${t}`);
+    for (const t of ["bash", "write", "edit"]) assert.ok(!childTools.includes(t), `child must not have ${t}`);
+    for (const t of ["read", "search_history", "web_search"]) assert.ok(childTools.includes(t), `child keeps ${t}`);
     // The parent is unaffected.
     assert.deepEqual(await toolNames(bots, parent.id), parentTools);
 

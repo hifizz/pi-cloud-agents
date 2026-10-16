@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "TARSBot: self-hosted durable AI teammates on pi-durable + Cua Spaces",
+  "description": "TARSBot: self-hosted durable AI teammates on pi-durable + Fly.io Sprites",
   "engines": {
     "node": ">=24"
   },
@@ -18,7 +18,6 @@
     "@earendil-works/pi-ai": "1.0.4",
     "@earendil-works/pi-durable": "1.0.4",
     "@fly/sprites": "0.2.3",
-    "@trycua/cua": "0.4.1",
     "ws": "8.22.0"
   },
   "devDependencies": {

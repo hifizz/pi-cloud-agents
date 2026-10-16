@@ -1,103 +1,89 @@
-# TARSBot
+# pi-cloud-agents
 
-TARSBot 是**基于 Pi Durable 核心开发的自托管常驻 AI 队友系统**。
+在云端常驻运行 [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable)（`@earendil-works/pi-durable`）Bot，执行环境是可插拔的云沙箱；目前唯一的沙箱实现是 Fly.io Sprites。
 
-[Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable)（`@earendil-works/pi-durable`）是系统的基础，负责持久对话、任务恢复与定时例程编排。TARSBot 在此基础上提供多 Bot 管理、Web 交互与 Cua Space 桌面操作能力。
+每个 Bot 拥有一条持久对话（崩溃、重启后自动恢复），所有 Bot 共用一个 Sprite（单用户）。你可以在网页上观察 Bot 工作、steer / 排队 / 中止、从任意消息 fork，危险操作会先停在审批条。
 
-每个 Bot 拥有一条持久对话，多个 Bot 共享一台容器化的 Linux 电脑（桌面、浏览器、shell、登录态）。你可以在网页上观察它工作，随时接管或纠偏。
+线上地址：`https://pi.zilin.im`（仅白名单邮箱可登录，不开放注册）。
 
-> **License 提示**：本仓库未附带许可证。其依赖 Cua Spaces 采用 FSL-1.1-MIT —— 自用与内部部署不受限，但禁止用本产品构建与 Cua 竞争的商业产品。
+> 命名说明：代码中的 `TARSBOT_*` 环境变量与 "TARSBot" 字样是历史遗留，暂不改名。
 
-## 快速开始（macOS + OrbStack）
+## 架构
 
-前置：**Node ≥ 24**（本分支 `feat/sprites-shell` 依赖 `@fly/sprites`，要求 Node 24；仓库根目录有 `.nvmrc`）、OrbStack（Docker 运行时）。
-
-切换 Node 24（只影响当前 shell，不改全局默认）：
-
-```bash
-nvm install 24 && nvm use      # 或：fnm install 24 && fnm use
-node -v                        # v24.x
+```
+浏览器 ──HTTPS──▶ Fly Proxy (pi.zilin.im, force_https)
+                    │
+                    ▼
+        Fly Machine `pi-cloud-agents` (sin, shared-cpu-1x 512MB)
+        node src/server.mjs  0.0.0.0:8080
+         ├─ auth guard（src/routes/auth.mjs + src/auth.mjs）→ /data/auth.sqlite
+         ├─ Pi Durable harness → /data/alice.sqlite, /data/bots.json
+         └─ SpritesEnv ──WSS exec──▶ Sprite `pi-cloud-agents`（/home/sprite/workspace）
+                                        └─ git / gh ──▶ GitHub
 ```
 
+- 沙箱接口：`src/sandbox/<provider>.mjs`，见 [`docs/CONTRACTS.md`](docs/CONTRACTS.md)。
+- 全部状态存 sqlite / JSON，位于 Fly Volume `/data`；存储只允许单写进程，因此只跑 1 台 Machine。
+
+## 本地开发
+
+前置：Node ≥ 24（仓库根有 `.nvmrc`，`nvm use` 或 `fnm use`）。
+
 ```bash
-orb start                                   # 启动 Docker
 npm install && (cd web && npm install && npm run build)
-scripts/space-up.sh                         # 起 Space 容器 tarsbot-space（127.0.0.1:3211）
-npm start                                   # http://127.0.0.1:8090
+npm start                      # http://127.0.0.1:8090
+cd web && npm run dev          # Vite dev，http://127.0.0.1:5183
 ```
 
-`.env`（不提交）必填：`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`（OpenAI 兼容模型网关）、`EXA_API_KEY`（web_search）。默认模型 `glm-5.3-flash`，用 `TARSBOT_MODEL` 覆盖；已有 Bot 换模型：停掉 server 后 `node scripts/set-model.mjs <bot> <modelId>`。
+`.env`（不提交）所需键名：
 
-## 使用
+- `TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`：OpenAI 兼容模型网关
+- `EXA_API_KEY`：web_search
+- `SPRITES_TOKEN`、`TARSBOT_SPRITE_NAME`：Sprite 沙箱
+- `GITHUB_TOKEN`（仅限测试仓库的 fine-grained PAT）、`TARSBOT_GIT_EMAIL`
+- `TARSBOT_ALLOWED_EMAILS`：登录白名单（逗号分隔）
+- 可选：`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`（Google 登录）、`TARSBOT_PUBLIC_URL`、`TARSBOT_MODEL`
 
-打开 `http://127.0.0.1:8090`（本分支端口：API 8090、viewer 3309、Vite dev 5183，与 main 的 8080/3299/5173 错开）：
+本地登录：
 
-- **左栏**：Bot 列表与定时例程（routines，跨重启定时任务）。
-- **中栏**：聊天。可以看到思考与工具调用卡片；Bot 忙时可 `steer`（当前工具轮结束后生效）、`queue` 或 abort；可从任意消息 **fork** 出新 Bot（继承分叉点之前的历史）。
-- **右栏**：实时桌面（经 127.0.0.1:3309 viewer 代理，带签名 ticket）。你的光标和 Bot 的光标相互独立，可随时接管（比如手动登录）再交还。
-- 危险操作（`rm -rf`、`git push`、send/deploy 类工具等）会先停在**审批条**，批准一次后随任务持久化，重启不再重复询问。
+- 密码登录：`node scripts/set-password.mjs <email>`（stdin 读密码；只接受白名单邮箱），再用邮箱 + 密码登录。
+- 仅本地开发可设 `TARSBOT_AUTH_DISABLED=1` 跳过鉴权；`TARSBOT_HOST` 不是 loopback 时服务会拒绝启动。
 
-命令行替代：`npm run repl` —— 与 server 共用 `data/alice.sqlite`，**不能和 server 同时运行**（存储只允许一个写进程）。
+默认模型 `glm-5.3-flash`，用 `TARSBOT_MODEL` 覆盖；已有 Bot 换模型：停掉 server 后 `node scripts/set-model.mjs <bot> <modelId>`。
 
-## 测试与验收脚本
+命令行替代：`npm run repl` —— 与 server 共用 sqlite，**不能和 server 同时运行**。
 
-| 命令 | 用途 |
-|---|---|
-| `npm test` | 后端单元测试，离线 |
-| `npm run test:env` | ExecutionEnv 一致性测试，需要 Space 在跑 |
-| `cd web && npm test` | 前端测试 |
-| `scripts/ask.mjs` | 冒烟：发一条问答 |
-| `scripts/kill-test.sh` | 验证 kill 后恢复 |
-| `scripts/approval-test.sh` | 验证审批流 |
-| `scripts/routine-test.sh` | 验证定时例程 |
-| `scripts/gui-bench.mjs` | GUI 操控成功率基准 |
-
-## Sprite 初始化
-
-`TARSBOT_SANDBOX=sprites` 时，Bot 的 shell 跑在远端 Fly.io Sprite 上。首次使用（或改坏后修复）运行：
+## 测试
 
 ```bash
-scripts/sprite-setup.sh                  # 幂等；每步打印 OK / SKIP / FAIL，有 FAIL 时退出码为 1
-scripts/sprite-setup.sh --no-policy      # 不动 network policy
-scripts/sprite-setup.sh --reset-policy   # 清空 network policy（出站不受限）后退出；不带该参数重跑即重新套用白名单
-scripts/sprite-setup.sh --recheckpoint   # 用当前状态替换 "v-setup" checkpoint
-scripts/sprite-setup.sh --no-npm         # 跳过 clone / npm install / npm test 自检
+TARSBOT_NO_DOTENV=1 npm test                       # 后端单元测试，离线
+cd web && npm test && npm run typecheck && npm run build
 ```
 
-`.env` 需要 `SPRITES_TOKEN`、`TARSBOT_SPRITE_NAME`、`GITHUB_TOKEN`（仅限测试仓库的 fine-grained PAT）、`TARSBOT_GIT_EMAIL`。脚本只操作 `TARSBOT_SPRITE_NAME` 指定的 Sprite，token 只经环境变量按次注入（`GH_TOKEN`），不写入 Sprite 磁盘。
+## 部署
 
-步骤：Sprite 不存在则创建 → 检查 `gh`（缺失才安装到 `~/.local`）→ 写 git credential helper（读 `$GH_TOKEN`）并设置 `user.name=TARSBot` / `user.email` → `mkdir ~/workspace` → network policy 出站白名单 → 自检 → checkpoint。
+部署到 Fly.io（`fly deploy`、secrets、volume、域名、GitHub 自动部署）见 [`docs/DEPLOY.md`](docs/DEPLOY.md)；Sprite 的初始化与维护见 [`docs/sprite-cloud.md`](docs/sprite-cloud.md)。完整方案与决策见 [`docs/CLOUD-PLAN.md`](docs/CLOUD-PLAN.md)。
 
-- **network policy**：放行 `github.com`、`api.github.com`、`codeload.github.com`、`objects.githubusercontent.com`、`raw.githubusercontent.com`、`release-assets.githubusercontent.com`、`registry.npmjs.org`、`pypi.org`、`files.pythonhosted.org`，其余全部拒绝（含 DNS）。因此 `apt`、`example.com` 等不可用。应用后脚本会验证白名单域名可达；若不可达则自动回滚为不受限并报 FAIL。
-- **自检**：`git ls-remote`、`gh repo view`、在 `/tmp/setup-check` clone 测试仓库并跑 `node -v`（需 ≥ 24）/ `npm install` / `npm test`（结束后删除）、白名单与非白名单域名可达性、`/home/sprite` 与 `git config --global -l` 中无 token。
-- **checkpoint**：名称 `v-setup` 保存在 checkpoint 的 comment 里（id 由平台分配，如 `v10`）；已存在则 SKIP。有任一步 FAIL 时不创建 checkpoint。初始 checkpoint `v1` 请勿删除。
-- 实测记录见 [`docs/sprites-probe.md`](docs/sprites-probe.md)（P9 network policy、P10 checkpoint）。
+## 安全
 
-## 安全（部署前必读）
-
-- API（8090）与 viewer 代理（3309）**没有鉴权**，只绑定 127.0.0.1。上云主机前必须先加鉴权，并且只经 Tailscale 或私网暴露。**禁止把 Space 的 3211 端口暴露在公网。**
-- 密钥只存在于宿主机 server 进程环境变量，不写进 Space。Space 内的登录态视为完全信任边界 —— 能用 `bash` 的主体即拥有全部已登录应用。
-- 审批规则见 `src/ext/approval.mjs`。
+- 只有白名单邮箱能登录，无注册接口；所有 `/api/*` 与 WebSocket 需有效 session，非 GET 请求还会校验 Origin。契约见 `docs/CLOUD-PLAN.md` §4。
+- Sprite 内的 `bash` 即完全信任边界：能执行 bash 的主体拥有 Sprite 内的全部权限与登录态。危险操作走 `src/ext/approval.mjs` 审批。
+- 密钥只存在于 Fly secrets 与本地 `.env`，不写入 Sprite、日志、测试快照或截图。
 
 ## 数据
 
 | 位置 | 内容 |
 |---|---|
-| `data/alice.sqlite` | 全部对话与状态，**禁止删除** |
-| `data/bots.json` | Bot 配置 |
-| `data/space.json` | Space 地址与 token（权限 600） |
-| Docker 卷 `tarsbot-space-home` | Space 的 `/home/cua`，含浏览器登录态 |
-
-备份：停 server → 备份 `data/` → 需要保留登录态时保留该卷。
+| `/data/alice.sqlite`（本地为 `data/`） | 全部对话与状态，**禁止删除** |
+| `/data/bots.json` | Bot 配置 |
+| `/data/auth.sqlite` | 用户与 session |
 
 ## 文档
 
-- 产品技术规范（需求/验收 REQ/TEST 编号）：[`DurableBot 产品技术规范（ASD-STE100） .md`](DurableBot%20产品技术规范（ASD-STE100）%20.md)
-- 系统设计（架构与工作包）：[`DurableBot 系统设计文档（Pi Durable + Cua Spaces） .md`](DurableBot%20系统设计文档（Pi%20Durable%20+%20Cua%20Spaces）%20.md)
-- 开发计划：[`docs/PLAN.md`](docs/PLAN.md)；接口契约：[`docs/CONTRACTS.md`](docs/CONTRACTS.md)
+- 云端方案：[`docs/CLOUD-PLAN.md`](docs/CLOUD-PLAN.md)；接口契约：[`docs/CONTRACTS.md`](docs/CONTRACTS.md)；Agent 指南：[`AGENTS.md`](AGENTS.md)
+- 历史文档：[`docs/archive/`](docs/archive/README.md)、`docs/SPRITES-PLAN.md`
 
 ## 已知限制
 
 - pi-durable API 处于实验阶段（依赖收敛在 `env.mjs`/`ext/`/`server.mjs` 三处）。
-- GUI 操控成功率依赖模型能力；无障碍树优先，必要时降级为 shell 型 Bot。
-- 单写进程：server 与 repl 不能同时开。
+- 单写进程：server 与 repl 不能同时开；Fly 只能 1 台 Machine。

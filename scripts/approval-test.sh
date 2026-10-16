@@ -4,7 +4,7 @@
 # Prerequisites (done by the orchestrator, not by this script):
 #   - src/runtime.mjs installs `Approval` from src/ext/approval.mjs in productionExtensions(), after CodingTools.
 #   - the server mounts `register` from src/routes/approvals.mjs as a route plugin.
-#   - `npm start` is running (default http://127.0.0.1:8090) with a Cua Space available.
+#   - `npm start` is running (default http://127.0.0.1:8090) with the Sprite available.
 #
 # Usage:  scripts/approval-test.sh [bot-name]
 # Env:    TARSBOT_URL (default http://127.0.0.1:8090)

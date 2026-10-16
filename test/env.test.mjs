@@ -1,24 +1,23 @@
-// Offline tests for CuaEnv (mock `bash`, no sandbox needed). The class serves both Cua and Sprites.
-// The in-process tests assume cua mode (`/home/cua`); sandbox-mode specifics are tested in child processes
-// (config is computed at import time), so neither .env nor the caller's shell can change these results.
+// Offline tests for SandboxEnv (mock `bash`, no sandbox needed). Config is computed at import time, so
+// config-dependent specifics are tested in child processes; neither .env nor the caller's shell can change these results.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 process.env.TARSBOT_NO_DOTENV = "1";
-process.env.TARSBOT_SANDBOX = "cua";
-const { CuaEnv, shellQuote, mapFileError, resolvePath, WRITE_CHUNK_BYTES, MAX_READER_BYTES } = await import("../src/env.mjs");
+process.env.TARSBOT_SPRITE_NAME = "main";
+const { SandboxEnv, shellQuote, mapFileError, resolvePath, WRITE_CHUNK_BYTES, MAX_READER_BYTES } = await import("../src/env.mjs");
 const { BACKGROUND_CONTEXT, withAbortSignal } = await import("@earendil-works/chord/context");
 
 const ctx = BACKGROUND_CONTEXT;
 const done = (stdout = "", extra = {}) => ({ stdout, stderr: "", exitCode: 0, timedOut: false, ...extra });
 
-/** CuaEnv whose bash records commands and answers via `reply(command, calls)`. */
+/** SandboxEnv whose bash records commands and answers via `reply(command, calls)`. */
 function mockEnv(reply = () => done(), opts = {}) {
   const calls = [];
-  const env = new CuaEnv({
-    cwd: "/home/cua/work",
+  const env = new SandboxEnv({
+    cwd: "/home/sprite/workspace",
     bash: async (command, o) => {
       calls.push({ command, ...o });
       return reply(command, calls);
@@ -89,7 +88,7 @@ test("file operations surface mapped errors", async () => {
     const r = await env.readTextFile("f.txt", ctx);
     assert.equal(r.ok, false);
     assert.equal(r.error.code, code);
-    assert.equal(r.error.path, "/home/cua/work/f.txt");
+    assert.equal(r.error.path, "/home/sprite/workspace/f.txt");
   }
 });
 
@@ -106,17 +105,17 @@ test("exists is false only for not_found", async () => {
 
 test("absolutePath / joinPath are pure POSIX", async () => {
   const { env, calls } = mockEnv();
-  assert.deepEqual(await env.absolutePath("a/b.txt", ctx), { ok: true, value: "/home/cua/work/a/b.txt" });
-  assert.deepEqual(await env.absolutePath("../x", ctx), { ok: true, value: "/home/cua/x" });
+  assert.deepEqual(await env.absolutePath("a/b.txt", ctx), { ok: true, value: "/home/sprite/workspace/a/b.txt" });
+  assert.deepEqual(await env.absolutePath("../x", ctx), { ok: true, value: "/home/sprite/x" });
   assert.deepEqual(await env.absolutePath("/etc//hosts", ctx), { ok: true, value: "/etc/hosts" });
-  assert.deepEqual(await env.absolutePath(".", ctx), { ok: true, value: "/home/cua/work" });
-  assert.deepEqual(await env.absolutePath("~", ctx), { ok: true, value: "/home/cua" });
-  assert.deepEqual(await env.absolutePath("~/n.txt", ctx), { ok: true, value: "/home/cua/n.txt" });
+  assert.deepEqual(await env.absolutePath(".", ctx), { ok: true, value: "/home/sprite/workspace" });
+  assert.deepEqual(await env.absolutePath("~", ctx), { ok: true, value: "/home/sprite" });
+  assert.deepEqual(await env.absolutePath("~/n.txt", ctx), { ok: true, value: "/home/sprite/n.txt" });
   assert.deepEqual(await env.joinPath(["/a", "b", "../c", "d.txt"], ctx), { ok: true, value: "/a/c/d.txt" });
   assert.deepEqual(await env.joinPath(["a", "b"], ctx), { ok: true, value: "a/b" });
   assert.equal(resolvePath("/w", "x"), "/w/x");
   assert.equal(calls.length, 0, "path functions never touch the Space");
-  assert.equal(env.id, "cua:main");
+  assert.equal(env.id, "sprites:main");
 });
 
 // --- exec ---------------------------------------------------------------------------------------------------
@@ -129,7 +128,7 @@ test("exec: string runs through bash -c, with cwd and env prelude", async () => 
   const script = calls[0].command;
   assert.match(script, /^export A='it'\\''s'$/m);
   assert.doesNotMatch(script, /bad-name/);
-  assert.match(script, /cd '\/home\/cua\/work\/sub dir'/);
+  assert.match(script, /cd '\/home\/sprite\/workspace\/sub dir'/);
   assert.match(script, /exec '\/bin\/bash' -c 'echo \$A'$/);
   assert.deepEqual(out, [["hi\n", "stdout"]]);
 });
@@ -209,7 +208,7 @@ test("fileInfo parses stat output (kinds, seconds to ms)", async () => {
   for (const [text, kind] of kinds) {
     const { env, calls } = mockEnv(() => done(`${text}|42|1700000000.250\n`));
     const r = await env.fileInfo("a/f.txt", ctx);
-    assert.deepEqual(r.value, { name: "f.txt", path: "/home/cua/work/a/f.txt", kind, size: 42, mtimeMs: 1700000000250 });
+    assert.deepEqual(r.value, { name: "f.txt", path: "/home/sprite/workspace/a/f.txt", kind, size: 42, mtimeMs: 1700000000250 });
     assert.match(calls[0].command, /^stat -c /, "lstat semantics: no -L");
     assert.doesNotMatch(calls[0].command, / -L /);
   }
@@ -224,7 +223,7 @@ test("listDir parses NUL-separated find output and skips unsupported kinds", asy
   const { env } = mockEnv(() => done(out));
   const r = await env.listDir(".", ctx);
   assert.deepEqual(r.value.map((e) => [e.name, e.kind]), [["a.txt", "file"], ["sub", "directory"], ["name\twith tab", "symlink"]]);
-  assert.equal(r.value[0].path, "/home/cua/work/a.txt");
+  assert.equal(r.value[0].path, "/home/sprite/workspace/a.txt");
   assert.equal(r.value[0].mtimeMs, 1700000000500);
 });
 
@@ -235,7 +234,7 @@ test("read text / binary via base64", async () => {
   const { env, calls } = mockEnv(() => done(bytes.toString("base64")));
   const bin = await env.readBinaryFile("b", ctx);
   assert.deepEqual([...bin.value], [...bytes]);
-  assert.match(calls[0].command, /^base64 -w0 -- '\/home\/cua\/work\/b'$/);
+  assert.match(calls[0].command, /^base64 -w0 -- '\/home\/sprite\/workspace\/b'$/);
   const text = mockEnv(() => done(Buffer.from("héllo\n", "utf8").toString("base64"))).env;
   assert.equal((await text.readTextFile("t", ctx)).value, "héllo\n");
   const lines = mockEnv(() => done(Buffer.from("a\nb\n\nc", "utf8").toString("base64"))).env;
@@ -252,7 +251,7 @@ test("openBinaryReader: in-memory reads, directories, size limit, noFollow", asy
   };
   const { env } = mockEnv(reply);
   const reader = (await env.openBinaryReader("d.txt", undefined, ctx)).value;
-  assert.deepEqual((await reader.info(ctx)).value, { name: "d.txt", path: "/home/cua/work/d.txt", kind: "file", size: 11, mtimeMs: 1700000000000 });
+  assert.deepEqual((await reader.info(ctx)).value, { name: "d.txt", path: "/home/sprite/workspace/d.txt", kind: "file", size: 11, mtimeMs: 1700000000000 });
   assert.equal(Buffer.from((await reader.read(6, 100, ctx)).value).toString(), "world");
   assert.equal((await reader.read(50, 1, ctx)).value.length, 0);
   assert.equal((await reader.read(-1, 1, ctx)).error.code, "invalid");
@@ -290,8 +289,8 @@ test("writeFile: mkdir -p, base64, one command for small files", async () => {
   const { env, calls } = mockEnv();
   assert.equal((await env.writeFile("a/b/c.txt", "héllo 'q' $x\n", ctx)).ok, true);
   assert.equal(calls.length, 1);
-  assert.match(calls[0].command, /^mkdir -p -- '\/home\/cua\/work\/a\/b' && printf %s '/);
-  assert.match(calls[0].command, / \| base64 -d > '\/home\/cua\/work\/a\/b\/c\.txt'$/);
+  assert.match(calls[0].command, /^mkdir -p -- '\/home\/sprite\/workspace\/a\/b' && printf %s '/);
+  assert.match(calls[0].command, / \| base64 -d > '\/home\/sprite\/workspace\/a\/b\/c\.txt'$/);
   assert.equal(replayWrites(calls).toString("utf8"), "héllo 'q' $x\n");
 });
 
@@ -309,9 +308,9 @@ test("writeFile: large content is chunked (first >, rest >>) and lossless", asyn
 test("appendFile appends; empty content still creates the file", async () => {
   const { env, calls } = mockEnv();
   await env.appendFile("log.txt", "x", ctx);
-  assert.match(calls[0].command, /base64 -d >> '\/home\/cua\/work\/log\.txt'$/);
+  assert.match(calls[0].command, /base64 -d >> '\/home\/sprite\/workspace\/log\.txt'$/);
   await env.writeFile("empty", "", ctx);
-  assert.match(calls[1].command, /: > '\/home\/cua\/work\/empty'$/);
+  assert.match(calls[1].command, /: > '\/home\/sprite\/workspace\/empty'$/);
 });
 
 test("writeFile stops at the first failing chunk and maps the error", async () => {
@@ -334,13 +333,13 @@ test("rename / remove / createDir / truncate / flush command shapes", async () =
   await env.truncateFile("f", 10, ctx);
   await env.flushFile("f", ctx);
   const cmds = calls.map((c) => c.command);
-  assert.equal(cmds[0], "mv -T -- '/home/cua/work/a' '/home/cua/work/b c'");
-  assert.equal(cmds[1], "rm -rf -- '/home/cua/work/d'");
-  assert.equal(cmds[2], "rm -- '/home/cua/work/d'");
-  assert.equal(cmds[3], "mkdir -p -- '/home/cua/work/x/y'");
-  assert.equal(cmds[4], "mkdir -- '/home/cua/work/x'");
-  assert.match(cmds[5], /truncate -c -s 10 -- '\/home\/cua\/work\/f'$/);
-  assert.match(cmds[6], /sync -- '\/home\/cua\/work\/f'$/);
+  assert.equal(cmds[0], "mv -T -- '/home/sprite/workspace/a' '/home/sprite/workspace/b c'");
+  assert.equal(cmds[1], "rm -rf -- '/home/sprite/workspace/d'");
+  assert.equal(cmds[2], "rm -- '/home/sprite/workspace/d'");
+  assert.equal(cmds[3], "mkdir -p -- '/home/sprite/workspace/x/y'");
+  assert.equal(cmds[4], "mkdir -- '/home/sprite/workspace/x'");
+  assert.match(cmds[5], /truncate -c -s 10 -- '\/home\/sprite\/workspace\/f'$/);
+  assert.match(cmds[6], /sync -- '\/home\/sprite\/workspace\/f'$/);
   assert.equal((await env.truncateFile("f", -1, ctx)).error.code, "invalid");
   assert.equal((await env.truncateFile("f", 1.5, ctx)).error.code, "invalid");
 });
@@ -429,54 +428,44 @@ function child(code, vars = {}, nodeArgs = []) {
   }
 }
 
-test("config: sandbox settings per mode (pure function)", async () => {
+test("config: sandbox settings (pure function); TARSBOT_SANDBOX is ignored", async () => {
   const { sandboxSettings } = await import("../src/config.mjs");
-  assert.deepEqual(sandboxSettings({}), { sandbox: "cua", spriteName: undefined, home: "/home/cua", spaceCwd: "/home/cua/work" });
-  assert.equal(sandboxSettings({ TARSBOT_SANDBOX: "" }).sandbox, "cua", "empty means default");
-  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "sprites", TARSBOT_SPRITE_NAME: "s1" }), {
+  assert.deepEqual(sandboxSettings({}), { sandbox: "sprites", spriteName: undefined, home: "/home/sprite", spaceCwd: "/home/sprite/workspace" });
+  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "docker", TARSBOT_SPRITE_NAME: "s1" }), {
     sandbox: "sprites",
     spriteName: "s1",
     home: "/home/sprite",
     spaceCwd: "/home/sprite/workspace",
   });
-  for (const bad of ["Sprites", "docker", " cua", "none"]) {
-    assert.throws(() => sandboxSettings({ TARSBOT_SANDBOX: bad }), /Invalid TARSBOT_SANDBOX/, bad);
-  }
 });
 
-test("config: invalid TARSBOT_SANDBOX makes importing config fail; valid values expose the fields", () => {
-  const bad = child(`await import(${JSON.stringify(CONFIG_URL)})`, { TARSBOT_SANDBOX: "docker" });
-  assert.notEqual(bad.status, 0);
-  assert.match(bad.stderr, /Invalid TARSBOT_SANDBOX/);
-  const show = `const { config: c } = await import(${JSON.stringify(CONFIG_URL)}); console.log(JSON.stringify([c.sandbox, c.spriteName, c.home, c.spaceCwd]))`;
-  assert.deepEqual(JSON.parse(child(show, {}).stdout), ["cua", null, "/home/cua", "/home/cua/work"]);
-  const sp = child(show, { TARSBOT_SANDBOX: "sprites", TARSBOT_SPRITE_NAME: "tars-x" });
-  assert.deepEqual(JSON.parse(sp.stdout), ["sprites", "tars-x", "/home/sprite", "/home/sprite/workspace"]);
+test("config: fields and TARSBOT_HOST", () => {
+  const show = `const { config: c } = await import(${JSON.stringify(CONFIG_URL)}); console.log(JSON.stringify([c.sandbox, c.spriteName, c.home, c.spaceCwd, c.host]))`;
+  assert.deepEqual(JSON.parse(child(show, {}).stdout), ["sprites", null, "/home/sprite", "/home/sprite/workspace", "127.0.0.1"]);
+  const sp = child(show, { TARSBOT_SPRITE_NAME: "tars-x", TARSBOT_HOST: "0.0.0.0" });
+  assert.deepEqual(JSON.parse(sp.stdout), ["sprites", "tars-x", "/home/sprite", "/home/sprite/workspace", "0.0.0.0"]);
 });
 
-test("sprites mode: `~` resolves to /home/sprite and ids are sprites:<name>", () => {
+test("`~` resolves to /home/sprite and ids are sprites:<name>", () => {
   const code = `
-    const { CuaEnv, resolvePath } = await import(${JSON.stringify(ENV_URL)});
+    const { SandboxEnv, resolvePath } = await import(${JSON.stringify(ENV_URL)});
     const bash = async () => ({ stdout: "", stderr: "", exitCode: 0 });
-    const env = new CuaEnv({ cwd: "/home/sprite/workspace", bash });
-    const custom = new CuaEnv({ cwd: "/w", bash, id: "x:y" });
+    const env = new SandboxEnv({ cwd: "/home/sprite/workspace", bash });
+    const custom = new SandboxEnv({ cwd: "/w", bash, id: "x:y" });
     console.log(JSON.stringify([
       env.id, custom.id,
       (await env.absolutePath("~")).value, (await env.absolutePath("~/n.txt")).value, (await env.absolutePath("a.txt")).value,
       resolvePath("/w", "~/z"),
     ]));`;
-  const r = child(code, { TARSBOT_SANDBOX: "sprites", TARSBOT_SPRITE_NAME: "tars-x" });
+  const r = child(code, { TARSBOT_SPRITE_NAME: "tars-x" });
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(JSON.parse(r.stdout), [
     "sprites:tars-x", "x:y", "/home/sprite", "/home/sprite/n.txt", "/home/sprite/workspace/a.txt", "/home/sprite/z",
   ]);
-  // cua mode keeps the old values.
-  const cua = child(code.replace("/home/sprite/workspace", "/home/cua/work"), {});
-  assert.deepEqual(JSON.parse(cua.stdout).filter((_, i) => i !== 1 && i !== 4), ["cua:main", "/home/cua", "/home/cua/n.txt", "/home/cua/z"]);
 });
 
 /**
- * Module hooks for a child process: stub both sandbox modules (so nothing touches a network or needs the other
+ * Module hooks for a child process: stub the sandbox module (so nothing touches a network or needs the other
  * worker's file), and record every resolved URL so the test can prove which modules were (not) loaded.
  */
 const HOOKS = `
@@ -497,7 +486,6 @@ registerHooks({
   },
   load(url, ctx, next) {
     if (/\\/sandbox\\/sprites\\.mjs$/.test(url)) return { format: "module", shortCircuit: true, source: stub("spritesBash") };
-    if (/\\/src\\/space\\.mjs$/.test(url)) return { format: "module", shortCircuit: true, source: stub("spaceBash") };
     return next(url, ctx);
   },
 });`;
@@ -511,15 +499,15 @@ const SPACE_ENV_CODE = `
   const home = await env.absolutePath("~");
   console.log(JSON.stringify({
     id: env.id, cwd: env.cwd, home: home.value, exit: exec.value?.exitCode, cmds: globalThis.__cmds,
-    loaded: [...new Set(globalThis.__resolved)].filter((u) => /\\/src\\/space\\.mjs$|@trycua|\\/sandbox\\/sprites\\.mjs$/.test(u)),
+    loaded: [...new Set(globalThis.__resolved)].filter((u) => /@trycua|\\/sandbox\\/sprites\\.mjs$/.test(u)),
   }));`;
 
-test("sprites mode: spaceEnv() never loads src/space.mjs or @trycua/cua; bash goes to sprites.mjs", () => {
-  const r = child(SPACE_ENV_CODE, { TARSBOT_SANDBOX: "sprites", TARSBOT_SPRITE_NAME: "tars-x" }, ["--import", hookArg]);
+test("spaceEnv() never loads @trycua/cua; bash goes to sprites.mjs", () => {
+  const r = child(SPACE_ENV_CODE, { TARSBOT_SPRITE_NAME: "tars-x" }, ["--import", hookArg]);
   assert.equal(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
   assert.deepEqual(out.loaded.map((u) => u.replace(/^.*\/(src\/.*)$/, "$1")), ["src/sandbox/sprites.mjs"]);
-  assert.ok(!out.loaded.some((u) => /space\.mjs|trycua/.test(u)));
+  assert.ok(!out.loaded.some((u) => /trycua/.test(u)));
   assert.equal(out.id, "sprites:tars-x");
   assert.equal(out.cwd, "/home/sprite/workspace");
   assert.equal(out.home, "/home/sprite");
@@ -529,21 +517,9 @@ test("sprites mode: spaceEnv() never loads src/space.mjs or @trycua/cua; bash go
   assert.match(out.cmds.at(-1)[1], /cd '\/home\/sprite\/workspace'/);
 });
 
-test("cua mode: bash goes to space.mjs and sandbox/sprites.mjs is never loaded", () => {
-  const r = child(SPACE_ENV_CODE, {}, ["--import", hookArg]);
-  assert.equal(r.status, 0, r.stderr);
-  const out = JSON.parse(r.stdout);
-  assert.equal(out.loaded.length, 1);
-  assert.match(out.loaded[0], /\/src\/space\.mjs$/);
-  assert.equal(out.id, "cua:main");
-  assert.equal(out.cwd, "/home/cua/work");
-  assert.equal(out.home, "/home/cua");
-  assert.ok(out.cmds.every(([who]) => who === "spaceBash"));
-});
-
-test("sprites mode: spaceEnv() factory requires TARSBOT_SPRITE_NAME", () => {
+test("spaceEnv() factory requires TARSBOT_SPRITE_NAME", () => {
   const code = `const { spaceEnv } = await import(${JSON.stringify(ENV_URL)}); spaceEnv()({});`;
-  const r = child(code, { TARSBOT_SANDBOX: "sprites" });
+  const r = child(code, {});
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /TARSBOT_SPRITE_NAME/);
 });

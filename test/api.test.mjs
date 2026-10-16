@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
@@ -253,12 +256,11 @@ test("route plugins, HttpError, params and query", async () => {
 // ── /api/space and the sandbox mode (S2-runtime-ui) ──────────────────────────────────────────────────────────────
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-test("GET /api/space in sprites mode returns { sandbox, name } and never touches the Cua stack", async () => {
+test("GET /api/space returns { sandbox, name }", async () => {
   const { register } = await import("../src/routes/space.mjs");
   const prev = process.env.TARSBOT_SPRITE_NAME;
   process.env.TARSBOT_SPRITE_NAME = "tars-test";
-  const loadCua = () => assert.fail("Cua stack must not be loaded in sprites mode");
-  const t = await setup([], { routes: [(app) => register(app, { sandbox: "sprites", loadCua })] });
+  const t = await setup([], { routes: [(app) => register(app)] });
   try {
     const r = await j(t.base, "GET", "/api/space");
     assert.equal(r.status, 200);
@@ -270,66 +272,34 @@ test("GET /api/space in sprites mode returns { sandbox, name } and never touches
   }
 });
 
-test("GET /api/space in cua mode keeps its shape and adds sandbox: \"cua\"", async () => {
-  const { register } = await import("../src/routes/space.mjs");
-  const closed = [];
-  const stack = {
-    getSpace: async () => ({}),
-    getSpaceConfig: () => ({ name: "fake-space", url: "http://10.0.0.5:3211/", token: "tok" }),
-    getSpaceInfo: () => ({ id: "s1" }),
-    embedded: () => ({
-      sandboxes: () => ({ connectUrl: async () => ({ viewerUrl: async () => ({ url: "http://10.0.0.5:3211/viewer/#ticket=abc", expiresAtUnix: Math.floor(Date.now() / 1000) + 86400 }) }) }),
-    }),
-    ViewerOptions: { create: () => ({}) },
-    startViewerProxy: async ({ target }) => ({ url: "http://127.0.0.1:3309", server: { close: () => closed.push(target) } }),
-  };
-  const t = await setup([], { routes: [(app) => register(app, { sandbox: "cua", loadCua: async () => stack })] });
-  try {
-    const r = await j(t.base, "GET", "/api/space");
-    assert.equal(r.status, 200);
-    assert.equal(r.body.sandbox, "cua");
-    assert.equal(r.body.name, "fake-space");
-    assert.equal(r.body.directViewerUrl, "http://10.0.0.5:3211/viewer/");
-    assert.equal(r.body.viewerUrl, "http://127.0.0.1:3309/viewer/#ticket=abc");
-    assert.deepEqual(r.body.info, { id: "s1" });
-  } finally {
-    await t.close();
-  }
-});
-
-/** Run `code` in a child with a resolve hook that records every module URL, so we can prove what was (not) loaded. */
-function childLoaded(code, vars) {
-  const hooks = `import { registerHooks } from "node:module"; globalThis.__resolved = [];
-    registerHooks({ resolve(spec, ctx, next) { const r = next(spec, ctx); globalThis.__resolved.push(r.url); return r; } });`;
+/** Run `code` in a child process (fresh config, clean TARSBOT_* environment plus `vars`). */
+function child(code, vars) {
   const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("TARSBOT_")));
-  const out = execFileSync(
-    process.execPath,
-    ["--import", `data:text/javascript,${encodeURIComponent(hooks)}`, "--input-type=module", "-e", code],
-    { cwd: ROOT, env: { ...base, TARSBOT_NO_DOTENV: "1", ...vars }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
+  const out = execFileSync(process.execPath, ["--input-type=module", "-e", code], {
+    cwd: ROOT,
+    env: { ...base, TARSBOT_NO_DOTENV: "1", ...vars },
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   return JSON.parse(out);
 }
 
-const CUA_URL = /@trycua|\/src\/space\.mjs$|\/src\/viewer-proxy\.mjs$|\/src\/ext\/desktop\.mjs$/;
 const LOAD_CODE = `
   const { productionExtensions } = await import("./src/runtime.mjs");
   const { loadRoutes } = await import("./src/server.mjs");
   const exts = await productionExtensions();
   const routes = [];
-  for (const register of await loadRoutes()) register({ get: (p, h) => routes.push([p, h]), post() {}, ws() {}, ctx: {} });
+  for (const register of await loadRoutes()) register({ get: (p, h) => routes.push([p, h]), post() {}, ws() {}, guard() {}, ctx: {} });
   const space = routes.find(([p]) => p === "/api/space");
-  const body = space ? await space[1]() : null;
-  console.log(JSON.stringify({ exts: exts.map((e) => e?.name ?? null), body, loaded: [...new Set(globalThis.__resolved)].filter((u) => ${CUA_URL}.test(u)) }));`;
+  console.log(JSON.stringify({ exts: exts.map((e) => e?.name ?? null), body: space ? await space[1]() : null }));`;
 
-test("sprites mode: no Desktop extension and nothing Cua-related is loaded (runtime + all route plugins)", () => {
-  const out = childLoaded(LOAD_CODE, { TARSBOT_SANDBOX: "sprites", TARSBOT_SPRITE_NAME: "tars-test" });
-  assert.deepEqual(out.loaded, []);
-  assert.deepEqual(out.body, { sandbox: "sprites", name: "tars-test" });
-  assert.deepEqual(out.exts, ["tarsbot.preamble", "coding-tools", "tarsbot.search", "tarsbot.history", "tarsbot.routines", "tarsbot.approval", "tarsbot.timing"]);
-});
-
-test("cua mode: Desktop extension is installed (loaded lazily from runtime.mjs)", () => {
-  const out = childLoaded(LOAD_CODE.replace(/const space = [\s\S]*?const body = [^\n]*\n/, "const body = null;\n"), { TARSBOT_SANDBOX: "cua" });
-  assert.deepEqual(out.exts.slice(0, 4), ["tarsbot.preamble", "coding-tools", "tarsbot.desktop", "tarsbot.search"]);
-  assert.ok(out.loaded.some((u) => /ext\/desktop\.mjs$/.test(u)));
+test("production extensions and route plugins (no Desktop extension)", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "api-routes-"));
+  try {
+    const out = child(LOAD_CODE, { TARSBOT_SPRITE_NAME: "tars-test", TARSBOT_DATA_DIR: dataDir });
+    assert.deepEqual(out.body, { sandbox: "sprites", name: "tars-test" });
+    assert.deepEqual(out.exts, ["tarsbot.preamble", "coding-tools", "tarsbot.search", "tarsbot.history", "tarsbot.routines", "tarsbot.approval", "tarsbot.timing"]);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });

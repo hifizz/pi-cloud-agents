@@ -12,6 +12,16 @@ export class ApiError extends Error {
 
 export type WhenBusy = "steer" | "followUp" | "reject";
 
+const unauthorizedHandlers = new Set<() => void>();
+
+/** Subscribe to 401 responses from any request. Returns an unsubscribe function. */
+export function onUnauthorized(fn: () => void): () => void {
+  unauthorizedHandlers.add(fn);
+  return () => {
+    unauthorizedHandlers.delete(fn);
+  };
+}
+
 async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -27,6 +37,7 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown):
   }
   if (!res.ok) {
     const msg = (payload as { error?: string } | undefined)?.error ?? (text.slice(0, 200) || res.statusText);
+    if (res.status === 401) for (const fn of [...unauthorizedHandlers]) fn();
     throw new ApiError(res.status, msg);
   }
   return payload as T;
@@ -68,6 +79,13 @@ export const api = {
   listRoutines: () => request<RoutineItem[]>("GET", "/api/routines"),
   createRoutine: (input: NewRoutineInput) => request<RoutineItem>("POST", "/api/routines", input),
   cancelRoutine: (id: string) => request<{ ok: true; id: string }>("POST", `/api/routines/${enc(id)}/cancel`, {}),
-  /** Not part of the Task 8 API yet: expected `{ viewerUrl: string }`. Callers must tolerate failure. */
   space: () => request<SpaceInfo>("GET", "/api/space"),
+};
+
+export const googleLoginUrl = "/api/auth/google";
+
+export const auth = {
+  me: () => request<{ email: string }>("GET", "/api/auth/me"),
+  login: (email: string, password: string) => request<{ email: string }>("POST", "/api/auth/login", { email, password }),
+  logout: () => request<{ ok: true }>("POST", "/api/auth/logout", {}),
 };

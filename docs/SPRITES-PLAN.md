@@ -1,3 +1,5 @@
+> 历史文档：在 TARSBot 本地运行阶段完成；云端方案见 `docs/CLOUD-PLAN.md`。
+
 # TARSBot × Sprites（shell 模式）方案
 
 分支：`feat/sprites-shell`（worktree：`/Users/zilin/side/tarsbot-sprites`，不影响 `main`）。

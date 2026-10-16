@@ -15,31 +15,24 @@ if (existsSync(envFile) && !process.env.TARSBOT_NO_DOTENV) {
   }
 }
 
-/** Supported execution environments for the Bot's file/shell tools. */
-export const SANDBOXES = ["cua", "sprites"];
-
 /**
- * Sandbox-dependent settings, derived from an env-var bag (pure; `config` below feeds it `process.env`).
- * An unset or empty TARSBOT_SANDBOX means "cua"; any other unknown value throws.
+ * Sandbox settings. Sprites (Fly.io) is the only sandbox; TARSBOT_SANDBOX is ignored.
+ * Pure: `config` below feeds it `process.env`.
  */
 export function sandboxSettings(vars = process.env) {
-  const sandbox = vars.TARSBOT_SANDBOX || "cua";
-  if (!SANDBOXES.includes(sandbox)) {
-    throw new Error(`Invalid TARSBOT_SANDBOX=${JSON.stringify(sandbox)}: expected one of ${SANDBOXES.join(", ")}`);
-  }
-  const home = sandbox === "sprites" ? "/home/sprite" : "/home/cua";
+  const home = "/home/sprite";
   return {
-    sandbox,
+    sandbox: "sprites",
     spriteName: vars.TARSBOT_SPRITE_NAME || undefined,
     home,
-    spaceCwd: sandbox === "sprites" ? `${home}/workspace` : `${home}/work`,
+    spaceCwd: `${home}/workspace`,
   };
 }
 
 export const config = {
   ...sandboxSettings(),
   port: Number(process.env.TARSBOT_PORT ?? 8090),
-  host: "127.0.0.1",
+  host: process.env.TARSBOT_HOST ?? "127.0.0.1",
   dataDir: resolve(ROOT, process.env.TARSBOT_DATA_DIR ?? "data"),
   get dbPath() {
     return resolve(this.dataDir, "alice.sqlite");

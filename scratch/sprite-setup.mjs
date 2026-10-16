@@ -93,8 +93,15 @@ async function stepSprite() {
     }
   }
   try {
-    const s = await client.createSprite(NAME, { waitForCapacity: true });
-    report("OK", "1 sprite created", `${NAME} (status ${s.status})`);
+    // Requested size; the server may ignore it (docs/SPRITES-PLAN.md §11). The SDK has no region list API, so region is
+    // only sent when TARSBOT_SPRITE_REGION is set.
+    const config = {
+      cpus: Number(process.env.TARSBOT_SPRITE_CPUS || 4),
+      ramMB: Number(process.env.TARSBOT_SPRITE_RAM_MB || 4096),
+    };
+    if (process.env.TARSBOT_SPRITE_REGION) config.region = process.env.TARSBOT_SPRITE_REGION;
+    const s = await client.createSprite(NAME, { config, waitForCapacity: true });
+    report("OK", "1 sprite created", `${NAME} (status ${s.status}; requested ${JSON.stringify(config)})`);
     return true;
   } catch (e) {
     report("FAIL", "1 sprite created", redact(e.message).slice(0, 300));
@@ -281,7 +288,7 @@ async function stepVerify() {
   const leak = await sh(`[ -n "$GH_TOKEN" ] || { echo no-token-in-env; exit 3; }
 grep -rIlF -e "$GH_TOKEN" /home/sprite 2>/dev/null | head -5
 echo "---"
-grep -rIl -e 'ghp_' -e 'github_pat_' --exclude-dir=.npm --exclude-dir=node_modules --exclude-dir=.cache /home/sprite 2>/dev/null | head -5
+grep -rIl -e 'ghp_' -e 'github_pat_' --exclude-dir=.npm --exclude-dir=node_modules --exclude-dir=.cache --exclude-dir=.grok /home/sprite 2>/dev/null | head -5
 echo "---"
 git config --global -l | grep -cF -e "$GH_TOKEN" || true`, 300_000);
   if (!ok(leak)) report("FAIL", "6.9 no token on disk", why(leak));

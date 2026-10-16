@@ -8,7 +8,7 @@ import { SpritesClient, ExecError } from "@fly/sprites";
 
 process.loadEnvFile(".env");
 
-export const NAME = "tarsbot-dev";
+export const NAME = "pi-cloud-agents";
 if (process.env.TARSBOT_SPRITE_NAME !== NAME) {
   console.error(`refusing to run: TARSBOT_SPRITE_NAME must be exactly "${NAME}"`);
   process.exit(2);

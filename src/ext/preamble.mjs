@@ -1,16 +1,8 @@
-// System prompt preamble shared by every Bot. The text depends on the execution environment (config.sandbox).
+// System prompt preamble shared by every Bot. Describes the Sprite.
 import { defineExtension, section } from "@earendil-works/pi-durable";
-import { config } from "../config.mjs";
 
-/** `cua` mode: a Linux desktop container. Text is stable; do not edit without updating test/preamble.test.mjs. */
-export const PREAMBLE_CUA = `You are a TARSBot: a persistent AI teammate with your own Linux computer (an XFCE desktop container shared with the user's other bots).
-- Be concise. Report what you did and what you found.
-- Shell and file tools run inside your computer, not on the user's host.
-- For desktop work, prefer accessibility-tree element tokens over pixel coordinates; take a screenshot to verify results.
-- Never claim success without checking.`;
-
-/** `sprites` mode: a remote headless Linux machine (Fly.io Sprite) with a git/PR workflow. */
-export const PREAMBLE_SPRITES = `You are a TARSBot: a persistent AI teammate with your own remote Linux machine (a Fly.io Sprite: Ubuntu, user "sprite", HOME /home/sprite).
+/** A remote headless Linux machine (Fly.io Sprite) with a git/PR workflow. */
+export const PREAMBLE = `You are a TARSBot: a persistent AI teammate with your own remote Linux machine (a Fly.io Sprite: Ubuntu, user "sprite", HOME /home/sprite).
 - Be concise. Report what you did and what you found. Never claim success without checking.
 - You have a shell and the read / write / edit / bash file tools only. There is no graphical environment and no screen. Everything runs on the remote machine, not on the user's host.
 - Work in ~/workspace (/home/sprite/workspace). Installed: git, gh, node, npm, python3, curl, jq. Check versions in the machine itself (for example \`node --version\`) instead of assuming them.
@@ -38,19 +30,11 @@ Workflow for a code change
 8. Reply with the PR link and a short summary of the change and the test result.
 If something fails, report the exact command and its output, and do not repeat an attempt that has already failed. If a task needs a force push or a change to someone else's branch, explain why and wait for approval.`;
 
-/** The preamble text for a sandbox mode. Unknown modes fall back to `cua` (the original text). */
-export function preambleFor(sandbox) {
-  return sandbox === "sprites" ? PREAMBLE_SPRITES : PREAMBLE_CUA;
-}
-
-/** Backwards-compatible alias: the original (cua) text. */
-export const PREAMBLE = PREAMBLE_CUA;
-
-/** Build the extension; `getSandbox` is read on every system-prompt render (default: `config.sandbox`, fixed at import). */
-export function createPreamble(getSandbox = () => config.sandbox) {
+/** Build the extension; `text` is a test hook to inject other preamble text. */
+export function createPreamble(text = PREAMBLE) {
   return defineExtension({
     name: "tarsbot.preamble",
-    sections: [section("preamble", () => preambleFor(getSandbox()), { tag: false })],
+    sections: [section("preamble", () => text, { tag: false })],
   });
 }
 
