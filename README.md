@@ -1,89 +1,118 @@
 # pi-cloud-agents
 
-在云端常驻运行 [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable)（`@earendil-works/pi-durable`）Bot，执行环境是可插拔的云沙箱；目前唯一的沙箱实现是 Fly.io Sprites。
+**English** | [简体中文](README.zh-CN.md)
 
-每个 Bot 拥有一条持久对话（崩溃、重启后自动恢复），所有 Bot 共用一个 Sprite（单用户）。你可以在网页上观察 Bot 工作、steer / 排队 / 中止、从任意消息 fork，危险操作会先停在审批条。
+Self-hosted cloud coding agents, in the spirit of [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent): you give a Bot a task in the browser, it works on its own remote Linux machine — clones the repo, edits, runs the tests, pushes a branch and opens a PR — and you watch, steer and approve from the web UI.
 
-线上地址：`https://pi.zilin.im`（仅白名单邮箱可登录，不开放注册）。
+Built on [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable) (`@earendil-works/pi-durable`): every Bot is one durable conversation that survives crashes and restarts. The execution environment is a pluggable cloud sandbox: [Fly.io Sprites](https://sprites.dev) (default, used in production) or [E2B](https://e2b.dev).
 
-> 命名说明：代码中的 `TARSBOT_*` 环境变量与 "TARSBot" 字样是历史遗留，暂不改名。
+Live at `https://pi.zilin.im` (allow-listed emails only, no sign-up).
 
-## 架构
+> Naming: the `TARSBOT_*` environment variables and the "TARSBot" strings in the code are historical and kept for now.
+
+## Features
+
+- **Agents with their own machine** — bash, read / write / edit and web search tools; all commands run in the cloud sandbox, never on the server host.
+- **Git / PR workflow** — git and `gh` are pre-authenticated in the sandbox; the Bot works on a `tarsbot/*` branch and replies with the PR link.
+- **Durable by design** — conversations, running tool calls and pending approvals survive `kill -9` and redeploys; interrupted steps are checked before they are retried, so no duplicate PRs or commits (see [`docs/acceptance/L3`](docs/acceptance/L3/README.md)).
+- **Human in the loop** — dangerous operations (`rm -rf`, force push, deleting remote branches, pushing to `main` / `dev`, merging or closing PRs, write calls to the GitHub API…) stop at an approval bar; verdicts are stored durably.
+- **Live web UI** — streamed messages and tool cards with timings and diffs; steer, queue or abort a run; fork a conversation from any message; compact / reset; token usage.
+- **Routines** — scheduled prompts per Bot, durable across restarts.
+- **Pluggable sandboxes** — a sandbox is two primitives, `bash()` and `info()`; Sprites and E2B both pass pi-durable's `ExecutionEnv` conformance suite.
+- **Multiple models** through an OpenAI-compatible gateway (default `glm-5.3-flash`; also `glm-5.3`, `claude-sonnet-5-5`, `gpt-5.6-terra`, …).
+
+### Compared with Cursor Cloud Agents
+
+Same idea — an agent that works in a remote machine and hands back a PR — with different trade-offs:
+
+- **Cursor** runs each agent in an isolated cloud VM with a managed, reusable environment (repos, dependencies, secrets, network controls), usually hosted by Cursor ([docs](https://cursor.com/docs/cloud-agent)).
+- **pi-cloud-agents** is a small self-hosted stack for one user: one Fly Machine with sqlite, Bots sharing one long-lived sandbox (Sprite or E2B), a durable conversation per Bot that resumes after crashes, and an explicit approval step for destructive git / shell operations.
+
+## Architecture
 
 ```
-浏览器 ──HTTPS──▶ Fly Proxy (pi.zilin.im, force_https)
-                    │
-                    ▼
-        Fly Machine `pi-cloud-agents` (sin, shared-cpu-1x 512MB)
-        node src/server.mjs  0.0.0.0:8080
-         ├─ auth guard（src/routes/auth.mjs + src/auth.mjs）→ /data/auth.sqlite
-         ├─ Pi Durable harness → /data/alice.sqlite, /data/bots.json
-         └─ SpritesEnv ──WSS exec──▶ Sprite `pi-cloud-agents`（/home/sprite/workspace）
-                                        └─ git / gh ──▶ GitHub
+Browser ──HTTPS──▶ Fly Proxy (pi.zilin.im)
+                     │
+                     ▼
+         Fly Machine `pi-cloud-agents` (sin, shared-cpu-1x 512 MB)
+         node src/server.mjs  0.0.0.0:8080
+          ├─ auth guard (src/routes/auth.mjs + src/auth.mjs) → /data/auth.sqlite
+          ├─ Pi Durable harness → /data/alice.sqlite, /data/bots.json
+          └─ SandboxEnv ── bash() ──▶ TARSBOT_SANDBOX
+                                       ├─ sprites: Sprite `pi-cloud-agents` (/home/sprite/workspace)
+                                       └─ e2b:     E2B sandbox `pi-cloud-agents` (/home/user/workspace)
+                                                     └─ git / gh ──▶ GitHub
 ```
 
-- 沙箱接口：`src/sandbox/<provider>.mjs`，见 [`docs/CONTRACTS.md`](docs/CONTRACTS.md)。
-- 全部状态存 sqlite / JSON，位于 Fly Volume `/data`；存储只允许单写进程，因此只跑 1 台 Machine。
+- Sandbox interface: `src/sandbox/<provider>.mjs`, selected by `src/sandbox/index.mjs`; see [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
+- All state is sqlite / JSON on the Fly volume `/data`. Storage allows a single writer, so exactly one Machine runs.
 
-## 本地开发
+## Local development
 
-前置：Node ≥ 24（仓库根有 `.nvmrc`，`nvm use` 或 `fnm use`）。
+Requires Node ≥ 24 (`.nvmrc` in the repo root).
 
 ```bash
 npm install && (cd web && npm install && npm run build)
 npm start                      # http://127.0.0.1:8090
-cd web && npm run dev          # Vite dev，http://127.0.0.1:5183
+TARSBOT_SANDBOX=e2b npm start  # same, on the E2B sandbox
+cd web && npm run dev          # Vite dev server, http://127.0.0.1:5183
 ```
 
-`.env`（不提交）所需键名：
+Keys in `.env` (never committed):
 
-- `TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`：OpenAI 兼容模型网关
-- `EXA_API_KEY`：web_search
-- `SPRITES_TOKEN`、`TARSBOT_SPRITE_NAME`：Sprite 沙箱
-- `GITHUB_TOKEN`（仅限测试仓库的 fine-grained PAT）、`TARSBOT_GIT_EMAIL`
-- `TARSBOT_ALLOWED_EMAILS`：登录白名单（逗号分隔）
-- 可选：`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`（Google 登录）、`TARSBOT_PUBLIC_URL`、`TARSBOT_MODEL`
+- `TOKEN_ROUTER_BASE_URL`, `TOKEN_ROUTER_API_KEY` — OpenAI-compatible model gateway
+- `EXA_API_KEY` — web search
+- `SPRITES_TOKEN`, `TARSBOT_SPRITE_NAME` — Sprites sandbox
+- `E2B_API_KEY` (optional `TARSBOT_E2B_NAME`, `TARSBOT_E2B_IDLE_MS`) — E2B sandbox
+- `GITHUB_TOKEN` (fine-grained PAT limited to the test repository), `TARSBOT_GIT_EMAIL`
+- `TARSBOT_ALLOWED_EMAILS` — login allow-list (comma separated)
+- Optional: `TARSBOT_SANDBOX` (`sprites` | `e2b`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TARSBOT_PUBLIC_URL`, `TARSBOT_MODEL`
 
-本地登录：
+Sandbox setup (idempotent): `scripts/sprite-setup.sh` or `scripts/e2b-setup.sh`.
 
-- 密码登录：`node scripts/set-password.mjs <email>`（stdin 读密码；只接受白名单邮箱），再用邮箱 + 密码登录。
-- 仅本地开发可设 `TARSBOT_AUTH_DISABLED=1` 跳过鉴权；`TARSBOT_HOST` 不是 loopback 时服务会拒绝启动。
+Logging in locally:
 
-默认模型 `glm-5.3-flash`，用 `TARSBOT_MODEL` 覆盖；已有 Bot 换模型：停掉 server 后 `node scripts/set-model.mjs <bot> <modelId>`。
+- Password: `node scripts/set-password.mjs <email>` (reads the password from stdin; allow-listed emails only).
+- Local development only: `TARSBOT_AUTH_DISABLED=1` skips auth; the server refuses to start with it when `TARSBOT_HOST` is not loopback.
 
-命令行替代：`npm run repl` —— 与 server 共用 sqlite，**不能和 server 同时运行**。
+Change the model of an existing Bot: stop the server, then `node scripts/set-model.mjs <bot> <modelId>`.
 
-## 测试
+CLI alternative: `npm run repl` — shares the sqlite file with the server, **do not run both at once**.
+
+## Tests
 
 ```bash
-TARSBOT_NO_DOTENV=1 npm test                       # 后端单元测试，离线
+TARSBOT_NO_DOTENV=1 npm test                         # backend unit tests, offline
 cd web && npm test && npm run typecheck && npm run build
+set -a; . ./.env; set +a; npm run test:env           # ExecutionEnv conformance on the real sandbox
 ```
 
-## 部署
+## Deployment
 
-部署到 Fly.io（`fly deploy`、secrets、volume、域名、GitHub 自动部署）见 [`docs/DEPLOY.md`](docs/DEPLOY.md)；Sprite 的初始化与维护见 [`docs/sprite-cloud.md`](docs/sprite-cloud.md)。完整方案与决策见 [`docs/CLOUD-PLAN.md`](docs/CLOUD-PLAN.md)。
+Fly.io deployment (`fly deploy`, secrets, volume, domain, GitHub auto-deploy): [`docs/DEPLOY.md`](docs/DEPLOY.md). Sandbox setup records: [`docs/sprite-cloud.md`](docs/sprite-cloud.md), [`docs/e2b-cloud.md`](docs/e2b-cloud.md). Plan and decisions: [`docs/CLOUD-PLAN.md`](docs/CLOUD-PLAN.md), [`docs/E2B-PLAN.md`](docs/E2B-PLAN.md).
 
-## 安全
+## Security
 
-- 只有白名单邮箱能登录，无注册接口；所有 `/api/*` 与 WebSocket 需有效 session，非 GET 请求还会校验 Origin。契约见 `docs/CLOUD-PLAN.md` §4。
-- Sprite 内的 `bash` 即完全信任边界：能执行 bash 的主体拥有 Sprite 内的全部权限与登录态。危险操作走 `src/ext/approval.mjs` 审批。
-- 密钥只存在于 Fly secrets 与本地 `.env`，不写入 Sprite、日志、测试快照或截图。
+- Only allow-listed emails can log in; there is no sign-up. Every `/api/*` route and WebSocket needs a valid session, and non-GET requests are Origin-checked (`docs/CLOUD-PLAN.md` §4).
+- `bash` in the sandbox is a full trust boundary: whoever can run bash there has every credential in the sandbox. Dangerous operations go through `src/ext/approval.mjs`.
+- Secrets live only in Fly secrets and the local `.env`; they are passed to the sandbox per command and never written to the sandbox disk, logs, test snapshots or screenshots.
 
-## 数据
+## Data
 
-| 位置 | 内容 |
+| Location | Contents |
 |---|---|
-| `/data/alice.sqlite`（本地为 `data/`） | 全部对话与状态，**禁止删除** |
-| `/data/bots.json` | Bot 配置 |
-| `/data/auth.sqlite` | 用户与 session |
+| `/data/alice.sqlite` (locally `data/`) | All conversations and state — **never delete** |
+| `/data/bots.json` | Bot registry |
+| `/data/auth.sqlite` | Users and sessions |
 
-## 文档
+## Docs
 
-- 云端方案：[`docs/CLOUD-PLAN.md`](docs/CLOUD-PLAN.md)；接口契约：[`docs/CONTRACTS.md`](docs/CONTRACTS.md)；Agent 指南：[`AGENTS.md`](AGENTS.md)
-- 历史文档：[`docs/archive/`](docs/archive/README.md)、`docs/SPRITES-PLAN.md`
+- Plan: [`docs/CLOUD-PLAN.md`](docs/CLOUD-PLAN.md) · Contracts: [`docs/CONTRACTS.md`](docs/CONTRACTS.md) · Agent guide: [`AGENTS.md`](AGENTS.md)
+- History: [`docs/archive/`](docs/archive/README.md), `docs/SPRITES-PLAN.md`
 
-## 已知限制
+## Known limitations
 
-- pi-durable API 处于实验阶段（依赖收敛在 `env.mjs`/`ext/`/`server.mjs` 三处）。
-- 单写进程：server 与 repl 不能同时开；Fly 只能 1 台 Machine。
+- The pi-durable API is experimental (dependencies are confined to `env.mjs`, `ext/` and `server.mjs`).
+- Single writer: server and repl cannot run together; one Fly Machine only.
+- The sandbox is chosen per process (`TARSBOT_SANDBOX`), not per Bot; all Bots share one sandbox.
+- E2B `base` template is small (2 vCPU / ~470 MB, setup adds 1 GB swap); Hobby accounts cap the sandbox lifetime at 1 h between auto-pauses. No outbound network allow-list on E2B yet.
