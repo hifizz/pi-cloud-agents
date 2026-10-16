@@ -2,6 +2,8 @@
 
 [English](README.md) | **简体中文**
 
+![pi-cloud-agents 网页界面：左侧 Bot 列表，中间对话，右侧 Changes 面板显示 diff](docs/images/pi-cloud-agents.jpeg)
+
 自托管的云端编码 Agent，对标 [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent)：在浏览器里给 Bot 布置任务，它在自己的远程 Linux 机器上工作——克隆仓库、修改代码、跑测试、推分支、开 PR——你在网页上观察、steer、审批。
 
 基于 [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable)（`@earendil-works/pi-durable`）：每个 Bot 是一条持久对话，崩溃、重启后自动恢复。执行环境是可插拔的云沙箱：[Fly.io Sprites](https://sprites.dev)（默认、线上使用）或 [E2B](https://e2b.dev)。

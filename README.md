@@ -2,6 +2,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+![pi-cloud-agents web UI: bots on the left, a conversation in the middle, and the Changes panel with a diff on the right](docs/images/pi-cloud-agents.jpeg)
+
 Self-hosted cloud coding agents, in the spirit of [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent): you give a Bot a task in the browser, it works on its own remote Linux machine — clones the repo, edits, runs the tests, pushes a branch and opens a PR — and you watch, steer and approve from the web UI.
 
 Built on [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable) (`@earendil-works/pi-durable`): every Bot is one durable conversation that survives crashes and restarts. The execution environment is a pluggable cloud sandbox: [Fly.io Sprites](https://sprites.dev) (default, used in production) or [E2B](https://e2b.dev).
