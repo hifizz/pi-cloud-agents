@@ -53,7 +53,7 @@ export const config = {
     return resolve(this.dataDir, "bots.json");
   },
   provider: "tokenrouter",
-  defaultModelId: process.env.TARSBOT_MODEL ?? "glm-5.3-flash",
+  defaultModelId: process.env.TARSBOT_MODEL ?? "swe-2",
 };
 
 export const defaultModel = () => ({ provider: config.provider, modelId: config.defaultModelId });

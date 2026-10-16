@@ -19,7 +19,7 @@
 - **实时 Web UI**：流式消息与工具卡片（含耗时和 diff）；steer、排队或中止；从任意消息 fork 对话；compact / reset；token 用量。
 - **定时例程**：按 Bot 定时发送提示词，重启后照常运行。
 - **可插拔沙箱**：一个沙箱只需 `bash()` 和 `info()` 两个原语；Sprites 与 E2B 都通过了 pi-durable 的 `ExecutionEnv` 一致性测试。
-- **多模型**：经 OpenAI 兼容网关接入（默认 `glm-5.3-flash`，另有 `glm-5.3`、`claude-sonnet-5-5`、`gpt-5.6-terra` 等）。
+- **多模型**：经 OpenAI 兼容网关接入（默认 `swe-2`，另有 `glm-5.3-flash`、`glm-5.3`、`claude-sonnet-5-5`、`gpt-5.6-terra` 等）。
 
 ### 与 Cursor Cloud Agents 的对比
 

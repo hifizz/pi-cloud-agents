@@ -19,7 +19,7 @@ pi-cloud-agents 在云端常驻运行基于 Pi Durable（`@earendil-works/pi-dur
   - Sprites：`node_modules/@fly/sprites/` 下的类型
 - 参考源码：`vendor-ref/durable-examples/`、`vendor-ref/coding-agent-durable/`（gitignored，仅本地）。
 - 接口契约：`docs/CONTRACTS.md`。与代码冲突时以代码为准并回报。
-- 默认模型：**GLM 5.3 Flash**（`glm-5.3-flash`，经 tokenrouter），定义在 `src/config.mjs`，可用 `TARSBOT_MODEL` 覆盖。这只是默认值：`glm-5.3`、`claude-sonnet-5-5`、`gpt-5.6-terra` 都是正常可选的模型（见 `src/models.mjs`），可以在新建 Bot、fork、bench 时指定，不要当作已废弃模型去替换。已有 Bot 换模型用 `node scripts/set-model.mjs <bot> <modelId>`（先停 server）。
+- 默认模型：**SWE-2**（`swe-2`，经 tokenrouter），定义在 `src/config.mjs`，可用 `TARSBOT_MODEL` 覆盖。这只是默认值：`glm-5.3-flash`、`glm-5.3`、`claude-sonnet-5-5`、`gpt-5.6-terra` 都是正常可选的模型（见 `src/models.mjs`），可以在新建 Bot、fork、bench 时指定，不要当作已废弃模型去替换。已有 Bot 换模型用 `node scripts/set-model.mjs <bot> <modelId>`（先停 server）。
 
 ## 目录结构
 

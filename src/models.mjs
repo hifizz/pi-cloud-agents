@@ -7,6 +7,8 @@ import { config } from "./config.mjs";
 // Models we use. Costs are per 1M tokens (USD); approximate values used only for
 // usage reporting, adjust when real router prices are known.
 const MODEL_SPECS = [
+  // Router price for swe-2 is unknown; 0 keeps usage reporting honest (tokens counted, no cost).
+  { id: "swe-2", name: "SWE-2", reasoning: true, input: ["text"], cost: { input: 0, output: 0 } },
   { id: "glm-5.3", name: "GLM-5.3", reasoning: true, input: ["text"], cost: { input: 0.6, output: 2.2 } },
   { id: "glm-5.3-flash", name: "GLM-5.3 Flash", reasoning: true, input: ["text"], cost: { input: 0.1, output: 0.4 } },
   { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", reasoning: true, input: ["text", "image"], cost: { input: 3, output: 15 } },

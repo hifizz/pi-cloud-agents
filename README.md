@@ -19,7 +19,7 @@ Live at `https://pi.zilin.im` (allow-listed emails only, no sign-up).
 - **Live web UI** — streamed messages and tool cards with timings and diffs; steer, queue or abort a run; fork a conversation from any message; compact / reset; token usage.
 - **Routines** — scheduled prompts per Bot, durable across restarts.
 - **Pluggable sandboxes** — a sandbox is two primitives, `bash()` and `info()`; Sprites and E2B both pass pi-durable's `ExecutionEnv` conformance suite.
-- **Multiple models** through an OpenAI-compatible gateway (default `glm-5.3-flash`; also `glm-5.3`, `claude-sonnet-5-5`, `gpt-5.6-terra`, …).
+- **Multiple models** through an OpenAI-compatible gateway (default `swe-2`; also `glm-5.3-flash`, `glm-5.3`, `claude-sonnet-5-5`, `gpt-5.6-terra`, …).
 
 ### Compared with Cursor Cloud Agents
 
