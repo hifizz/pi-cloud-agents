@@ -1,4 +1,4 @@
-// loadSandbox: only known sandboxes load; sprites resolves offline (importing sprites.mjs makes no network call).
+// loadSandbox: only known sandboxes load; importing a provider module never makes a network call.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -24,6 +24,14 @@ test("loadSandbox('sprites') returns bash/info and is cached", async () => {
   assert.equal(await loadSandbox("sprites"), a);
 });
 
+test("loadSandbox('instabox') returns bash/info offline and is cached", async () => {
+  const a = await loadSandbox("instabox");
+  assert.equal(typeof a.bash, "function");
+  assert.equal(typeof a.info, "function");
+  assert.deepEqual(a.info(), { sandbox: "instabox", name: "pi-cloud-agents" });
+  assert.equal(await loadSandbox("instabox"), a);
+});
+
 test("sandboxSettings(instabox): defaults and overrides; the Sprite name is ignored", () => {
   const base = { sandbox: "instabox", spriteName: undefined };
   assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "instabox" }), {
@@ -33,7 +41,7 @@ test("sandboxSettings(instabox): defaults and overrides; the Sprite name is igno
     spaceCwd: "/data/home/workspace",
   });
   assert.deepEqual(
-    sandboxSettings({ TARSBOT_SANDBOX: "instabox", TARSBOT_INSTABOX_NAME: "mine", TARSBOT_INSTABOX_HOME: "/home/dev", TARSBOT_SPRITE_NAME: "ignored" }),
-    { ...base, sandboxName: "mine", home: "/home/dev", spaceCwd: "/home/dev/workspace" },
+    sandboxSettings({ TARSBOT_SANDBOX: "instabox", TARSBOT_INSTABOX_NAME: "mine", TARSBOT_SPRITE_NAME: "ignored" }),
+    { ...base, sandboxName: "mine", home: "/data/home", spaceCwd: "/data/home/workspace" },
   );
 });

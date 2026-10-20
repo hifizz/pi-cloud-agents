@@ -6,7 +6,7 @@
 
 Self-hosted cloud coding agents, in the spirit of [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent): you give a Bot a task in the browser, it works on its own remote Linux machine — clones the repo, edits, runs the tests, pushes a branch and opens a PR — and you watch, steer and approve from the web UI.
 
-Built on [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable) (`@earendil-works/pi-durable`): every Bot is one durable conversation that survives crashes and restarts. The execution environment is a pluggable cloud sandbox: [Fly.io Sprites](https://sprites.dev) (default, used in production) or [E2B](https://e2b.dev).
+Built on [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable) (`@earendil-works/pi-durable`): every Bot is one durable conversation that survives crashes and restarts. The execution environment is a pluggable cloud sandbox: [Fly.io Sprites](https://sprites.dev) (default, used in production), [E2B](https://e2b.dev), or [InstaBox](https://instabox.sh).
 
 Live at `https://pi.zilin.im` (allow-listed emails only, no sign-up).
 
@@ -20,7 +20,7 @@ Live at `https://pi.zilin.im` (allow-listed emails only, no sign-up).
 - **Human in the loop** — dangerous operations (`rm -rf`, force push, deleting remote branches, pushing to `main` / `dev`, merging or closing PRs, write calls to the GitHub API…) stop at an approval bar; verdicts are stored durably.
 - **Live web UI** — streamed messages and tool cards with timings and diffs; steer, queue or abort a run; fork a conversation from any message; compact / reset; token usage.
 - **Routines** — scheduled prompts per Bot, durable across restarts.
-- **Pluggable sandboxes** — a sandbox is two primitives, `bash()` and `info()`; Sprites and E2B both pass pi-durable's `ExecutionEnv` conformance suite.
+- **Pluggable sandboxes** — a sandbox is two primitives, `bash()` and `info()`; Sprites remains the default while E2B and InstaBox are selectable backends.
 - **Multiple models** through an OpenAI-compatible gateway (default `swe-2`; also `glm-5.3-flash`, `glm-5.3`, `claude-sonnet-5-5`, `gpt-5.6-terra`, …).
 
 ### Compared with Cursor Cloud Agents
@@ -28,7 +28,7 @@ Live at `https://pi.zilin.im` (allow-listed emails only, no sign-up).
 Same idea — an agent that works in a remote machine and hands back a PR — with different trade-offs:
 
 - **Cursor** runs each agent in an isolated cloud VM with a managed, reusable environment (repos, dependencies, secrets, network controls), usually hosted by Cursor ([docs](https://cursor.com/docs/cloud-agent)).
-- **pi-cloud-agents** is a small self-hosted stack for one user: one Fly Machine with sqlite, Bots sharing one long-lived sandbox (Sprite or E2B), a durable conversation per Bot that resumes after crashes, and an explicit approval step for destructive git / shell operations.
+- **pi-cloud-agents** is a small self-hosted stack for one user: one Fly Machine with sqlite, Bots sharing one long-lived sandbox, a durable conversation per Bot that resumes after crashes, and an explicit approval step for destructive git / shell operations.
 
 ## Architecture
 
@@ -41,9 +41,10 @@ Browser ──HTTPS──▶ Fly Proxy (pi.zilin.im)
           ├─ auth guard (src/routes/auth.mjs + src/auth.mjs) → /data/auth.sqlite
           ├─ Pi Durable harness → /data/alice.sqlite, /data/bots.json
           └─ SandboxEnv ── bash() ──▶ TARSBOT_SANDBOX
-                                       ├─ sprites: Sprite `pi-cloud-agents` (/home/sprite/workspace)
-                                       └─ e2b:     E2B sandbox `pi-cloud-agents` (/home/user/workspace)
-                                                     └─ git / gh ──▶ GitHub
+                                       ├─ sprites:  Sprite `pi-cloud-agents` (/home/sprite/workspace)
+                                       ├─ e2b:      E2B sandbox `pi-cloud-agents` (/home/user/workspace)
+                                       └─ instabox: InstaBox `pi-cloud-agents` (/data/home/workspace)
+                                                       └─ git / gh ──▶ GitHub
 ```
 
 - Sandbox interface: `src/sandbox/<provider>.mjs`, selected by `src/sandbox/index.mjs`; see [`docs/CONTRACTS.md`](docs/CONTRACTS.md).
@@ -57,6 +58,7 @@ Requires Node ≥ 24 (`.nvmrc` in the repo root).
 npm install && (cd web && npm install && npm run build)
 npm start                      # http://127.0.0.1:8090
 TARSBOT_SANDBOX=e2b npm start  # same, on the E2B sandbox
+TARSBOT_SANDBOX=instabox npm start # same, on InstaBox (created lazily if absent)
 cd web && npm run dev          # Vite dev server, http://127.0.0.1:5183
 ```
 
@@ -66,11 +68,13 @@ Keys in `.env` (never committed):
 - `EXA_API_KEY` — web search
 - `SPRITES_TOKEN`, `TARSBOT_SPRITE_NAME` — Sprites sandbox
 - `E2B_API_KEY` (optional `TARSBOT_E2B_NAME`, `TARSBOT_E2B_IDLE_MS`) — E2B sandbox
+- `INSTABOX_API_KEY` (optional `INSTABOX_API_URL`, `TARSBOT_INSTABOX_NAME`, `TARSBOT_INSTABOX_TEMPLATE`, `TARSBOT_INSTABOX_IDLE_MS`, `TARSBOT_INSTABOX_LOG`) — InstaBox; the key needs `machines:write` (which includes read)
 - `GITHUB_TOKEN` (fine-grained PAT limited to the test repository), `TARSBOT_GIT_EMAIL`
 - `TARSBOT_ALLOWED_EMAILS` — login allow-list (comma separated)
-- Optional: `TARSBOT_SANDBOX` (`sprites` | `e2b`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TARSBOT_PUBLIC_URL`, `TARSBOT_MODEL`
+- Optional: `TARSBOT_SANDBOX` (`sprites` | `e2b` | `instabox`), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `TARSBOT_PUBLIC_URL`, `TARSBOT_MODEL`
 
 Sandbox setup (idempotent): `scripts/sprite-setup.sh` or `scripts/e2b-setup.sh`.
+InstaBox is found by metadata and resumed automatically; if absent, the adapter creates it from `agent-browser` with account Vault injection disabled. Before the first user command it reconciles idle suspension, checks the required toolchain, creates `~/workspace`, and configures Git to read the per-command `GH_TOKEN` without writing it to disk. Existing Vault-enabled machines and multiple matches fail closed instead of risking old secrets or choosing a persistent disk.
 
 Logging in locally:
 
@@ -87,6 +91,7 @@ CLI alternative: `npm run repl` — shares the sqlite file with the server, **do
 TARSBOT_NO_DOTENV=1 npm test                         # backend unit tests, offline
 cd web && npm test && npm run typecheck && npm run build
 set -a; . ./.env; set +a; npm run test:env           # ExecutionEnv conformance on the real sandbox
+set -a; . ./.env; set +a; TARSBOT_SANDBOX=instabox npm run test:env
 ```
 
 ## Deployment
@@ -118,3 +123,4 @@ Fly.io deployment (`fly deploy`, secrets, volume, domain, GitHub auto-deploy): [
 - Single writer: server and repl cannot run together; one Fly Machine only.
 - The sandbox is chosen per process (`TARSBOT_SANDBOX`), not per Bot; all Bots share one sandbox.
 - E2B `base` template is small (2 vCPU / ~470 MB, setup adds 1 GB swap); Hobby accounts cap the sandbox lifetime at 1 h between auto-pauses. No outbound network allow-list on E2B yet.
+- InstaBox commands are limited by the service to 600 seconds and 1 MiB per output stream. The adapter is fully covered offline; a real-machine conformance run still requires `INSTABOX_API_KEY` and verification that the selected template has the promised git/gh toolchain.

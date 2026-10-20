@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# L2 end-to-end PR acceptance (docs/tasks/S3-pr-e2e.md). Needs: curl, jq, gh, a running TARSBot server in sprites or e2b mode,
+# L2 end-to-end PR acceptance (docs/tasks/S3-pr-e2e.md). Needs: curl, jq, gh, a running TARSBot server,
 # GITHUB_TOKEN in .env (only used locally for `gh`; never printed), a working model key for the server.
 #
 # What it does (one run = one new Bot, one new branch tarsbot/* and one new PR in the TEST repository):
-#   1. checks /api/health and that /api/space says sandbox:"sprites" or "e2b"  (the script never starts or stops the server)
+#   1. checks /api/health and that /api/space reports a supported sandbox (the script never starts or stops the server)
 #   2. creates a Bot and gives it the change request below (natural language, Chinese)
 #   3. polls /api/approvals while the Bot works: NONE are expected in the PR flow; any that shows up is denied -> FAIL
 #   4. waits for the final reply and extracts the PR link
@@ -148,7 +148,7 @@ echo "--- precondition checks"
 if ! curl -sf --max-time 5 "$BASE_URL/api/health" >/dev/null; then echo "server not healthy at $BASE_URL (the script does not start it)" >&2; exit 2; fi
 SANDBOX="$(api "$BASE_URL/api/space" | jq -r '.sandbox // empty')"
 SPRITE="$(api "$BASE_URL/api/space" | jq -r '.name // empty')"
-case "$SANDBOX" in sprites|e2b) ;; *) echo "GET /api/space sandbox='$SANDBOX', expected 'sprites' or 'e2b'" >&2; exit 2 ;; esac
+case "$SANDBOX" in sprites|e2b|instabox) ;; *) echo "GET /api/space sandbox='$SANDBOX', expected 'sprites', 'e2b' or 'instabox'" >&2; exit 2 ;; esac
 ghx api "repos/$REPO" --jq .full_name >/dev/null 2>&1 || { echo "local gh cannot read $REPO with GITHUB_TOKEN" >&2; exit 2; }
 START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 T0=$SECONDS

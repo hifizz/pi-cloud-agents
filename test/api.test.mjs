@@ -300,6 +300,8 @@ test("production extensions and route plugins (no Desktop extension)", () => {
     assert.deepEqual(out.body, { sandbox: "sprites", name: "tars-test", cwd: "/home/sprite/workspace" });
     const e2b = child(LOAD_CODE, { TARSBOT_SANDBOX: "e2b", TARSBOT_DATA_DIR: dataDir });
     assert.deepEqual(e2b.body, { sandbox: "e2b", name: "pi-cloud-agents", cwd: "/home/user/workspace" });
+    const instabox = child(LOAD_CODE, { TARSBOT_SANDBOX: "instabox", TARSBOT_DATA_DIR: dataDir });
+    assert.deepEqual(instabox.body, { sandbox: "instabox", name: "pi-cloud-agents", cwd: "/data/home/workspace" });
     assert.deepEqual(out.exts, ["tarsbot.preamble", "coding-tools", "tarsbot.search", "tarsbot.history", "tarsbot.routines", "tarsbot.approval", "tarsbot.timing"]);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });

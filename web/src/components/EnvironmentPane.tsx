@@ -1,7 +1,17 @@
 import type { BotSummary, ConversationVM, SpaceInfo } from "../types";
 
-/** Fallback when the server does not report `cwd` (config.spaceCwd). */
-const SPRITE_WORKDIR = "/home/sprite/workspace";
+const SANDBOX_LABELS: Record<SpaceInfo["sandbox"], string> = {
+  sprites: "Sprite",
+  e2b: "E2B",
+  instabox: "InstaBox",
+};
+
+/** Fallbacks when the server does not report `cwd` (config.spaceCwd). */
+const SANDBOX_WORKDIRS: Record<SpaceInfo["sandbox"], string> = {
+  sprites: "/home/sprite/workspace",
+  e2b: "/home/user/workspace",
+  instabox: "/data/home/workspace",
+};
 
 export interface EnvironmentPaneProps {
   /** GET /api/space; undefined while loading (or after `failed`). */
@@ -17,7 +27,7 @@ export function EnvironmentPane({ space, failed = false, bot, vm }: EnvironmentP
   }
   const agent = vm?.agent;
   const model = agent?.modelId ?? bot?.model.modelId;
-  const cwd = agent?.cwd ?? space.cwd ?? SPRITE_WORKDIR;
+  const cwd = agent?.cwd ?? space.cwd ?? SANDBOX_WORKDIRS[space.sandbox];
   const code = "rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-xs text-fg";
   return (
     <dl
@@ -27,7 +37,7 @@ export function EnvironmentPane({ space, failed = false, bot, vm }: EnvironmentP
     >
       <dt className="text-xs text-fg-muted">执行环境</dt>
       <dd className="min-w-0 text-fg">
-        {space.sandbox === "e2b" ? "E2B" : "Sprite"} <code className={code}>{space.name ?? "(未配置)"}</code>
+        {SANDBOX_LABELS[space.sandbox]} <code className={code}>{space.name ?? "(未配置)"}</code>
       </dd>
       <dt className="text-xs text-fg-muted">工作目录</dt>
       <dd className="min-w-0 break-all">

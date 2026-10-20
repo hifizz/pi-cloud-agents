@@ -34,8 +34,8 @@ export function sandboxSettings(vars = process.env) {
     };
   }
   if (sandbox === "instabox") {
-    // The InstaBox docs put the default HOME on the persistent disk (/data/home); override if the machine differs.
-    const home = vars.TARSBOT_INSTABOX_HOME || "/data/home";
+    // InstaBox defines the persistent HOME as /data/home; keeping it fixed preserves shell `~` and prompt semantics.
+    const home = "/data/home";
     return {
       sandbox,
       sandboxName: vars.TARSBOT_INSTABOX_NAME || "pi-cloud-agents",

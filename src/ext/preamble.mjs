@@ -1,4 +1,4 @@
-// System prompt preamble shared by every Bot. Describes the sandbox (Sprite or E2B).
+// System prompt preamble shared by every Bot. Describes the selected remote sandbox.
 import { defineExtension, section } from "@earendil-works/pi-durable";
 import { config } from "../config.mjs";
 
@@ -42,9 +42,14 @@ const SANDBOX_PROFILES = {
     workdir: "~/workspace (/home/user/workspace)",
     notes: "",
   },
+  instabox: {
+    machine: "an InstaBox sandbox: Linux, persistent HOME /data/home",
+    workdir: "~/workspace (/data/home/workspace)",
+    notes: "",
+  },
 };
 
-/** A remote headless Linux machine with a git/PR workflow; `sandbox` is "sprites" or "e2b". */
+/** A remote headless Linux machine with a git/PR workflow. */
 export function preambleFor(sandbox) {
   const p = SANDBOX_PROFILES[sandbox];
   if (!p) throw new Error(`Unknown sandbox "${sandbox}"`);

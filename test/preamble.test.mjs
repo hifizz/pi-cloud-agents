@@ -39,18 +39,24 @@ test("sprites text: workflow, recovery checks and safety rules", () => {
   assert.doesNotMatch(t, /\b\d+\.\d+\.\d+\b/, "no pinned tool versions");
 });
 
-test("preambleFor(sprites) is byte-identical to the pre-E2B text; e2b differs only in machine facts", () => {
+test("preambleFor(sprites) is byte-identical to the pre-E2B text; other providers differ only in machine facts", () => {
   // sha256 of the Sprites PREAMBLE as shipped before sandbox selection was added.
   const sha = (t) => createHash("sha256").update(t).digest("hex");
   assert.equal(sha(preambleFor("sprites")), "2651d52f1ff46e77bb55786777bc848fbb96b1a3b0e8cbe8c5a00a27687eea45");
   const s = preambleFor("sprites");
   const e = preambleFor("e2b");
+  const i = preambleFor("instabox");
   assert.ok(e.includes('an E2B sandbox: Linux, user "user", HOME /home/user'));
   assert.ok(e.includes("~/workspace (/home/user/workspace)"));
   assert.ok(!/uutils/i.test(e) && /uutils/.test(s));
   assert.doesNotMatch(e, /sprite/i);
+  assert.ok(i.includes("an InstaBox sandbox: Linux, persistent HOME /data/home"));
+  assert.ok(i.includes("~/workspace (/data/home/workspace)"));
+  assert.ok(!/uutils/i.test(i));
+  assert.doesNotMatch(i, /Fly\.io Sprite|E2B/);
   for (const needle of ["Never print GH_TOKEN", "Never use --force", "main, master or dev", "stop that operation", "gh pr list --head", "Opened by TARSBot", "git log --oneline -5"]) {
     assert.ok(e.includes(needle), `e2b missing: ${needle}`);
+    assert.ok(i.includes(needle), `instabox missing: ${needle}`);
   }
   assert.throws(() => preambleFor("nope"), /Unknown sandbox/);
 });
