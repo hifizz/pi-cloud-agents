@@ -1,12 +1,14 @@
 // Scheduled routines (F06): a routine is a durable BACKGROUND task that periodically submits a prompt to a Bot.
 //
-// How "wait until time T" works in pi-durable 1.0.4 (verified in node_modules/.../dist/types.d.ts + harness/scheduler.js):
-//   - There IS a native timed wait: `runtime.sleep(untilMs, ctx)` resolves once the Harness clock (`HarnessOptions.now`,
-//     default Date.now) reaches `untilMs`. It is an IN-MEMORY timer (setTimeout chunks) bound to the task invocation:
-//     closing the Harness cancels it, and nothing about the wait itself is persisted.
-//   - Durability therefore comes from the checkpoint: the task stores `{phase:"tick", nextAt}` through `runtime.commit`.
-//     After a restart `harness.resume()` re-reserves the unfinished task, the phase handler runs again from the saved
-//     checkpoint and re-arms the sleep from `nextAt`. If `nextAt` already passed, the sleep returns at once.
+// How "wait until time T" works (pi-durable >= 1.4.0 durable sleeps):
+//   - The task never waits inside a phase. It ends its phase ASLEEP: `runtime.sleepUntil(until, checkpoint, ctx)`, or
+//     `{ status: "sleeping", until, checkpoint }` returned from `runtime.commit()` when the sleep must commit together with
+//     other writes (the routine list update). A sleeping task holds no invocation; the deadline is stored, survives a
+//     restart, and the Harness resumes the task at its checkpoint once the Harness clock (`HarnessOptions.now`) reaches
+//     `until`. If `until` already passed when the Harness reopens, the task runs at once.
+//   - Phase `tick` with checkpoint `{phase:"tick", nextAt}`: if the Harness clock is before `nextAt` the phase only goes
+//     back to sleep until `nextAt` (also the path for records written by 1.0.x, which were stored mid-wait as running);
+//     otherwise it fires once and sleeps until the next slot, in the same commit that updates the routine list.
 //   - Catch-up: one firing per overdue slot series. After waking late we fire ONCE (for the saved `nextAt`), then compute
 //     the next slot strictly after "now" on the original grid, so missed slots are never replayed in a burst.
 //   - Exactly-once: the submission carries `requestId = routine:<id>:<nextAt>`. If a crash happens between submit and the
@@ -14,9 +16,9 @@
 //   - Abort semantics (REQ-F06-3): the task is `background: true`, so `conv.abort(ctx)` skips it;
 //     `conv.abort(ctx, { background: true })` (or `cancelRoutine`) reaches it and the task's `abort` handler ends it.
 //
-// Clock injection: `createRoutines({ now, setTimer })`. Without injection the native `runtime.sleep` is used. With injection
-// the task sleeps with the injected clock instead (loop: `now() < until` -> `setTimer(wake, ms)`), so tests can drive time
-// with a fake clock. `setTimer(fn, ms)` must return a cancel function.
+// Clock injection: sleeps run on the Harness clock, so a fake clock goes to the Harness:
+// `openHarness({ now, setTimer })`. `createRoutines({ now })` must get the same `now`; it only stamps `createdAt` and the
+// first slot. (`setTimer` is still accepted by `createRoutines` for compatibility and ignored.)
 //
 // The routine list lives in a Session-scoped document (`tarsbot.routines`): routines span bots, so no single conversation
 // should own the list. The document is updated inside the same commit as each checkpoint.
@@ -24,7 +26,6 @@ import { randomUUID } from "node:crypto";
 import { defineDoc, defineExtension, defineTask } from "@earendil-works/pi-durable";
 import { ctx } from "../harness.mjs";
 
-const MAX_TIMER_MS = 2 ** 31 - 1;
 const RECENT_FIRES = 20;
 
 /** Session document: routine id -> public record (also what listRoutines returns). */
@@ -33,6 +34,8 @@ export const RoutinesDoc = defineDoc({
   version: 1,
   scope: "session",
   initial: () => ({ routines: {} }),
+  // Small document; keep ordinary changes as deltas (pi-durable >= 1.4.0 requires an explicit policy).
+  checkpointWhen: () => false,
 });
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -71,40 +74,13 @@ export function computeNext(spec, scheduled, now) {
   return scheduled + steps * every;
 }
 
-function defaultSetTimer(fn, ms) {
-  const t = setTimeout(fn, Math.min(ms, MAX_TIMER_MS));
-  return () => clearTimeout(t);
-}
-
-/** Sleep with an injected clock. Rejects with signal.reason when aborted. */
-function sleepInjected({ now, setTimer }, until, signal) {
-  return new Promise((resolve, reject) => {
-    let cancel = () => {};
-    const onAbort = () => {
-      cancel();
-      reject(signal.reason ?? new Error("aborted"));
-    };
-    const step = () => {
-      if (signal.aborted) return onAbort();
-      const remaining = until - now();
-      if (remaining <= 0) {
-        signal.removeEventListener("abort", onAbort);
-        return resolve();
-      }
-      cancel = setTimer(step, remaining);
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    step();
-  });
-}
-
 /**
  * Build a routines bundle. Use the default exports unless you need an injected clock.
- * @param {{ now?: () => number, setTimer?: (fn: () => void, ms: number) => (() => void) }} [opts]
+ * @param {{ now?: () => number, setTimer?: unknown }} [opts] `now` must be the Harness clock (`openHarness({ now })`);
+ *   `setTimer` is ignored (sleep timers belong to the Harness).
  */
 export function createRoutines(opts = {}) {
-  const injected = opts.now || opts.setTimer;
-  const clock = { now: opts.now ?? Date.now, setTimer: opts.setTimer ?? defaultSetTimer };
+  const clock = { now: opts.now ?? Date.now };
 
   const Tick = defineTask({
     name: "routine.tick",
@@ -114,9 +90,11 @@ export function createRoutines(opts = {}) {
       tick: async (task, runtime, taskContext) => {
         const { id, botConversationId, prompt, everyMs, atTimes } = task.input;
         const scheduled = task.state.checkpoint.nextAt;
-        // Wait for the saved slot. After a restart this re-arms from the checkpoint (returns at once if overdue).
-        if (injected) await sleepInjected(clock, scheduled, runtime.signal);
-        else await runtime.sleep(scheduled, taskContext);
+        // Not due yet: end the phase asleep until the saved slot (durable; resumes here at `scheduled`).
+        if (runtime.now() < scheduled) {
+          await runtime.sleepUntil(scheduled, { phase: "tick", nextAt: scheduled }, taskContext);
+          return;
+        }
 
         // Disabled or removed from the list: finish quietly.
         const current = (await runtime.snapshot(RoutinesDoc, taskContext))?.routines?.[id];
@@ -137,8 +115,7 @@ export function createRoutines(opts = {}) {
         const requestId = `routine:${id}:${scheduled}`;
         const submission = await conv.submit({ type: "input", content: prompt, whenBusy: "followUp", requestId }, taskContext);
 
-        const nowMs = clock.now();
-        const nextAt = computeNext({ everyMs, atTimes }, scheduled, injected ? nowMs : runtime.now());
+        const nextAt = computeNext({ everyMs, atTimes }, scheduled, runtime.now());
         await runtime.commit(async (tx) => {
           const doc = await tx.doc(RoutinesDoc);
           const rec = doc.routines[id];
@@ -150,7 +127,8 @@ export function createRoutines(opts = {}) {
             rec.recent.push(scheduled);
             while (rec.recent.length > RECENT_FIRES) rec.recent.shift();
           }
-          return { status: "running", checkpoint: { phase: "tick", nextAt } };
+          // Sleep until the next slot in the same commit as the list update.
+          return { status: "sleeping", until: nextAt, checkpoint: { phase: "tick", nextAt } };
         }, taskContext);
       },
     },
@@ -212,7 +190,7 @@ export function createRoutines(opts = {}) {
     return { id, taskId, botConversationId, prompt, nextAt: firstAt, enabled: true, ...(atTimes ? { atTimes } : { everyMs: input.everyMs }) };
   }
 
-  /** All routines, each with the live task status ("pending"|"running"|...|"terminal:<outcome>"). */
+  /** All routines, each with the live task status ("pending"|"running"|"sleeping"|...|"terminal:<outcome>"). */
   async function listRoutines(harness) {
     const doc = await harness.snapshot(RoutinesDoc, ctx);
     const out = [];

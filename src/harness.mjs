@@ -22,6 +22,8 @@ export const defaultSettings = {
  * @param {Function} [opts.env] ExecutionEnv factory
  * @param {object} [opts.settings]
  * @param {boolean} [opts.resume] start the scheduler (default true)
+ * @param {() => number} [opts.now] Harness clock (default Date.now); durable sleeps store deadlines on it
+ * @param {import("@earendil-works/pi-durable").SetTimer} [opts.setTimer] Harness timers (default setTimeout); tests pass a fake clock
  */
 export async function openHarness(opts = {}) {
   let storage = opts.storage;
@@ -38,7 +40,14 @@ export async function openHarness(opts = {}) {
   for (const ext of opts.extensions ?? []) registry.install(ext);
   const harness = await Harness.open(
     storage,
-    { models, registry, ...(opts.env ? { env: opts.env } : {}), settings: { ...defaultSettings, ...(opts.settings ?? {}) } },
+    {
+      models,
+      registry,
+      ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.now ? { now: opts.now } : {}),
+      ...(opts.setTimer ? { setTimer: opts.setTimer } : {}),
+      settings: { ...defaultSettings, ...(opts.settings ?? {}) },
+    },
     ctx,
   );
   if (opts.resume !== false) harness.resume();

@@ -86,11 +86,11 @@ export const searchHistory = defineTool({
       args.limit ?? DEFAULT_LIMIT,
     );
     if (matches.length === 0) {
-      return { content: [{ type: "text", text: `No matches for "${query}" in ${scanned} history entries.` }], details: { matches: [] } };
+      return { output: [{ type: "text", text: `No matches for "${query}" in ${scanned} history entries.` }], details: { matches: [] } };
     }
     const text = matches.map((m, i) => `${i + 1}. [${m.role}] (entry ${m.entryId}) ${m.snippet}`).join("\n");
     const note = truncated ? `\n(showing first ${matches.length} matches; raise limit for more)` : "";
-    return { content: [{ type: "text", text: text + note }], details: { matches } };
+    return { output: [{ type: "text", text: text + note }], details: { matches } };
   },
 });
 

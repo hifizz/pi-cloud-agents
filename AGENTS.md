@@ -6,7 +6,7 @@ pi-cloud-agents 在云端常驻运行基于 Pi Durable（`@earendil-works/pi-dur
 
 ## 术语
 
-- **Pi Durable**：持久对话、任务恢复、定时例程的底座（`@earendil-works/pi-durable` 1.0.4，API 处于实验阶段）。
+- **Pi Durable**：持久对话、任务恢复、定时例程的底座（`@earendil-works/pi-durable` 1.4.0，API 处于实验阶段）。
 - **Sprite**：Fly.io Sprites 云沙箱，Bot 的 bash / 文件操作都在其中执行（`/home/sprite/workspace`）。
 - **沙箱原语**：`src/sandbox/<provider>.mjs` 导出的 `bash()` 与 `info()`，见 `docs/CONTRACTS.md`。
 
