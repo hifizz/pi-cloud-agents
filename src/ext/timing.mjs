@@ -31,7 +31,7 @@ export function createTiming({ now = Date.now } = {}) {
           const durationMs = Math.max(0, now() - start);
           const details = withDuration(result.details, durationMs);
           if (details === result.details) return undefined;
-          // Keep `content` by reference: the harness applies its output truncation only when it is unchanged.
+          // Keep `output` by reference: the harness applies its output truncation only when it is unchanged.
           return { ...result, details };
         },
       }),

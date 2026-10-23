@@ -33,11 +33,13 @@ Bot 记录（bots.json）：`{ id, name, conversationId, model:{provider,modelId
 
 `src/env.mjs` 的 `SandboxEnv`（`ExecutionEnv` 实现）只依赖这两个原语，文件读写、编辑等均经 `bash` 完成。现有实现：`sprites.mjs`（Fly.io Sprites，WSS exec，工作目录 `/home/sprite/workspace`）、`e2b.mjs`（E2B，暂停即持久化，工作目录 `/home/user/workspace`，见 `docs/E2B-PLAN.md`）。`src/sandbox/index.mjs` 的 `loadSandbox(kind = config.sandbox)` 按 `TARSBOT_SANDBOX`（`sprites` 默认 / `e2b`，其他值启动即抛错）懒加载实现；`config` 提供 `sandbox`、`sandboxName`、`home`、`spaceCwd`，env id 为 `<sandbox>:<sandboxName>`。`GET /api/space` 返回 `{sandbox, name, cwd}`。新增沙箱：新增满足该接口的文件，并在 `config.sandboxSettings` 与 `SANDBOXES` 中登记。
 
-## 3. pi-durable 关键契约（1.0.4）
+## 3. pi-durable 关键契约（1.4.0）
 
 - `ExecutionEnv = FileSystem & Shell`，见 `node_modules/@earendil-works/pi-durable/dist/env/index.d.ts`。所有方法返回 `Result`（`ok()`/`err()`，失败用 `FileError(code, msg, path)` / `ExecutionError(code, msg)`），不抛异常。
 - CodingTools 实际用到：`exec`、`absolutePath`、`joinPath`、`exists`、`canonicalPath`、`fileInfo`、`readTextFile`、`writeFile`、`openBinaryReader`（`info`/`read`/`scanLines`/`close`；可用 `LineScanner` 在内存中计算）。
-- 工具：`defineTool({name, description, parameters: Type.Object(...), replay?: "safe", execute: async (args, api, context) => ({content:[{type:"text",text}|{type:"image",data,mimeType}], details?})})`；`Type` 从 `@earendil-works/pi-ai` 导入。
+- 工具：`defineTool({name, description, parameters: Type.Object(...), replay?: "safe", execute: async (args, api, context) => ({output:[{type:"text",text}|{type:"image",data,mimeType}], details?})})`（1.2.0 起 `content` 改名为 `output`）；`Type` 从 `@earendil-works/pi-ai` 导入。
+- 文档：`defineDoc({..., checkpointWhen})`，1.4.0 起 `checkpointWhen` 必填（`() => false` 保持增量写入）。
+- 定时等待：1.4.0 移除 `TaskRuntime.sleep()`；任务以 `runtime.sleepUntil(until, checkpoint, ctx)` 或 `commit()` 返回 `{status:"sleeping", until, checkpoint}` 结束当前阶段，持久化休眠，到点后从 checkpoint 恢复。时钟用 `HarnessOptions.now` / `setTimer` 注入。
 - 扩展：`defineExtension({name, tools?, sections?, hooks?, tasks?})`。
 - 事件流：`watchEvents(harness, conversationId, ctx)` → `{snapshot, start(listener(events)), stop()}`；事件类型见 `dist/harness/events.d.ts`（`snapshot`、`run_start/end`、`message_start/update/end`、`tool_execution_start/update/end`、`inbox_update`、`usage_changed`、`task_failed`、`compaction_start/end`、`entry_appended`、`agent_changed`、`submission`…）。
 - 提交：`conv.submit({type:"input", content, whenBusy?:"steer"|"followUp"|"reject", requestId?}, ctx)`；`conv.abort(ctx,{background?})`、`conv.compact(instr, ctx)`、`conv.reset(note, ctx)`、`conv.fork(entryId, {ownership:{kind:"ownerless"}, agent?}, ctx)`、`harness.usage(ctx)`、`conv.viewState(ctx)`（`docs["pi.usage"]`、`docs["pi.live"]`、`docs["pi.inbox"]`）。

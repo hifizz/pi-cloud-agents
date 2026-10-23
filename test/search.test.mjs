@@ -53,7 +53,7 @@ test("success: request shape, text and details", async () => {
     contents: { text: { maxCharacters: 1500 } },
   });
 
-  const text = out.content[0].text;
+  const text = out.output[0].text;
   assert.match(text, /^1\. Node\.js\n {3}https:\/\/nodejs\.org\n {3}Published: 2025-01-01/);
   assert.match(text, /2\. Other\n {3}https:\/\/example\.com\n {3}short text/);
   assert.ok(text.length < 1200, "excerpts are truncated");
@@ -69,13 +69,13 @@ test("includeText=false omits contents and excerpts", async () => {
   const { fetch, calls } = recorder(() => jsonRes(200, { results: [{ title: "A", url: "https://a.io", text: "body" }] }));
   const out = await run(createWebSearchTool({ fetch, apiKey: KEY }), { query: "q", includeText: false });
   assert.equal("contents" in calls[0].body, false);
-  assert.ok(!out.content[0].text.includes("body"));
+  assert.ok(!out.output[0].text.includes("body"));
 });
 
 test("empty results", async () => {
   const { fetch } = recorder(() => jsonRes(200, { results: [] }));
   const out = await run(createWebSearchTool({ fetch, apiKey: KEY }), { query: "nothing" });
-  assert.match(out.content[0].text, /No results/);
+  assert.match(out.output[0].text, /No results/);
   assert.deepEqual(out.details, []);
 });
 

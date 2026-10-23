@@ -49,13 +49,18 @@ async function userTexts(conv) {
 
 const record = async (list, id) => (await list(id)).find((r) => r.id === id);
 
-/** Controllable clock: setTimer registers timers, jump() moves time and runs every due timer. */
+/**
+ * Controllable clock for the Harness (`HarnessOptions.now` / `setTimer`): setTimer registers timers, jump() moves time and
+ * runs every due timer. Background timers (idle-memory eviction) are declined so `pending` counts only timers that pace or
+ * resume work, such as a sleeping routine's wakeup.
+ */
 function fakeClock(start = 1_000_000) {
   let t = start;
   const timers = new Set();
   return {
     now: () => t,
-    setTimer(fn, ms) {
+    setTimer(fn, ms, options) {
+      if (options?.background) return undefined;
       const entry = { at: t + ms, fn };
       timers.add(entry);
       return () => timers.delete(entry);
@@ -72,8 +77,13 @@ function fakeClock(start = 1_000_000) {
   };
 }
 
-async function open({ storage = new MemoryStorage(), extensions, botsPath = null } = {}) {
-  const { harness } = await openHarness({ storage, models: fauxModels(), extensions: extensions ?? [Preamble, Routines] });
+async function open({ storage = new MemoryStorage(), extensions, botsPath = null, clock } = {}) {
+  const { harness } = await openHarness({
+    storage,
+    models: fauxModels(),
+    extensions: extensions ?? [Preamble, Routines],
+    ...(clock ? { now: clock.now, setTimer: clock.setTimer } : {}),
+  });
   const bots = new BotRegistry(harness, { path: botsPath });
   return { harness, bots };
 }
@@ -103,8 +113,8 @@ test("nextAtTime: local HH:MM slots", () => {
 
 test("fake clock: fires on schedule, then catches up with a single firing", async () => {
   const clock = fakeClock();
-  const r = createRoutines({ now: clock.now, setTimer: clock.setTimer });
-  const { harness, bots } = await open({ extensions: [Preamble, r.Routines] });
+  const r = createRoutines({ now: clock.now });
+  const { harness, bots } = await open({ extensions: [Preamble, r.Routines], clock });
   try {
     const bot = await bots.createBot({ name: "clk", model: MODEL });
     const conv = await bots.conversation(bot.id);
@@ -141,8 +151,8 @@ test("fake clock: fires on schedule, then catches up with a single firing", asyn
 
 test("cancelRoutine stops firing and marks the routine disabled", async () => {
   const clock = fakeClock();
-  const r = createRoutines({ now: clock.now, setTimer: clock.setTimer });
-  const { harness, bots } = await open({ extensions: [Preamble, r.Routines] });
+  const r = createRoutines({ now: clock.now });
+  const { harness, bots } = await open({ extensions: [Preamble, r.Routines], clock });
   try {
     const bot = await bots.createBot({ name: "cancel", model: MODEL });
     const conv = await bots.conversation(bot.id);
@@ -248,7 +258,7 @@ test("TEST-F06-2: conv.abort(ctx) does not stop the routine; abort({background:t
     await until(async () => (await fires()) >= afterEsc + 2, 5000, "fires after Esc");
     const rec = await record(listRoutines.bind(null, harness), routine.id);
     assert.equal(rec.enabled, true);
-    assert.ok(["pending", "running"].includes(rec.status), `status ${rec.status}`);
+    assert.ok(["pending", "running", "sleeping"].includes(rec.status), `status ${rec.status}`);
 
     await conv.abort(ctx, { background: true });
     const stopped = await record(listRoutines.bind(null, harness), routine.id);

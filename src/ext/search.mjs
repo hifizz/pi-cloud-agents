@@ -101,7 +101,7 @@ export function createWebSearchTool({ fetch: fetchImpl, apiKey, timeoutMs = DEFA
           })
           .join("\n\n");
       }
-      return { content: [{ type: "text", text }], details };
+      return { output: [{ type: "text", text }], details };
     },
   });
 }
