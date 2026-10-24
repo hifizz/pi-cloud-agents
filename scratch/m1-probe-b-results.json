@@ -1,0 +1,457 @@
+{
+  "startedAt": "2026-10-24T17:32:45.876Z",
+  "sdkVersion": "0.2.3",
+  "names": [
+    "pca-probe-1792863165876-a4d9-1",
+    "pca-probe-1792863165876-a4d9-2",
+    "pca-probe-1792863165876-a4d9-3"
+  ],
+  "cases": {
+    "B1": {
+      "observed": {
+        "creates": [
+          {
+            "name": "pca-probe-1792863165876-a4d9-1",
+            "ms": 551,
+            "response": {
+              "name": "pca-probe-1792863165876-a4d9-1",
+              "status": "cold",
+              "labels": [
+                "app:pi-cloud-agents",
+                "probe:1792863165876-a4d9"
+              ]
+            },
+            "get": {
+              "name": "pca-probe-1792863165876-a4d9-1",
+              "status": "cold",
+              "labels": [
+                "app:pi-cloud-agents",
+                "probe:1792863165876-a4d9"
+              ]
+            }
+          },
+          {
+            "name": "pca-probe-1792863165876-a4d9-2",
+            "ms": 445,
+            "response": {
+              "name": "pca-probe-1792863165876-a4d9-2",
+              "status": "cold",
+              "labels": [
+                "app:pi-cloud-agents",
+                "probe:1792863165876-a4d9"
+              ]
+            },
+            "get": {
+              "name": "pca-probe-1792863165876-a4d9-2",
+              "status": "cold",
+              "labels": [
+                "app:pi-cloud-agents",
+                "probe:1792863165876-a4d9"
+              ]
+            }
+          },
+          {
+            "name": "pca-probe-1792863165876-a4d9-3",
+            "ms": 531,
+            "response": {
+              "name": "pca-probe-1792863165876-a4d9-3",
+              "status": "cold",
+              "labels": [
+                "app:pi-cloud-agents",
+                "probe:1792863165876-a4d9"
+              ]
+            },
+            "get": {
+              "name": "pca-probe-1792863165876-a4d9-3",
+              "status": "warm",
+              "labels": [
+                "app:pi-cloud-agents",
+                "probe:1792863165876-a4d9"
+              ]
+            }
+          }
+        ],
+        "duplicate": {
+          "name": "APIError",
+          "message": "A sprite named 'pca-probe-1792863165876-a4d9-1' already exists. Please choose a different name.",
+          "statusCode": 409,
+          "errorCode": "A sprite named 'pca-probe-1792863165876-a4d9-1' already exists. Please choose a different name."
+        },
+        "missingGet": {
+          "name": "APIError",
+          "message": "sprite not found",
+          "statusCode": 404,
+          "errorCode": "sprite not found"
+        },
+        "missingDelete": {
+          "name": "APIError",
+          "message": "sprite not found",
+          "statusCode": 404,
+          "errorCode": "sprite not found"
+        },
+        "listed": [
+          {
+            "name": "pca-probe-1792863165876-a4d9-1",
+            "status": "cold",
+            "labels": [
+              "app:pi-cloud-agents",
+              "probe:1792863165876-a4d9"
+            ]
+          },
+          {
+            "name": "pca-probe-1792863165876-a4d9-2",
+            "status": "cold",
+            "labels": [
+              "app:pi-cloud-agents",
+              "probe:1792863165876-a4d9"
+            ]
+          },
+          {
+            "name": "pca-probe-1792863165876-a4d9-3",
+            "status": "cold",
+            "labels": [
+              "app:pi-cloud-agents",
+              "probe:1792863165876-a4d9"
+            ]
+          }
+        ],
+        "waitForCapacity": "true on all creates; no capacity shortage injected"
+      },
+      "ms": 3727
+    },
+    "B2": {
+      "observed": {
+        "command": "printf 'user='; id; printf 'home=%s\\n' \"$HOME\"; printf 'platform='; uname -sm; for p in setsid flock git gh node base64 sha256sum tar perl dash; do printf '%s=' \"$p\"; command -v \"$p\" || true; done; test -r /proc/$$/stat && printf 'proc-stat=available\\n'; test -r /proc/sys/kernel/random/boot_id && printf 'boot-id=available\\n'",
+        "output": "user=uid=1001(sprite) gid=1001(sprite) groups=1001(sprite)\nhome=/home/sprite\nplatform=Linux x86_64\nsetsid=/usr/bin/setsid\nflock=/usr/bin/flock\ngit=/usr/bin/git\ngh=/.sprite/bin/gh\nnode=/.sprite/bin/node\nbase64=/usr/bin/base64\nsha256sum=/usr/bin/sha256sum\ntar=/usr/bin/tar\nperl=/usr/bin/perl\ndash=/usr/bin/dash\nproc-stat=available\nboot-id=available\n"
+      },
+      "ms": 464
+    },
+    "B3": {
+      "observed": {
+        "launch": "mkdir -p '/tmp/pca-m1-probe'; setsid sh -c 'echo $$ > /tmp/pca-m1-probe/pid; sleep 60; echo done > /tmp/pca-m1-probe/done' </dev/null >/tmp/pca-m1-probe/log 2>&1 &",
+        "first": "pid=12\nf0527712-8775-4dc9-8a5e-f44acdfee92c\n12 (sh) S 1 12 12 0 -1 4194560 169 0 0 0 0 0 0 0 20 0 1 0 9692 2949120 467 18446744073709551615 94382394720256 94382394805933 140729817506848 0 0 0 0 6 65536 1 0 0 17 0 0 0 0 0 0 94382394830288 94382394835488 94382882947072 140729817509536 140729817509620 140729817509620 140729817509868 0\n  PID  PPID  PGID   SID STAT COMMAND\n   12     1    12    12 Ss   sh\n   13    12    12    12 S     \\_ sleep\n",
+        "second": "pid=12\nf0527712-8775-4dc9-8a5e-f44acdfee92c\n12 (sh) S 1 12 12 0 -1 4194560 169 0 0 0 0 0 0 0 20 0 1 0 9692 2949120 467 18446744073709551615 94382394720256 94382394805933 140729817506848 0 0 0 0 6 65536 1 0 0 17 4 0 0 0 0 0 94382394830288 94382394835488 94382882947072 140729817509536 140729817509620 140729817509620 140729817509868 0\n  PID  PPID  PGID   SID STAT COMMAND\n   12     1    12    12 Ss   sh\n   13    12    12    12 S     \\_ sleep\n",
+        "kill": "p=$(cat '/tmp/pca-m1-probe/pid'); /bin/kill -TERM -- -\"$p\"; sleep 0.5; ps -o pid,ppid,pgid,sid,stat,comm --forest -g \"$p\" || true; test -f '/tmp/pca-m1-probe/done' && printf 'done=yes\\n' || printf 'done=no\\n'",
+        "killed": "  PID  PPID  PGID   SID STAT COMMAND\ndone=no\n",
+        "completion": "setsid sh -c 'sleep 3; printf done > /tmp/pca-m1-probe/detached-done' </dev/null >/tmp/pca-m1-probe/detached-log 2>&1 &",
+        "detachedCompletion": "done"
+      },
+      "ms": 12193
+    },
+    "B4": {
+      "observed": {
+        "limit": 64000,
+        "transfers": [
+          {
+            "rawBytes": 20480,
+            "b64Chars": 27308,
+            "commandChars": 27344,
+            "matches": true,
+            "ms": 1454
+          },
+          {
+            "rawBytes": 40960,
+            "b64Chars": 54616,
+            "commandChars": 54652,
+            "matches": true,
+            "ms": 1967
+          },
+          {
+            "exactB64Chars": 20480,
+            "matches": true
+          },
+          {
+            "exactB64Chars": 40960,
+            "matches": true
+          }
+        ],
+        "reads": [
+          {
+            "expectedBytes": 49152,
+            "gotBytes": 49152,
+            "matches": true,
+            "ms": 1008
+          },
+          {
+            "expectedBytes": 204800,
+            "gotBytes": 204800,
+            "matches": true,
+            "ms": 1724
+          }
+        ],
+        "chunks": [
+          {
+            "iteration": 1,
+            "rawBytes": 12288,
+            "b64Chars": 16384,
+            "roundTrip": true
+          },
+          {
+            "iteration": 2,
+            "rawBytes": 12288,
+            "b64Chars": 16384,
+            "roundTrip": true
+          },
+          {
+            "iteration": 3,
+            "rawBytes": 12288,
+            "b64Chars": 16384,
+            "roundTrip": true
+          },
+          {
+            "iteration": 4,
+            "rawBytes": 12288,
+            "b64Chars": 16384,
+            "roundTrip": true
+          },
+          {
+            "iteration": 5,
+            "rawBytes": 12288,
+            "b64Chars": 16384,
+            "roundTrip": true
+          }
+        ],
+        "startDelaySec": 0.1
+      },
+      "ms": 15478
+    },
+    "B5": {
+      "observed": {
+        "observations": [
+          {
+            "name": "pca-probe-1792863165876-a4d9-1",
+            "marker": "sprite-1",
+            "output": "sprite-1",
+            "matches": true,
+            "ms": 704
+          },
+          {
+            "name": "pca-probe-1792863165876-a4d9-2",
+            "marker": "sprite-2",
+            "output": "sprite-2",
+            "matches": true,
+            "ms": 690
+          },
+          {
+            "name": "pca-probe-1792863165876-a4d9-3",
+            "marker": "sprite-3",
+            "output": "sprite-3",
+            "matches": true,
+            "ms": 1121
+          }
+        ],
+        "listed": [
+          {
+            "name": "pca-probe-1792863165876-a4d9-1",
+            "status": "running",
+            "labels": [
+              "app:pi-cloud-agents",
+              "probe:1792863165876-a4d9"
+            ]
+          },
+          {
+            "name": "pca-probe-1792863165876-a4d9-2",
+            "status": "warm",
+            "labels": [
+              "app:pi-cloud-agents",
+              "probe:1792863165876-a4d9"
+            ]
+          },
+          {
+            "name": "pca-probe-1792863165876-a4d9-3",
+            "status": "warm",
+            "labels": [
+              "app:pi-cloud-agents",
+              "probe:1792863165876-a4d9"
+            ]
+          }
+        ],
+        "note": "three instances created sequentially; no fourth instance or capacity exhaustion attempted"
+      },
+      "ms": 3592
+    },
+    "B6": {
+      "observed": {
+        "before": "200",
+        "original": {
+          "rules": []
+        },
+        "rules": [
+          {
+            "action": "allow",
+            "domain": "github.com"
+          },
+          {
+            "action": "allow",
+            "domain": "api.github.com"
+          },
+          {
+            "action": "allow",
+            "domain": "codeload.github.com"
+          },
+          {
+            "action": "allow",
+            "domain": "objects.githubusercontent.com"
+          },
+          {
+            "action": "allow",
+            "domain": "raw.githubusercontent.com"
+          },
+          {
+            "action": "allow",
+            "domain": "release-assets.githubusercontent.com"
+          },
+          {
+            "action": "allow",
+            "domain": "registry.npmjs.org"
+          },
+          {
+            "action": "allow",
+            "domain": "pypi.org"
+          },
+          {
+            "action": "allow",
+            "domain": "files.pythonhosted.org"
+          },
+          {
+            "action": "deny",
+            "domain": "*"
+          }
+        ],
+        "after": {
+          "policy": {
+            "rules": [
+              {
+                "action": "allow",
+                "domain": "github.com"
+              },
+              {
+                "action": "allow",
+                "domain": "api.github.com"
+              },
+              {
+                "action": "allow",
+                "domain": "codeload.github.com"
+              },
+              {
+                "action": "allow",
+                "domain": "objects.githubusercontent.com"
+              },
+              {
+                "action": "allow",
+                "domain": "raw.githubusercontent.com"
+              },
+              {
+                "action": "allow",
+                "domain": "release-assets.githubusercontent.com"
+              },
+              {
+                "action": "allow",
+                "domain": "registry.npmjs.org"
+              },
+              {
+                "action": "allow",
+                "domain": "pypi.org"
+              },
+              {
+                "action": "allow",
+                "domain": "files.pythonhosted.org"
+              },
+              {
+                "action": "deny",
+                "domain": "*"
+              }
+            ]
+          },
+          "github": "200",
+          "npm": "200",
+          "denied": "000"
+        },
+        "restored": {
+          "rules": []
+        }
+      },
+      "ms": 6121
+    }
+  },
+  "cleanup": [
+    {
+      "name": "pca-probe-1792863165876-a4d9-1",
+      "deleted": true
+    },
+    {
+      "name": "pca-probe-1792863165876-a4d9-2",
+      "deleted": true
+    },
+    {
+      "name": "pca-probe-1792863165876-a4d9-3",
+      "deleted": true
+    }
+  ],
+  "before": [],
+  "created": [
+    {
+      "name": "pca-probe-1792863165876-a4d9-1",
+      "ms": 551,
+      "response": {
+        "name": "pca-probe-1792863165876-a4d9-1",
+        "status": "cold",
+        "labels": [
+          "app:pi-cloud-agents",
+          "probe:1792863165876-a4d9"
+        ]
+      },
+      "get": {
+        "name": "pca-probe-1792863165876-a4d9-1",
+        "status": "cold",
+        "labels": [
+          "app:pi-cloud-agents",
+          "probe:1792863165876-a4d9"
+        ]
+      }
+    },
+    {
+      "name": "pca-probe-1792863165876-a4d9-2",
+      "ms": 445,
+      "response": {
+        "name": "pca-probe-1792863165876-a4d9-2",
+        "status": "cold",
+        "labels": [
+          "app:pi-cloud-agents",
+          "probe:1792863165876-a4d9"
+        ]
+      },
+      "get": {
+        "name": "pca-probe-1792863165876-a4d9-2",
+        "status": "cold",
+        "labels": [
+          "app:pi-cloud-agents",
+          "probe:1792863165876-a4d9"
+        ]
+      }
+    },
+    {
+      "name": "pca-probe-1792863165876-a4d9-3",
+      "ms": 531,
+      "response": {
+        "name": "pca-probe-1792863165876-a4d9-3",
+        "status": "cold",
+        "labels": [
+          "app:pi-cloud-agents",
+          "probe:1792863165876-a4d9"
+        ]
+      },
+      "get": {
+        "name": "pca-probe-1792863165876-a4d9-3",
+        "status": "warm",
+        "labels": [
+          "app:pi-cloud-agents",
+          "probe:1792863165876-a4d9"
+        ]
+      }
+    }
+  ],
+  "remaining": [],
+  "remainingThisRun": [],
+  "finishedAt": "2026-10-24T17:33:31.504Z"
+}
