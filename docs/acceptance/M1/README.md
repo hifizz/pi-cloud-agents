@@ -79,5 +79,5 @@
 
 ## 自动化结果
 
-- 后端 `TARSBOT_NO_DOTENV=1 npm test`：见提交说明（最后一次：324 项，323 通过，0 失败，1 跳过）
+- 后端 `TARSBOT_NO_DOTENV=1 npm test`：325 项，324 通过，0 失败，1 跳过
 - 前端 `npm test`：9 个文件，128 项通过；`npm run typecheck` 通过；`npm run build` 通过
