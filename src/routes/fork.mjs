@@ -20,7 +20,8 @@ export function register(app) {
   const { bots } = app.ctx;
 
   app.post("/api/bots/:id/fork", async (_req, _res, { params, body }) => {
-    if (!bots.get(params.id)) throw new HttpError(404, `bot not found: ${params.id}`);
+    const parent = bots.get(params.id);
+    if (!parent) throw new HttpError(404, `bot not found: ${params.id}`);
     if (body !== undefined && (body === null || typeof body !== "object" || Array.isArray(body))) {
       throw new HttpError(400, "body must be a JSON object");
     }
@@ -32,14 +33,29 @@ export function register(app) {
     const instructions = optString(b, "instructions");
     if (b.readOnly !== undefined && typeof b.readOnly !== "boolean") throw new HttpError(400, "readOnly must be a boolean");
     if (bots.get(name)) throw new HttpError(409, `bot exists: ${name}`);
+
+    // Workspace rules (only when the control store is injected): every conversation belongs to a workspace and a
+    // workspace has a single writer until the write lock exists (M2), so only read-only forks are allowed, and the
+    // fork inherits the parent's workspace link.
+    const control = app.ctx.control;
+    let workspaceId;
+    if (control) {
+      if (b.readOnly !== true) {
+        throw new HttpError(409, "同一工作区暂不支持第二个可写会话，写锁将在后续阶段提供；请使用只读 fork（readOnly: true）");
+      }
+      workspaceId = control.links.workspaceOf(String(parent.conversationId))?.id;
+      if (!workspaceId) throw new HttpError(409, "父会话没有关联的工作区，无法 fork");
+    }
     try {
-      return await bots.forkBot(params.id, {
+      const child = await bots.forkBot(params.id, {
         name,
         ...(entryId ? { entryId } : {}),
         ...(modelId ? { modelId } : {}),
         ...(instructions ? { instructions } : {}),
         ...(b.readOnly ? { readOnly: true } : {}),
       });
+      if (control) control.links.link({ conversationId: String(child.conversationId), workspaceId, botId: child.id });
+      return child;
     } catch (e) {
       if (e instanceof HttpError) throw e;
       // Unknown or invisible entry ids and empty histories are caller errors.

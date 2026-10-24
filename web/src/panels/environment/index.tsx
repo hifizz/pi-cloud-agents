@@ -5,9 +5,9 @@ export const environmentPanel: PanelDefinition = {
   id: "environment",
   title: "Environment",
   icon: "box",
-  Component: ({ space, spaceFailed, bot, vm }) => (
+  Component: ({ bot, vm }) => (
     <div className="h-full overflow-y-auto">
-      <EnvironmentPane space={space} failed={spaceFailed} bot={bot} vm={vm} />
+      <EnvironmentPane bot={bot} vm={vm} />
     </div>
   ),
 };

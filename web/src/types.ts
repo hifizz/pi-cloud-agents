@@ -19,7 +19,8 @@ export interface ForkInput {
   entryId?: number | string;
   name: string;
   modelId?: string;
-  readOnly: boolean;
+  /** M1: forks are read-only copies; the writable option is gone. */
+  readOnly: true;
 }
 
 /** One pending tool approval (GET /api/approvals, WS /api/approvals/stream). ids are strings on the wire. */
@@ -52,13 +53,6 @@ export interface NewRoutineInput {
   bot: string;
   prompt: string;
   everyMs: number;
-}
-
-export interface NewBotInput {
-  name: string;
-  modelId?: string;
-  instructions?: string;
-  thinkingLevel?: string;
 }
 
 export interface TextPart {
@@ -158,9 +152,3 @@ export interface ConversationVM {
 
 export type StreamStatus = "connecting" | "open" | "reconnecting" | "closed";
 
-/** GET /api/space. */
-export interface SpaceInfo {
-  sandbox: "sprites" | "e2b";
-  name: string | null;
-  cwd?: string;
-}

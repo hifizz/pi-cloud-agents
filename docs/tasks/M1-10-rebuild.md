@@ -18,7 +18,7 @@
    3. clone 并检出检查点记录的 `baseCommit`（不是最新的基准分支）。
    4. `cps.apply` 恢复未提交代码。
    5. `store.bindings.bind` 写入新绑定（版本 +1，旧的 `replaced`）。
-   6. 工作区状态保持 `ready`，在工作区记录里写一条 `rebuiltFrom: {checkpointId, at}`（用 `store.workspaces.update` 的现有字段，如需新字段回报，不要自行改 schema）。
+   6. 工作区状态保持 `ready`。**不往工作区记录里加新字段**（`store.workspaces.update` 只允许改 `name, baseCommit, branch, cwd, model, task, status, error`，也不要改 schema）。重建的来历已经由现有记录表达：新绑定版本 +1、旧绑定为 `replaced`（`store.bindings.history`），以及一条 `intents`（`kind: "workspace.rebuild"`，`evidence` 里放 `{checkpointId, fromVersion, toVersion}`）。
 4. **不重放旧调用**。PLAN 修订后（§3.3）的机制：每个 `Exec` 调用在 `execute` 第一步用 `api.memo` 把 `{runId, runtimeId, bindingVersion, cwd, commandHash}` 固定下来；重放时 `execute` 把 memo 里的绑定和 `store.bindings.current` 比较，**不一致就以「结果待确认」结束，不 prepare、不 start**。所以重建（绑定版本 +1）之后，旧绑定上遗留的未完成命令不会在新机器上被执行。**不能靠“新 runtime 上查不到这个 runId，于是 start”这条路**——`start` 本身会把 missing 变成一次新执行。本任务在测试里证明这一点：用 M1-06 的 `Exec` 加假 runner（记录所有调用），在命令执行中 SIGKILL、重建绑定、重新打开同一个 sqlite，断言新 runner 上 **prepare / start 调用次数为 0**，工具结果是「结果待确认」。若 M1-06 尚未合入，用同样语义的桩，并在汇报里写明。
 5. 响应与日志不含 token、服务器绝对路径。重建失败时旧绑定保持 active，新建的半成品 Sprite 记入意图日志，且列在返回的错误详情里（只给名字，便于人工清理）。
 

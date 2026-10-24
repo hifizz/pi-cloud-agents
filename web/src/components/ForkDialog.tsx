@@ -18,7 +18,6 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
   const options = defaultModelId && !MODEL_OPTIONS.includes(defaultModelId) ? [defaultModelId, ...MODEL_OPTIONS] : MODEL_OPTIONS;
   const [name, setName] = useState("");
   const [modelId, setModelId] = useState(defaultModelId ?? MODEL_OPTIONS[0]);
-  const [readOnly, setReadOnly] = useState(true);
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -31,7 +30,8 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
     setSubmitting(true);
     setError(undefined);
     try {
-      await onSubmit({ name: name.trim(), modelId, readOnly, ...(entryId !== undefined ? { entryId } : {}) });
+      // M1: forks are always read-only copies (a second writer needs the workspace write lock, which comes later).
+      await onSubmit({ name: name.trim(), modelId, readOnly: true, ...(entryId !== undefined ? { entryId } : {}) });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -51,7 +51,9 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
         <h2 id="fork-title" className="text-sm font-semibold text-fg">
           Fork from here
         </h2>
-        <p className="mt-0.5 text-xs text-fg-muted">New bot continues from this point of “{parentName}”.</p>
+        <p className="mt-0.5 text-xs text-fg-muted">
+          从“{parentName}”的这个位置分出一个会话。这是只读副本，用于查看和讨论，不会修改文件。
+        </p>
         <form onSubmit={submit} className="mt-3 space-y-3">
           <div>
             <label htmlFor="fork-name" className="mb-1 block text-xs text-fg-muted">
@@ -71,10 +73,9 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
               ))}
             </select>
           </div>
-          <label className="flex items-center gap-2 text-sm text-fg-dim">
-            <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="h-4 w-4 accent-[#4b8dff]" />
-            Read-only tools
-          </label>
+          <p className="rounded-md border border-line bg-field px-2 py-1.5 text-xs text-fg-muted" data-testid="fork-readonly-note">
+            只读副本：只能读取，不能执行命令或修改文件。
+          </p>
           {error && (
             <p role="alert" className="text-xs text-bad">
               {error}

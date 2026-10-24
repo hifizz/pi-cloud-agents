@@ -4,7 +4,7 @@
 // To add, remove, reorder or replace a panel, edit the PANELS list in ./index.ts — nothing else.
 import type { ComponentType } from "react";
 import type { IconName } from "../components/Chat/primitives/Icon";
-import type { BotSummary, ConversationVM, SpaceInfo } from "../types";
+import type { BotSummary, ConversationVM } from "../types";
 
 /** A request to show something specific, e.g. "Open diff" on turn X / file Y. `seq` changes on every request. */
 export interface PanelFocus {
@@ -19,10 +19,6 @@ export interface PanelContext {
   bots: BotSummary[];
   /** Live conversation of the selected bot (empty VM when none). */
   vm: ConversationVM;
-  /** GET /api/space, once loaded. */
-  space?: SpaceInfo;
-  /** True when GET /api/space failed. */
-  spaceFailed?: boolean;
   /** Present only for the panel the focus was addressed to. */
   focus?: PanelFocus;
 }

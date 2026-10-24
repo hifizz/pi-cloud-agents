@@ -4,7 +4,7 @@
 // such a server to 127.0.0.1.
 //
 // Route plugins: `routes` is an array of `register(app)` functions (or modules exporting `register`), called after the
-// built-in routes. `app` offers get/post/ws/guard, and `app.ctx = {harness, bots}`.
+// built-in routes. `app` offers get/post/ws/guard, and `app.ctx = {harness, bots, ...extraCtx}` (workspaces, github, control, checkpoints, rebuild, runtimeBash: injected by server.mjs).
 // `app.guard(fn)`: fn(req, {kind: "http" | "ws", path}) may be async; it returns normally to allow, or throws
 // HttpError (HTTP: JSON error with that status; WS: 401 and the socket is destroyed). HTTP guards run before route
 // matching for every /api/* request; WS guards run on every upgrade. Static files are never guarded.
@@ -17,7 +17,7 @@ import { existsSync, statSync, createReadStream } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
 import { watchEvents, ConversationBusy } from "@earendil-works/pi-durable";
-import { config, defaultModel } from "./config.mjs";
+import { config } from "./config.mjs";
 import { ctx } from "./harness.mjs";
 
 export class HttpError extends Error {
@@ -109,9 +109,9 @@ function send(res, status, payload) {
 }
 
 /**
- * @param {{ harness: any, bots: any, routes?: Array<Function | {register: Function}>, staticDir?: string }} opts
+ * @param {{ harness: any, bots: any, routes?: Array<Function | {register: Function}>, staticDir?: string, extraCtx?: object }} opts
  */
-export function createApi({ harness, bots, routes = [], staticDir } = {}) {
+export function createApi({ harness, bots, routes = [], staticDir, extraCtx = {} } = {}) {
   const httpRoutes = [];
   const wsRoutes = [];
   const sockets = new Set();
@@ -122,7 +122,7 @@ export function createApi({ harness, bots, routes = [], staticDir } = {}) {
       if (typeof fn !== "function") throw new Error("guard must be a function");
       guards.push(fn);
     },
-    ctx: { harness, bots },
+    ctx: { ...extraCtx, harness, bots },
     get: (path, handler) => httpRoutes.push({ method: "GET", ...compilePath(path), handler }),
     post: (path, handler) => httpRoutes.push({ method: "POST", ...compilePath(path), handler }),
     ws: (path, handler) => wsRoutes.push({ ...compilePath(path), handler }),
@@ -179,22 +179,6 @@ export function createApi({ harness, bots, routes = [], staticDir } = {}) {
       out.push({ ...bot, busy, queued });
     }
     return out;
-  });
-
-  app.post("/api/bots", async (_req, _res, { body }) => {
-    const b = objectBody(body);
-    const name = optString(b, "name")?.trim();
-    if (!name) throw new HttpError(400, "name is required");
-    const modelId = optString(b, "modelId");
-    const thinkingLevel = optString(b, "thinkingLevel");
-    const instructions = optString(b, "instructions");
-    if (bots.get(name)) throw new HttpError(409, `bot exists: ${name}`);
-    return bots.createBot({
-      name,
-      model: modelId ? { provider: config.provider, modelId } : defaultModel(),
-      ...(instructions ? { instructions } : {}),
-      ...(thinkingLevel ? { thinkingLevel } : {}),
-    });
   });
 
   app.post("/api/bots/:id/input", async (_req, _res, { params, body }) => {
