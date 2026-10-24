@@ -1,0 +1,6 @@
+prepare -> new claimed
+(server 'killed' here: start is never called)
+status after restart -> claimed
+wait after restart -> claimed (done: false )
+second prepare of the same id -> existing (must not be 'new')
+command ever ran? -> marker-absent

@@ -1,13 +1,10 @@
 // ExecutionEnv adapter: pi-durable's FileSystem + Shell implemented on top of a remote Linux sandbox.
-// The sandbox (Fly Sprite or E2B, chosen by TARSBOT_SANDBOX) lives in ./sandbox/<provider>.mjs.
 // Everything goes through one primitive, `bash(command, {timeoutMs}) -> {stdout, stderr, exitCode, timedOut}`
-// (default: `bash` of the configured sandbox via loadSandbox(), loaded lazily;
-// non-streaming `/bin/sh -c`). Binary data travels as base64.
+// (non-streaming `/bin/sh -c`), supplied by the caller (src/providers/*, routed per workspace by
+// src/workspace-env.mjs). Binary data travels as base64.
 // Methods never throw; they return Result values (FileError / ExecutionError).
 import { posix } from "node:path";
 import { ExecutionError, FileError, LineScanner, err, ok } from "@earendil-works/pi-durable/env";
-import { config } from "./config.mjs";
-import { loadSandbox } from "./sandbox/index.mjs";
 
 /** Largest file `openBinaryReader` loads into memory. */
 export const MAX_READER_BYTES = 32 * 1024 * 1024;
@@ -17,7 +14,7 @@ export const MAX_READER_BYTES = 32 * 1024 * 1024;
  * encoded even for adversarial data) is safe on every sandbox.
  */
 export const WRITE_CHUNK_BYTES = 12 * 1024;
-const DEFAULT_HOME = config.home;
+const DEFAULT_HOME = "/home/sprite";
 const DEFAULT_FS_TIMEOUT_MS = 120_000;
 const DEFAULT_WATCH_INTERVAL_MS = 500;
 const MAX_WATCH_ENTRIES = 20_000;
@@ -99,17 +96,6 @@ function parseStat(path, line) {
 /** Script prologue: fail with a stderr message that `mapFileError` understands unless `dir` is a directory. */
 const requireDir = (dir) =>
   `if [ ! -d ${q(dir)} ]; then if [ -e ${q(dir)} ]; then echo 'Not a directory' >&2; else echo 'No such file or directory' >&2; fi; exit 1; fi`;
-
-/** Run `command` in the configured sandbox (its module is loaded lazily). */
-async function defaultBash(command, options) {
-  const { bash } = await loadSandbox();
-  return bash(command, options);
-}
-
-/** Env id for the sandbox: equal ids see the same files. */
-function defaultEnvId() {
-  return `${config.sandbox}:${config.sandboxName ?? "default"}`;
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Readers
@@ -250,12 +236,13 @@ export class SandboxEnv {
    * @param {string} opts.cwd
    * @param {(command: string, o: {timeoutMs?: number}) => Promise<{stdout: string, stderr: string, exitCode?: number, timedOut?: boolean}>} [opts.bash]
    * @param {string|null} [opts.shell] program that runs string commands (`-c`); default /bin/bash (LLM commands use bashisms). null = plain sh.
-   * @param {string} [opts.home] sandbox home that `~` resolves to (default `config.home`)
-   * @param {string} [opts.id] default: `<sandbox>:<sandbox name>`, e.g. `sprites:<TARSBOT_SPRITE_NAME>`
+   * @param {string} [opts.home] sandbox home that `~` resolves to (default /home/sprite)
+   * @param {string} [opts.id] env id; equal ids see the same files (default "sandbox")
    */
-  constructor({ cwd, bash = defaultBash, shell = "/bin/bash", home = DEFAULT_HOME, id, fsTimeoutMs, watchIntervalMs } = {}) {
+  constructor({ cwd, bash, shell = "/bin/bash", home = DEFAULT_HOME, id, fsTimeoutMs, watchIntervalMs } = {}) {
     if (typeof cwd !== "string" || !cwd) throw new TypeError("SandboxEnv requires a cwd");
-    this.id = id ?? defaultEnvId();
+    if (typeof bash !== "function") throw new TypeError("SandboxEnv requires a bash primitive");
+    this.id = id ?? "sandbox";
     this.cwd = cwd;
     this.#bash = bash;
     this.#shell = shell;
@@ -662,39 +649,4 @@ export class SandboxEnv {
   async cleanup(context) {
     await Promise.all([...this.#watchers].map((w) => w.close(context)));
   }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-
-/**
- * Harness `env` factory: `({cwd, conversationId}) => ExecutionEnv` bound to the shared sandbox
- * (the Sprite or the E2B sandbox). `config.spaceCwd` is created on first use.
- */
-export function spaceEnv() {
-  const ensured = new Map();
-  const ensure = (cwd) => {
-    let p = ensured.get(cwd);
-    if (!p) {
-      p = defaultBash(`mkdir -p -- ${q(cwd)}`, {}).then((r) => {
-        if (r.exitCode !== 0) throw new Error(`cannot create ${cwd}: ${String(r.stderr).trim()}`);
-      });
-      p.catch(() => ensured.delete(cwd)); // retry next time
-      ensured.set(cwd, p);
-    }
-    return p;
-  };
-  return ({ cwd } = {}) => {
-    const dir = cwd ?? config.spaceCwd;
-    if (config.sandbox === "sprites" && !config.spriteName) throw new Error("TARSBOT_SPRITE_NAME is required");
-    return new SandboxEnv({
-      cwd: dir,
-      id: defaultEnvId(),
-      home: config.home,
-      bash: async (command, options) => {
-        await ensure(config.spaceCwd);
-        if (dir !== config.spaceCwd) await ensure(dir);
-        return defaultBash(command, options);
-      },
-    });
-  };
 }
