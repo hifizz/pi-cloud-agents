@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import App from "../src/App";
 import { api } from "../src/lib/api";
 import { NewWorkspaceDialog } from "../src/components/NewWorkspaceDialog";
+import { EnvironmentPane } from "../src/components/EnvironmentPane";
 import { WorkspaceActions, WorkspaceStatus } from "../src/components/WorkspaceStatus";
 import { SessionHeader } from "../src/shell/SessionHeader";
 import { emptyVM } from "../src/lib/reducer";
@@ -266,6 +267,21 @@ describe("WorkspaceActions", () => {
     const prs = calls.filter((c) => c.path.endsWith("/pr"));
     expect(prs).toHaveLength(2);
     expect(prs[0].body!.requestId).not.toBe(prs[1].body!.requestId);
+  });
+
+  it("switching to another workspace does not carry over the PR result of the previous one (found in the M1 acceptance run)", async () => {
+    const user = userEvent.setup();
+    fakeFetch(({ method, path }) => {
+      if (method === "GET" && path.endsWith("/checkpoints")) return json([]);
+      if (method === "POST" && path === "/api/workspaces/w1/pr") return json({ pull: { number: 11, url: "https://github.com/hifizz/demo/pull/11" }, created: true });
+      return undefined;
+    });
+    const { rerender } = render(<EnvironmentPane workspace={ws({ id: "w1" })} />);
+    await user.click(screen.getByRole("button", { name: "创建 PR" }));
+    expect(await screen.findByRole("link", { name: "#11" })).toBeInTheDocument();
+    rerender(<EnvironmentPane workspace={ws({ id: "w2", branch: "tarsbot/other-9f8e7d" })} />);
+    expect(screen.queryByRole("link", { name: "#11" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/PR 已/)).not.toBeInTheDocument();
   });
 
   it("create PR failure shows the error and the retry reuses the requestId", async () => {

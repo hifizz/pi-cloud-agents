@@ -19,7 +19,7 @@ import { createGithubClient } from "./github.mjs";
 import { createSpritesProvider } from "./providers/sprites.mjs";
 import { createCheckpointService } from "./checkpoint.mjs";
 import { createWorkspaceService } from "./workspaces.mjs";
-import { rebuildWorkspace } from "./workspace-rebuild.mjs";
+import { rebuildWorkspace, register as registerRebuildRoute } from "./workspace-rebuild.mjs";
 import { createRunnerClient } from "./runner/client.mjs";
 import { setExecResolver } from "./ext/exec.mjs";
 
@@ -27,6 +27,8 @@ import { setExecResolver } from "./ext/exec.mjs";
 export async function loadRoutes(dir = join(ROOT, "src", "routes")) {
   if (!existsSync(dir)) return [];
   const out = [];
+  // The rebuild route lives next to the rebuild logic (src/workspace-rebuild.mjs), not under src/routes/.
+  if (dir === join(ROOT, "src", "routes")) out.push(registerRebuildRoute);
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".mjs")).sort()) {
     const mod = await import(pathToFileURL(join(dir, file)).href);
     if (typeof mod.register === "function") out.push(mod.register);
@@ -126,7 +128,7 @@ export async function assemble({
 
   // 5. continue unfinished workspaces, 6. only then let interrupted tool calls re-enter
   await workspaces.resumePending();
-  await hooks.beforeResume?.({ harness, store, workspaces });
+  await hooks.beforeResume?.({ harness, store, workspaces, rebuild, checkpoints });
   harness.resume();
 
   const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash };

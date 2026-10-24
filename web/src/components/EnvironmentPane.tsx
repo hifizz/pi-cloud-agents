@@ -83,7 +83,8 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
       </dl>
 
       {workspace.status !== "ready" && <WorkspaceStatus workspace={workspace} onUpdate={onUpdate} />}
-      <WorkspaceActions workspace={workspace} onChanged={onChanged} />
+      {/* keyed: PR result, checkpoint list, request ids and dialogs are per workspace and must not leak to the next one */}
+      <WorkspaceActions key={workspace.id} workspace={workspace} onChanged={onChanged} />
     </div>
   );
 }

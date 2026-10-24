@@ -12,7 +12,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 const dataDir = mkdtempSync(join(tmpdir(), "pca-startup-"));
 process.env.TARSBOT_NO_DOTENV = "1";
 process.env.TARSBOT_DATA_DIR = dataDir; // nothing in this file may touch the repository's data/
-const { assemble, assertStartupConfig } = await import("../src/server.mjs");
+const { assemble, assertStartupConfig, loadRoutes } = await import("../src/server.mjs");
 const { ctx } = await import("../src/harness.mjs");
 const { sha256Hex } = await import("../src/runner/client.mjs");
 const { setExecResolver } = await import("../src/ext/exec.mjs");
@@ -209,5 +209,48 @@ test("a tool call interrupted by a restart re-enters after the resolver is insta
     assert.equal(world.calls.kill, 0);
   } finally {
     await second.close();
+  }
+});
+
+test("loadRoutes + ctxForApi register every M1 route (rebuild included)", async () => {
+  const dir = mkdtempSync(join(dataDir, "routes-"));
+  const f = fauxProvider();
+  const models = createModels();
+  models.setProvider(f.provider);
+  const parts = await assemble({
+    controlDbPath: join(dir, "control.sqlite"),
+    checkpointDir: join(dir, "checkpoints"),
+    botsPath: join(dir, "bots.json"),
+    github: {},
+    providers: fakeProviders(),
+    runnerFor: fakeRunnerWorld().runnerFor,
+    harnessOptions: { storage: await openStorage(dir), models },
+  });
+  try {
+    const seen = [];
+    const app = {
+      ctx: { harness: parts.harness, bots: parts.bots, ...parts.ctxForApi },
+      guard() {},
+      get: (p) => seen.push(`GET ${p}`),
+      post: (p) => seen.push(`POST ${p}`),
+      ws() {},
+    };
+    for (const register of await loadRoutes()) register(app);
+    for (const want of [
+      "POST /api/workspaces",
+      "GET /api/workspaces",
+      "POST /api/workspaces/:id/retry",
+      "POST /api/workspaces/:id/pr",
+      "POST /api/workspaces/:id/checkpoint",
+      "GET /api/workspaces/:id/checkpoints",
+      "POST /api/workspaces/:id/rebuild",
+      "GET /api/github/repos",
+      "POST /api/bots/:id/fork",
+    ]) {
+      assert.ok(seen.includes(want), `route missing: ${want}`);
+    }
+    assert.ok(!seen.includes("POST /api/bots"));
+  } finally {
+    await parts.close();
   }
 });
