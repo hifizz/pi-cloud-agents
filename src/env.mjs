@@ -1,5 +1,5 @@
 // ExecutionEnv adapter: pi-durable's FileSystem + Shell implemented on top of a remote Linux sandbox.
-// The sandbox (Fly Sprite or E2B, chosen by TARSBOT_SANDBOX) lives in ./sandbox/<provider>.mjs.
+// The sandbox provider (Fly Sprite, E2B or InstaBox, chosen by TARSBOT_SANDBOX) lives in ./sandbox/<provider>.mjs.
 // Everything goes through one primitive, `bash(command, {timeoutMs}) -> {stdout, stderr, exitCode, timedOut}`
 // (default: `bash` of the configured sandbox via loadSandbox(), loaded lazily;
 // non-streaming `/bin/sh -c`). Binary data travels as base64.
@@ -668,7 +668,7 @@ export class SandboxEnv {
 
 /**
  * Harness `env` factory: `({cwd, conversationId}) => ExecutionEnv` bound to the shared sandbox
- * (the Sprite or the E2B sandbox). `config.spaceCwd` is created on first use.
+ * (the one shared sandbox selected by config). `config.spaceCwd` is created on first use.
  */
 export function spaceEnv() {
   const ensured = new Map();

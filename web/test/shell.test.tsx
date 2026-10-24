@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { PanelHost } from "../src/shell/PanelHost";
 import { usePanelState } from "../src/shell/usePanelState";
 import { WorkspaceShell } from "../src/shell/WorkspaceShell";
+import { WorktreeStrip } from "../src/shell/ComposerContext";
+import { SessionHeader } from "../src/shell/SessionHeader";
 import { BotList } from "../src/components/BotList";
 import { RoutinesPanel } from "../src/components/RoutinesPanel";
 import { EnvironmentPane } from "../src/components/EnvironmentPane";
@@ -153,7 +155,7 @@ describe("EnvironmentPane", () => {
     expect(screen.getByText("执行环境信息不可用")).toBeInTheDocument();
   });
 
-  it("renders sprites and e2b, cwd fallback and bot model", () => {
+  it("renders every sandbox explicitly, with provider cwd fallbacks and bot model", () => {
     const { rerender } = render(<EnvironmentPane space={{ sandbox: "sprites", name: "pca" }} bot={bot()} />);
     let card = screen.getByTestId("sprite-card");
     expect(card).toHaveAttribute("data-sandbox", "sprites");
@@ -173,5 +175,37 @@ describe("EnvironmentPane", () => {
 
     rerender(<EnvironmentPane space={{ sandbox: "e2b", name: null, cwd: "/home/user/workspace" }} />);
     expect(screen.getByTestId("sprite-card")).toHaveTextContent("/home/user/workspace");
+
+    rerender(<EnvironmentPane space={{ sandbox: "instabox", name: "pca" }} />);
+    card = screen.getByTestId("sprite-card");
+    expect(card).toHaveAttribute("data-sandbox", "instabox");
+    expect(card).toHaveTextContent("InstaBox");
+    expect(card).not.toHaveTextContent("Sprite");
+    expect(card).toHaveTextContent("/data/home/workspace");
+  });
+
+  it("labels InstaBox correctly in the composer strip and session badge", () => {
+    const space = { sandbox: "instabox" as const, name: "pca" };
+    const { unmount } = render(<WorktreeStrip space={space} />);
+    expect(screen.getByText("InstaBox pca")).toBeInTheDocument();
+    expect(screen.getByText("/data/home/workspace")).toBeInTheDocument();
+    unmount();
+
+    render(
+      <SessionHeader
+        bot={bot()}
+        vm={emptyVM()}
+        status="open"
+        space={space}
+        railOpen
+        panelOpen
+        onExpandRail={vi.fn()}
+        onTogglePanel={vi.fn()}
+        onCompact={vi.fn()}
+        onReset={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("IB")).toBeInTheDocument();
+    expect(screen.getByText("pca")).toBeInTheDocument();
   });
 });

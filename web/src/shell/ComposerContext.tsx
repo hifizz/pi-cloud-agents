@@ -2,12 +2,22 @@
 import { Icon } from "../components/Chat/primitives/Icon";
 import type { SpaceInfo, StreamStatus } from "../types";
 
-const SPRITE_WORKDIR = "/home/sprite/workspace";
+const SANDBOX_LABELS: Record<SpaceInfo["sandbox"], string> = {
+  sprites: "Sprite",
+  e2b: "E2B",
+  instabox: "InstaBox",
+};
+
+const SANDBOX_WORKDIRS: Record<SpaceInfo["sandbox"], string> = {
+  sprites: "/home/sprite/workspace",
+  e2b: "/home/user/workspace",
+  instabox: "/data/home/workspace",
+};
 
 export function WorktreeStrip({ space, cwd }: { space?: SpaceInfo; cwd?: string }) {
   if (!space) return null;
-  const label = `${space.sandbox === "e2b" ? "E2B" : "Sprite"} ${space.name ?? "(未配置)"}`;
-  const dir = cwd ?? space.cwd ?? SPRITE_WORKDIR;
+  const label = `${SANDBOX_LABELS[space.sandbox]} ${space.name ?? "(未配置)"}`;
+  const dir = cwd ?? space.cwd ?? SANDBOX_WORKDIRS[space.sandbox];
   return (
     <div className="mx-2.5 flex h-[34px] items-center justify-between gap-3 rounded-b-[10px] border border-t-0 border-[#222] bg-[#101010] px-3 text-[11.5px] text-fg-faint">
       <span className="flex min-w-0 items-center gap-1.5">

@@ -5,6 +5,8 @@
 //     (requires SPRITES_TOKEN and TARSBOT_SPRITE_NAME)
 //   E2B:               set -a; . ./.env; set +a; TARSBOT_SANDBOX=e2b npm run test:env
 //     (requires E2B_API_KEY; the sandbox `pi-cloud-agents` is created by scripts/e2b-setup.sh)
+//   InstaBox:          set -a; . ./.env; set +a; TARSBOT_SANDBOX=instabox npm run test:env
+//     (requires INSTABOX_API_KEY; the adapter reuses or creates `pi-cloud-agents` lazily)
 //   Each case works in its own /tmp/conf-* dir and removes it.
 //
 // `npm test` (node --test) also globs this file; it is a no-op outside vitest.

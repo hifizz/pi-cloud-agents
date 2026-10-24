@@ -19,6 +19,12 @@ export interface SessionHeaderProps {
 const hbtn =
   "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line-strong px-2.5 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:hover:bg-transparent";
 
+const SANDBOX_BADGES: Record<SpaceInfo["sandbox"], string> = {
+  sprites: "SP",
+  e2b: "E2",
+  instabox: "IB",
+};
+
 export function SessionHeader({ bot, vm, status, space, railOpen, panelOpen, onExpandRail, onTogglePanel, onCompact, onReset }: SessionHeaderProps) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
@@ -37,7 +43,7 @@ export function SessionHeader({ bot, vm, status, space, railOpen, panelOpen, onE
         {bot && space && (
           <>
             <span className="flex size-5 shrink-0 items-center justify-center rounded bg-brand text-[9px] font-bold text-white" aria-hidden="true">
-              {space.sandbox === "e2b" ? "E2" : "SP"}
+              {SANDBOX_BADGES[space.sandbox]}
             </span>
             <span className="min-w-0 max-w-40 shrink truncate text-fg-muted">{space.name ?? "sandbox"}</span>
             <span className="text-fg-faint" aria-hidden="true">

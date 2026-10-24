@@ -1,4 +1,4 @@
-// GET /api/space — where the Bot's computer lives: { sandbox: "sprites" | "e2b", name, cwd }.
+// GET /api/space — where the Bot's computer lives: { sandbox: "sprites" | "e2b" | "instabox", name, cwd }.
 import { config } from "../config.mjs";
 import { loadSandbox } from "../sandbox/index.mjs";
 

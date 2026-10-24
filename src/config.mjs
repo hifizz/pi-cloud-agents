@@ -16,7 +16,7 @@ if (existsSync(envFile) && !process.env.TARSBOT_NO_DOTENV) {
 }
 
 /** Selectable sandboxes (TARSBOT_SANDBOX). The first is the default. */
-const SANDBOX_KINDS = ["sprites", "e2b"];
+const SANDBOX_KINDS = ["sprites", "e2b", "instabox"];
 
 /**
  * Sandbox settings, chosen by TARSBOT_SANDBOX (unset/empty -> sprites). Pure: `config` below feeds it `process.env`.
@@ -28,6 +28,17 @@ export function sandboxSettings(vars = process.env) {
     return {
       sandbox,
       sandboxName: vars.TARSBOT_E2B_NAME || "pi-cloud-agents",
+      spriteName: undefined,
+      home,
+      spaceCwd: `${home}/workspace`,
+    };
+  }
+  if (sandbox === "instabox") {
+    // InstaBox defines the persistent HOME as /data/home; keeping it fixed preserves shell `~` and prompt semantics.
+    const home = "/data/home";
+    return {
+      sandbox,
+      sandboxName: vars.TARSBOT_INSTABOX_NAME || "pi-cloud-agents",
       spriteName: undefined,
       home,
       spaceCwd: `${home}/workspace`,
