@@ -6,7 +6,7 @@
 
 ## 你只能创建/修改
 - 新建：`web/src/components/NewWorkspaceDialog.tsx`、`web/src/components/WorkspaceStatus.tsx`、`web/src/lib/workspaces.ts`（API 客户端与类型）
-- 修改：`web/src/App.tsx`、`web/src/components/BotList.tsx`、`web/src/components/EnvironmentPane.tsx`、`web/src/shell/SessionHeader.tsx`、`web/src/types.ts`、`web/src/lib/api.ts`
+- 修改：`web/src/App.tsx`、`web/src/components/BotList.tsx`、`web/src/components/ForkDialog.tsx`、`web/src/components/EnvironmentPane.tsx`、`web/src/shell/SessionHeader.tsx`、`web/src/types.ts`、`web/src/lib/api.ts`
 - 对应的测试文件，放在与现有前端测试相同的目录和命名约定下
 
 ## 要求
@@ -17,8 +17,10 @@
 5. **操作入口**（`ready` 的工作区）：「创建 PR」（`POST /api/workspaces/:id/pr`，`requestId` 同样每次点击生成并在失败重试时复用，成功后显示 PR 链接，重复点击显示「已存在」）、「保存检查点」（`POST .../checkpoint`，显示时间与大小）、检查点列表（`GET .../checkpoints`）。重建入口 M1 只做按钮 + 确认对话框，调用 `POST .../rebuild`，写清「会新建一台环境并恢复到该检查点」。
 6. 所有错误都有文案，不能只转圈；不显示任何 token，也不在界面输出服务器绝对路径。移动端布局不在本任务范围，但不要写死宽度。
 
+7. **移除「新建 Bot」与写入型 fork 入口**：`App.tsx` 里的 `api.createBot` 与对应表单入口删除（后端不再提供 `POST /api/bots`）；`ForkDialog` 只能创建**只读**会话（去掉可写选项，或固定 `readOnly: true`），文案说明「只读副本，用于查看和讨论，不会修改文件」。`api.ts` 里的 `createBot` 同步删除。
+
 ## 验收
 - `cd web && npm test` 与 `npm run typecheck` 通过，`npm run build` 成功。
-- 必测（用假 `fetch`）：对话框重复提交使用同一个 `requestId`；失败后重试仍是同一个；准备中禁用输入并显示当前步骤；`unknown` 显示「结果待确认」且有重试；创建 PR 成功与「已存在」；没有任何工作区时显示空状态并引导新建。
+- 必测（用假 `fetch`）：对话框重复提交使用同一个 `requestId`；失败后重试仍是同一个；准备中禁用输入并显示当前步骤；`unknown` 显示「结果待确认」且有重试；创建 PR 成功与「已存在」；没有任何工作区时显示空状态并引导新建；fork 对话框提交的请求里 `readOnly` 恒为 true；界面里找不到「新建 Bot」入口。
 
 最后输出：改动文件、测试结果、未验证项（尤其是没有在浏览器里看过）。

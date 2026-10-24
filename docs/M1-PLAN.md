@@ -312,6 +312,6 @@ M1-00 已于 2026-10-25 完成（`docs/m1-probe.md`，A 部分在 1.4.0 隔离�
 | 重建后旧绑定的未完成命令 | 若 `execute` 只靠“查 runner 得 missing 就 start”，会在新机器上重跑 | `execute` 先核对 memo 里的绑定与当前绑定，不一致不 start（§3.3）；M1-10 要有测试 |
 | 启动顺序：`openHarness` 默认立即 `resume()` | 被打断的工具在解析器就绪前重入 | `resume: false` 后手动恢复（§3.6）；M1-13 用测试覆盖 |
 | 没有写锁：同一工作区被两个会话同时写 | 文件互相覆盖 | M1 不开放同工作区新会话，写锁在 M2 |
-| `fork`（`POST /api/bots/:id/fork`）产生的新会话没有工作区关联 | env 工厂会抛错；若允许写入型 fork，又会在同一工作区产生两个写入者 | **提议（待用户确认）**：M1 只允许 `readOnly` fork，并继承父会话的工作区关联；写入型 fork 返回 409，等 M2 写锁 |
+| `fork`（`POST /api/bots/:id/fork`）产生的新会话没有工作区关联 | env 工厂会抛错；若允许写入型 fork，又会在同一工作区产生两个写入者 | **已决定（用户 2026-10-25）**：M1 只允许 `readOnly` fork，并继承父会话的工作区关联；写入型 fork 返回 409，等 M2 写锁（M1-08）。同时删除 `POST /api/bots` 与 `src/repl.mjs`（M1-13） |
 | 日志 stdout / stderr 合并 | 工具结果里区分不了两路 | 已知偏差，记在 M1-04 |
 | 本机 `node_modules` 曾是 1.0.4 | 所有本地测试结论失真 | 开工前 `npm ci`；`npm ls` 校验版本（页首） |

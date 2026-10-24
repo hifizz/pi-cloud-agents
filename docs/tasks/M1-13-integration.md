@@ -17,7 +17,11 @@
    6. **最后** `harness.resume()`；
    7. `createApi` 的 `ctx` 注入：`workspaces`、`github`、`control`、`checkpoints`、`rebuild`、`runtimeBash(workspaceId)`；
    8. 关闭时先关 API、再关 Harness、最后关控制库。
-   不再保留“今天的启动流程”：删除 `server.mjs` 里“没有 Bot 就创建 `tars`”的逻辑（没有工作区的 Bot 在新设计下不可用）。`src/repl.mjs` 同理，**待用户确认**：删除，还是改成接收工作区 id。确认前不要自行决定。
+   不再保留“今天的启动流程”：删除 `server.mjs` 里“没有 Bot 就创建 `tars`”的逻辑（没有工作区的 Bot 在新设计下不可用）。
+2b. **删除没有工作区的会话入口**（用户 2026-10-25 确认）：
+   - `src/api.mjs`：删除 `POST /api/bots`（创建 Bot 只能经 `POST /api/workspaces`）。`GET /api/bots`、`/input`、`/abort`、`/compact`、`/reset`、`/entries`、`/stream` 保留。`test/api.test.mjs`、`test/auth.test.mjs` 等里用 `POST /api/bots` 或 `bots.createBot` 造数据的测试，改成直接用 `BotRegistry` / 控制库造出带工作区关联的会话（`links.link`），不要再走已删除的路由。
+   - `src/repl.mjs`：**删除**，连同 `package.json` 的 `repl` 脚本、`README.md` / `README.zh-CN.md` / `AGENTS.md` 里的 `npm run repl` 说明。理由：repl 与 server 共用 sqlite 不能同时运行，且它会创建没有工作区的 Bot。`package.json` 的改动只限删除这一个脚本，不改依赖。
+   - fork：路由约束由 M1-08 实现；这里只确认 `app.ctx.control` 已注入。
 3. `src/runtime.mjs`：`productionEnv()` 改为 `createWorkspaceEnv({ store, providers })`（不再有 `spaceEnv()` 回退）；`productionExtensions()` 里在 `CodingTools` 之后装 `Exec`（同名覆盖内置 `bash`，所有 Bot 共用），保持 **Approval 最后**。`bootstrap` 增加 `resume` 透传（默认 true，server 传 false）。删除不再使用的全局沙箱配置与路由：`src/routes/space.mjs`（`/api/space`）、`config.sandbox` / `spaceCwd` 相关、`src/sandbox/index.mjs` 的 `loadSandbox` 与 E2B 选择，**除非它们仍被别的代码引用——删除前先 `rg` 确认引用，有引用的先回报**。`src/sandbox/sprites.mjs` 的 `createSpritesBash` / `redactMessage` 仍被供应商使用，保留。
 4. `src/ext/preamble.mjs`：保留通用 preamble；确认 `workspaceInstructions` 追加到 instructions 后，与 preamble 的 clone / 建分支步骤不冲突（必要时在 preamble 中加一句「如果后面的工作区说明给出了仓库和分支，以它为准」）。
 5. `docs/CONTRACTS.md`：新增 §7「工作区、控制库、供应商、runner」，把 `docs/M1-PLAN.md` §4 的最终签名收进来；§2 说明沙箱原语仍在，新增供应商接口；`AGENTS.md` 的「目录结构」表补新目录（`src/control/`、`src/providers/`、`src/runner/`）。
