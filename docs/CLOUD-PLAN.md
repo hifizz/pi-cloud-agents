@@ -97,7 +97,7 @@
 | region | `sin` |
 | VM | `shared-cpu-1x`，`memory = "512mb"` |
 | Volume | `pi_data`，1 GB，挂载 `/data` |
-| http_service | `internal_port = 8080`，`force_https = true`，`auto_stop_machines = "off"`，`auto_start_machines = true`，`min_machines_running = 1` |
+| http_service | `internal_port = 8080`，`force_https = true`，`auto_stop_machines = "suspend"`，`auto_start_machines = true`，`min_machines_running = 0` |
 | 健康检查 | `GET /api/health` |
 | `[env]`（非密钥） | `TARSBOT_HOST=0.0.0.0`、`TARSBOT_PORT=8080`、`TARSBOT_DATA_DIR=/data`、`TARSBOT_PUBLIC_URL=https://pi.zilin.im`、`TARSBOT_ALLOWED_EMAILS=stackfizztailan@gmail.com,fizzstack@gmail.com`、`TARSBOT_SPRITE_NAME=pi-cloud-agents`、`NODE_ENV=production` |
 | Fly secrets | `TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`（只导入名单内且 `.env` 中存在的键，`--stage`，不打印值） |
