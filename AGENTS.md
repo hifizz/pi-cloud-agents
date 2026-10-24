@@ -74,7 +74,8 @@ fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --
 - 所有密钥（`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET` 等）只从 `process.env` / `.env` / Fly secrets 读取；禁止打印、写日志、写入 Sprite、测试快照或截图。不要读取或回显 `.env`。
 - Sprite 内 `bash` 是完全信任边界：能执行 bash 的主体拥有 Sprite 内全部登录态。危险操作走 `src/ext/approval.mjs` 审批。
 - 不要删除 Fly Volume `/data`、本地 `data/`，不要删除 Sprite `pi-cloud-agents`。
-- 远端资源只操作 Sprite `pi-cloud-agents`、E2B 中 metadata `app=pi-cloud-agents` 的沙箱、Fly app `pi-cloud-agents` 与测试仓库 `hifizz/tars-sandbox-playground`；org 下其他 Sprite、E2B 账户里其他沙箱与 Fly app 一律不得改动。
+- 远端资源只操作：旧共享 Sprite `pi-cloud-agents`；本应用按工作区创建的 Sprite（名称以 `pca-` 开头**且**带标签 `app:pi-cloud-agents`，代码里由 `provider.isManaged()` 判定，任何创建、删除路径都必须先过它）；E2B 中 metadata `app=pi-cloud-agents` 的沙箱；Fly app `pi-cloud-agents`；测试仓库 `hifizz/tars-sandbox-playground`。org 下其他 Sprite、E2B 账户里其他沙箱与 Fly app 一律不得改动。
+- 旧共享 Sprite `pi-cloud-agents`（及 `TARSBOT_SPRITE_NAME` 指向的）永远不是受管资源，不得通过 `release` 等路径删除；`pca-` Sprite 只有测试清理和明确的「释放」操作可以删除，且同时存在数量要有上限（M1 验收期间不超过 3 个）。
 
 ## 验收
 
