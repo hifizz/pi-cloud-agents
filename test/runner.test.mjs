@@ -586,6 +586,34 @@ describe(`runner.sh (shell: ${MAIN_SHELL}, ${HAS_PROC ? "real /proc" : "fake /pr
     assert.equal(readFileSync(pwdOut, "utf8").trim(), realpathSync(sb.work), "runs in the requested cwd");
   });
 
+  it("the user's command runs under bash even when the wrapper shell is dash (arrays, [[ ]], <(...), {1..3}, $'..')", { skip: existsSync("/bin/bash") ? false : "no /bin/bash on this machine" }, async () => {
+    const c = sb.client();
+    await c.install();
+    const cmd = `arr=(x y z); echo "arr=\${arr[1]}"; [[ abc == a* ]] && echo dbl-bracket; echo {1..3}; diff <(echo 1) <(echo 1) && echo procsub; echo $'a\\tb' | od -c | head -1; echo "shell=$(readlink /proc/$$/exe 2>/dev/null || echo unknown)"`;
+    const r = await sb.run(c, cmd);
+    assert.equal(r.exit, 0, r.text);
+    assert.match(r.text, /arr=y/);
+    assert.match(r.text, /dbl-bracket/);
+    assert.match(r.text, /1 2 3/);
+    assert.match(r.text, /procsub/);
+  });
+
+  it("PCA_CMD_SH overrides the command shell; the wrapper itself keeps using PCA_SH", { skip: DASH ? false : "no dash on this machine (macOS /bin/sh is bash)" }, async () => {
+    const c = sb.client();
+    await c.install();
+    const marker = sb.out("cmd-shell");
+    const saved = sb.env.PCA_CMD_SH;
+    sb.env.PCA_CMD_SH = DASH;
+    try {
+      const r = await sb.run(c, `echo "BASH_VERSION=\${BASH_VERSION:-none}" > ${q(marker)}`);
+      assert.equal(r.exit, 0, r.text);
+      assert.match(readFileSync(marker, "utf8"), /BASH_VERSION=none/, "dash does not define BASH_VERSION");
+    } finally {
+      if (saved === undefined) delete sb.env.PCA_CMD_SH;
+      else sb.env.PCA_CMD_SH = saved;
+    }
+  });
+
   it("kill takes down the whole process group, and the exit is recorded", async () => {
     const c = sb.client();
     const pidfile = sb.out("childpid");

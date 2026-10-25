@@ -33,15 +33,15 @@
 #
 # Known deviations / limits:
 #  - stdout and stderr are merged into one log.
-#  - Linux only: needs setsid, /proc (test hooks: PCA_PROC_ROOT, PCA_SETSID, PCA_SH, PCA_START_TICKS). No macOS identity code.
+#  - Linux only: needs setsid, /proc (test hooks: PCA_PROC_ROOT, PCA_SETSID, PCA_SH, PCA_CMD_SH, PCA_START_TICKS). No macOS identity code.
 #  - A command that escapes the process group (its own setsid / daemonize) is not reached by `kill`.
-#  - The command is passed to `sh -c -- "$(cat cmd)"`: no NUL bytes, trailing newlines are dropped, and one argument is
+#  - The command is passed to `bash -c -- "$(cat cmd)"` (`sh` when /bin/bash is missing; see PCA_CMD_SH): no NUL bytes, trailing newlines are dropped, and one argument is
 #    limited to 128 KiB by Linux (prepare rejects commands above MAX_CMD_BYTES).
 #  - If the wrapper dies but the command's group lives on, `kill` cannot verify identity and does nothing (not-found).
 #  - Environment values are inherited from whoever calls `start`; they are never written to any file. `meta` records only
 #    the NAMES; `start` refuses (error=env-missing) when a recorded name is not set in its environment.
 
-RUNNER_VERSION=1
+RUNNER_VERSION=2
 MAX_DATA=32768
 MAX_CMD_BYTES=126000
 
@@ -50,8 +50,14 @@ umask 077
 PCA_HOME=${PCA_HOME:-${HOME:-/tmp}/.pca}
 PCA_PROC_ROOT=${PCA_PROC_ROOT:-/proc}
 PCA_SH=${PCA_SH:-sh}
+# The shell that runs the USER'S command. PCA_SH only runs this script's own wrapper (it must stay a POSIX sh); the model
+# writes bash (arrays, [[ ]], <(...), {1..3}), and the built-in bash tool and SandboxEnv both use /bin/bash, so the
+# command runs under bash when it exists and under sh otherwise.
+if [ -z "${PCA_CMD_SH:-}" ]; then
+  if [ -x /bin/bash ]; then PCA_CMD_SH=/bin/bash; else PCA_CMD_SH=$PCA_SH; fi
+fi
 PCA_SETSID=${PCA_SETSID:-setsid}
-export PCA_HOME PCA_PROC_ROOT PCA_SH PCA_SETSID
+export PCA_HOME PCA_PROC_ROOT PCA_SH PCA_CMD_SH PCA_SETSID
 RUNS=$PCA_HOME/runs
 STAGE=$PCA_HOME/stage
 NL=$(printf '\n_')
@@ -354,7 +360,7 @@ cmd_wrap() {
   umask 022 # our own files are 0600 (umask above); the user's command gets an ordinary umask
   wcmd=$(cat "$rd/cmd")
   if cd "$wcwd" 2>> "$rd/out.log"; then
-    "$PCA_SH" -c -- "$wcmd" < /dev/null >> "$rd/out.log" 2>&1
+    "$PCA_CMD_SH" -c -- "$wcmd" < /dev/null >> "$rd/out.log" 2>&1
     wcode=$?
   else
     printf 'pca: cannot cd to %s\n' "$wcwd" >> "$rd/out.log"
