@@ -1,5 +1,6 @@
-// Sprites (Fly.io) shell primitive: `bash(command, {timeoutMs}) -> {stdout, stderr, exitCode, timedOut}`; SandboxEnv runs
-// on top of it (alias `bash`/`info` below). Behaviour is dictated by the measurements in docs/sprites-probe.md:
+// Sprites (Fly.io) shell primitive factory: `createSpritesBash({client, name, ...}) -> bash(command, {timeoutMs}) ->
+// {stdout, stderr, exitCode, timedOut}`; SandboxEnv runs on top of it. Used by src/providers/sprites.mjs (one bash per
+// workspace Sprite); there is no process-wide singleton. Behaviour is dictated by the measurements in docs/sprites-probe.md:
 //  - Uses sprite.spawn(); execFile() rejects on non-zero exit and never closes stdin, exec() splits on spaces.
 //  - The remote command is delayed by `sleep` (startDelaySec): a command that prints >64 KB immediately after start
 //    randomly loses ALL output on the platform side (connection closes ~11 s later with no exit status).
@@ -235,39 +236,3 @@ export function createSpritesBash({
     }
   };
 }
-
-// ---------------------------------------------------------------------------------------------------------------
-// Production instance (lazy, one client per process)
-
-let prod;
-
-async function getProd() {
-  if (prod) return prod;
-  const token = process.env.SPRITES_TOKEN;
-  const name = process.env.TARSBOT_SPRITE_NAME;
-  if (!token) throw codedError("SPRITES_CONFIG", "SPRITES_TOKEN is not set (put it in .env)");
-  if (!name) throw codedError("SPRITES_CONFIG", "TARSBOT_SPRITE_NAME is not set (put it in .env)");
-  const { SpritesClient } = await import("@fly/sprites");
-  const gh = process.env.GITHUB_TOKEN;
-  prod = createSpritesBash({
-    client: new SpritesClient(token),
-    name,
-    env: gh ? { GH_TOKEN: gh } : {},
-    secrets: [token],
-    log: process.env.TARSBOT_SPRITES_LOG ? (e) => console.error(`[sprites] ${JSON.stringify(e)}`) : undefined,
-  });
-  return prod;
-}
-
-/** Run a shell command in the Sprite. Returns { stdout, stderr, exitCode, timedOut }. */
-export async function spritesBash(command, { timeoutMs } = {}) {
-  return (await getProd())(command, { timeoutMs });
-}
-
-/** For /api/space: never contains a token. */
-export function getSpriteInfo() {
-  return { sandbox: "sprites", name: process.env.TARSBOT_SPRITE_NAME || null };
-}
-
-/** Provider interface (docs/CLOUD-PLAN.md §3): `bash` and `info`. */
-export { spritesBash as bash, getSpriteInfo as info };

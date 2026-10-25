@@ -67,7 +67,7 @@ fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --
 
 - 新功能以扩展（`src/ext/`）或路由插件（`src/routes/`）的形式加入，在 `src/runtime.mjs` 集成；不要把逻辑散落到 `server.mjs` / `api.mjs`。
 - 对 pi-durable 的依赖收敛在 `env.mjs`、`ext/`、`server.mjs` 三处，方便 API 变动时迁移。
-- 沙箱实现只需提供 `bash()` / `info()` 原语，其余逻辑留在 `env.mjs`。
+- 运行环境供应商（`src/providers/<name>.mjs`）提供 `ensure` / `init` / `bash` / `status` / `list` / `release`；任何创建、删除路径都必须先过 `provider.isManaged()`；文件与 exec 逻辑留在 `env.mjs`。
 - 离线测试模板：`test/harness.test.mjs`（`fauxProvider` + `MemoryStorage`），新测试不要依赖真实模型或真实 Sprite。
 - 存储只允许一个写进程：Fly 只跑 1 台 Machine；测试用临时 `TARSBOT_DATA_DIR`。
 

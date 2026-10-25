@@ -11,7 +11,6 @@ kill_timeout = 30
   TARSBOT_DATA_DIR = "/data"
   TARSBOT_PUBLIC_URL = "https://pi.zilin.im"
   TARSBOT_ALLOWED_EMAILS = "stackfizztailan@gmail.com,fizzstack@gmail.com"
-  TARSBOT_SPRITE_NAME = "pi-cloud-agents"
   NODE_ENV = "production"
 
 [deploy]
