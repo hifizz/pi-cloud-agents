@@ -3,6 +3,7 @@
 import { diffPanel } from "./diff";
 import { environmentPanel } from "./environment";
 import { routinesPanel } from "./routines";
+import { teammatePanel } from "./teammate";
 import type { PanelDefinition } from "./types";
 
-export const PANELS: PanelDefinition[] = [diffPanel, environmentPanel, routinesPanel];
+export const PANELS: PanelDefinition[] = [diffPanel, environmentPanel, routinesPanel, teammatePanel];

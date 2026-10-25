@@ -1,5 +1,5 @@
 // REST wrapper for the TARSBot backend (src/api.mjs). Same-origin; Vite proxies /api in dev.
-import type { BotSummary, ForkInput, NewBotInput, NewRoutineInput, RoutineItem, SpaceInfo } from "../types";
+import type { BotMemory, BotSummary, ForkInput, HookItem, JobItem, NewBotInput, NewRoutineInput, RoutineItem, SkillItem, SpaceInfo } from "../types";
 
 export class ApiError extends Error {
   status: number;
@@ -80,6 +80,12 @@ export const api = {
   createRoutine: (input: NewRoutineInput) => request<RoutineItem>("POST", "/api/routines", input),
   cancelRoutine: (id: string) => request<{ ok: true; id: string }>("POST", `/api/routines/${enc(id)}/cancel`, {}),
   space: () => request<SpaceInfo>("GET", "/api/space"),
+  answerAsk: (id: string, answer: string) => request<{ ok: true }>("POST", `/api/asks/${enc(id)}`, { answer }),
+  listHooks: () => request<HookItem[]>("GET", "/api/hooks"),
+  mintHook: (botId: string) => request<{ botId: string; token: string; url: string }>("POST", `/api/hooks/${enc(botId)}`, {}),
+  listJobs: () => request<JobItem[]>("GET", "/api/jobs"),
+  botMemory: (botId: string) => request<BotMemory>("GET", `/api/bots/${enc(botId)}/memory`),
+  botSkills: (botId: string) => request<SkillItem[]>("GET", `/api/bots/${enc(botId)}/skills`),
 };
 
 export const googleLoginUrl = "/api/auth/google";

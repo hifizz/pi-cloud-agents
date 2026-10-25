@@ -91,11 +91,11 @@ async function readBody(req) {
     if (size > MAX_BODY) throw new HttpError(413, "request body too large");
     chunks.push(chunk);
   }
-  if (size === 0) return undefined;
+  if (size === 0) return { text: undefined, json: undefined };
   const text = Buffer.concat(chunks).toString("utf8");
-  if (!text.trim()) return undefined;
+  if (!text.trim()) return { text: undefined, json: undefined };
   try {
-    return JSON.parse(text);
+    return { text, json: JSON.parse(text) };
   } catch {
     throw new HttpError(400, "invalid JSON body");
   }
@@ -353,9 +353,10 @@ export function createApi({ harness, bots, routes = [], staticDir } = {}) {
         path,
       );
       if (hit) {
-        const body = req.method === "POST" ? await readBody(req) : undefined;
+        const parsed = req.method === "POST" ? await readBody(req) : undefined;
         const query = Object.fromEntries(url.searchParams);
-        const result = await hit.route.handler(req, res, { params: hit.params, body, query });
+        // `rawBody` (the exact bytes) lets routes verify HMAC signatures; `body` is the parsed JSON.
+        const result = await hit.route.handler(req, res, { params: hit.params, body: parsed?.json, rawBody: parsed?.text, query });
         if (!res.writableEnded && !res.headersSent) send(res, 200, result === undefined ? { ok: true } : result);
         return;
       }

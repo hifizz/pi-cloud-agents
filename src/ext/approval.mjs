@@ -9,6 +9,10 @@ import { defineExtension, hook, ToolTask } from "@earendil-works/pi-durable";
 
 /** Longest string value kept in a listed approval's `args` (display only; the hook keeps the real arguments). */
 const PREVIEW_CHARS = 2000;
+/** Approval older than this gets a reminder surfaced (bdots sweepStuck: 4h). */
+export const REMIND_AFTER_MS = 4 * 60 * 60 * 1000;
+/** Approval older than this expires and resolves as denied (bdots sweepStuck: 24h). */
+export const EXPIRE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 // ---- rules ----------------------------------------------------------------------------------------------------------
 
@@ -136,6 +140,9 @@ function preview(value) {
 /** In-process queue of calls waiting for a human verdict. Emits "changed" whenever the list changes. */
 export class ApprovalCenter extends EventEmitter {
   #pending = new Map();
+  #expiredAt = new Map(); // taskId -> epoch ms when it expired (kept until the waiter observes it)
+  #remindAt = new Map(); // taskId -> epoch ms of the next reminder
+  #reminded = new Set();
 
   /**
    * Park a call until it is resolved. Same `taskId` while pending returns the same promise.
@@ -173,13 +180,22 @@ export class ApprovalCenter extends EventEmitter {
       entry.cleanup = () => signal.removeEventListener("abort", onAbort);
     }
     this.#pending.set(key, entry);
+    this.#remindAt.set(key, Date.now() + REMIND_AFTER_MS);
+    this.#reminded.delete(key);
     this.emit("changed");
     return promise;
   }
 
   /** Pending items, oldest first. Long string arguments are shortened for display. */
   list() {
-    return [...this.#pending.values()].map(({ item }) => ({ ...item, args: preview(item.args) }));
+    const now = Date.now();
+    return [...this.#pending.values()].map(({ item }) => ({
+      ...item,
+      args: preview(item.args),
+      ...(this.#expiredAt.has(item.taskId) ? { expired: true } : {}),
+      ...(this.#reminded.has(item.taskId) ? { reminded: true } : {}),
+      ageMs: now - Date.parse(item.requestedAt),
+    }));
   }
 
   /** @returns {boolean} false when no such pending item exists */
@@ -188,10 +204,43 @@ export class ApprovalCenter extends EventEmitter {
     const entry = this.#pending.get(key);
     if (!entry) return false;
     this.#pending.delete(key);
+    this.#expiredAt.delete(key);
+    this.#remindAt.delete(key);
+    this.#reminded.delete(key);
     entry.cleanup();
     entry.settle(approved === true);
     this.emit("changed");
     return true;
+  }
+
+  /**
+   * sweepStuck (bdots idea 4): mark approvals older than EXPIRE_AFTER_MS as expired (the waiting hook then resolves
+   * them as denied), and surface remind state for items older than REMIND_AFTER_MS. Runs on a timer from server.mjs.
+   * @returns {{expired: string[], reminded: string[]}} taskIds transitioned this sweep
+   */
+  sweep(now = Date.now()) {
+    const expired = [];
+    const reminded = [];
+    for (const [key, entry] of this.#pending) {
+      const age = now - Date.parse(entry.item.requestedAt);
+      if (age >= EXPIRE_AFTER_MS && !this.#expiredAt.has(key)) {
+        this.#expiredAt.set(key, now);
+        expired.push(key);
+        this.emit("changed");
+        continue;
+      }
+      if (age >= REMIND_AFTER_MS && !this.#reminded.has(key)) {
+        this.#reminded.add(key);
+        reminded.push(key);
+        this.emit("changed");
+      }
+    }
+    return { expired, reminded };
+  }
+
+  /** Whether an item already expired (the waiter has not observed it yet). */
+  isExpired(taskId) {
+    return this.#expiredAt.has(String(taskId));
   }
 }
 
@@ -225,7 +274,7 @@ export function createApproval({ center = approvals, rules } = {}) {
           if (ok === undefined) {
             // Aborting the wait (conversation abort, harness close) rejects here; the tool task rethrows while it is
             // aborting, so nothing is memoized and the question returns after recovery.
-            const verdict = await center.request({
+            const wait = center.request({
               taskId: api.taskId,
               conversationId: api.conversationId,
               toolName: call.name,
@@ -233,6 +282,23 @@ export function createApproval({ center = approvals, rules } = {}) {
               reason,
               signal: context?.abortSignal,
             });
+            // Expiry (idea 4): when the center marks this item expired, resolve the wait as denied instead of
+            // waiting forever. The memo write below records the denial, so a restart never re-asks.
+            let expired = false;
+            const poll = setInterval(() => {
+              if (center.isExpired(api.taskId)) {
+                expired = true;
+                center.resolve(api.taskId, false);
+              }
+            }, 30_000);
+            poll.unref?.();
+            let verdict;
+            try {
+              verdict = await wait;
+            } finally {
+              clearInterval(poll);
+            }
+            if (expired) verdict = false;
             // First write wins (REQ-F10-2): a concurrent earlier verdict is returned instead of ours.
             ok = await api.memo("approval", verdict, context);
           }

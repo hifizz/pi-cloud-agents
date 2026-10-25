@@ -30,6 +30,55 @@ export interface ApprovalItem {
   args?: unknown;
   reason?: string;
   requestedAt?: string;
+  /** Set by the sweep when the item waited > 4h. */
+  reminded?: boolean;
+  /** Set by the sweep when the item waited > 24h; it resolves as denied. */
+  expired?: boolean;
+  ageMs?: number;
+}
+
+/** One open ask_user question (WS /api/asks/stream). */
+export interface AskItem {
+  id: string;
+  conversationId?: string;
+  question: string;
+  options: string[];
+  askedAt?: string;
+}
+
+/** One webhook registration (GET /api/hooks). */
+export interface HookItem {
+  conversationId: number | string;
+  token: string;
+  createdAt: number;
+  lastDeliveryAt: number | null;
+  deliveries: number;
+}
+
+/** One background job (GET /api/jobs). */
+export interface JobItem {
+  id: string;
+  command: string;
+  label?: string;
+  botConversationId?: number | string;
+  logPath: string;
+  startedAt: number;
+  endedAt?: number;
+  exitCode?: number;
+  status: string;
+}
+
+/** GET /api/bots/:id/memory. */
+export interface BotMemory {
+  bullets: string[];
+  chars: number;
+  revisions: Array<{ rev: number; at: number; count: number }>;
+}
+
+/** One saved skill (GET /api/bots/:id/skills). */
+export interface SkillItem {
+  name: string;
+  summary: string;
 }
 
 /** One routine (GET /api/routines). Times are epoch milliseconds. */

@@ -55,8 +55,8 @@ describe("PanelHost", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("registers diff, environment and routines panels", () => {
-    expect(PANELS.map((p) => p.id)).toEqual(["diff", "environment", "routines"]);
+  it("registers diff, environment, routines and teammate panels", () => {
+    expect(PANELS.map((p) => p.id)).toEqual(["diff", "environment", "routines", "teammate"]);
   });
 });
 
