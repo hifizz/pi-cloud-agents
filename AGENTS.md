@@ -1,6 +1,6 @@
 # pi-cloud-agents — Agent Guide
 
-pi-cloud-agents 在云端常驻运行基于 Pi Durable（`@earendil-works/pi-durable`）的 Bot：每个 Bot 一条持久对话，所有 Bot 共用一个云沙箱（`TARSBOT_SANDBOX` 选择：默认且线上使用 Fly.io Sprites，名 `pi-cloud-agents`；可选 E2B，metadata name `pi-cloud-agents`，见 `docs/E2B-PLAN.md`），用户在 Web UI 上观察、审批。服务部署在 Fly Machine，经 `https://pi.zilin.im` 访问，仅白名单邮箱可登录。方案与决策见 `docs/CLOUD-PLAN.md`。
+pi-cloud-agents 在云端常驻运行基于 Pi Durable（`@earendil-works/pi-durable`）的 Bot：每个 Bot 一条持久对话，所有 Bot 共用一个云沙箱（`TARSBOT_SANDBOX` 选择：默认且线上使用 Fly.io Sprites，名 `pi-cloud-agents`；可选 E2B，metadata name `pi-cloud-agents`，见 `docs/E2B-PLAN.md`；可选 InstaBox，machine name `pi-cloud-agents` + label `app=pi-cloud-agents`，见 `docs/INSTABOX-PLAN.md`），用户在 Web UI 上观察、审批。服务部署在 Fly Machine，经 `https://pi.zilin.im` 访问，仅白名单邮箱可登录。方案与决策见 `docs/CLOUD-PLAN.md`。
 
 代码中的 `TARSBOT_*` 环境变量与 "TARSBot" 字样是历史遗留，暂不改名。
 
@@ -29,7 +29,7 @@ pi-cloud-agents 在云端常驻运行基于 Pi Durable（`@earendil-works/pi-dur
 | `src/runtime.mjs` | **唯一集成点**：`productionExtensions()` 扩展顺序（Approval 必须最后）、`productionEnv()` |
 | `src/harness.mjs` / `bots.mjs` / `models.mjs` / `config.mjs` | harness 打开、Bot 注册表（`bots.json`）、模型网关（OpenAI 兼容）、集中配置 |
 | `src/env.mjs` | `ExecutionEnv` 实现（`SandboxEnv`，只依赖沙箱原语） |
-| `src/sandbox/` | 沙箱实现：`sprites.mjs`、`e2b.mjs`；`index.mjs` 的 `loadSandbox()` 按 `config.sandbox` 选择 |
+| `src/sandbox/` | 沙箱实现：`sprites.mjs`、`e2b.mjs`、`instabox.mjs`；`index.mjs` 的 `loadSandbox()` 按 `config.sandbox` 选择 |
 | `src/auth.mjs` | 登录核心：白名单、scrypt 密码、session、Google OAuth（`node:crypto` + `node:sqlite`） |
 | `src/routes/auth.mjs` | 鉴权路由与全局守卫；其余 `src/routes/*.mjs` 为路由插件，导出 `register(app)`，**不改 `api.mjs` 本体** |
 | `src/ext/*.mjs` | pi-durable 扩展：preamble、search、history、routines、approval |
@@ -74,7 +74,7 @@ fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --
 - 所有密钥（`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET` 等）只从 `process.env` / `.env` / Fly secrets 读取；禁止打印、写日志、写入 Sprite、测试快照或截图。不要读取或回显 `.env`。
 - Sprite 内 `bash` 是完全信任边界：能执行 bash 的主体拥有 Sprite 内全部登录态。危险操作走 `src/ext/approval.mjs` 审批。
 - 不要删除 Fly Volume `/data`、本地 `data/`，不要删除 Sprite `pi-cloud-agents`。
-- 远端资源只操作 Sprite `pi-cloud-agents`、E2B 中 metadata `app=pi-cloud-agents` 的沙箱、Fly app `pi-cloud-agents` 与测试仓库 `hifizz/tars-sandbox-playground`；org 下其他 Sprite、E2B 账户里其他沙箱与 Fly app 一律不得改动。
+- 远端资源只操作 Sprite `pi-cloud-agents`、E2B 中 metadata `app=pi-cloud-agents` 的沙箱、InstaBox 中名字 `pi-cloud-agents`（或 `TARSBOT_INSTABOX_NAME` 精确值）且 label `app=pi-cloud-agents` 的 machine 与探测自建的 `pca-probe-*`（结束必须删）、Fly app `pi-cloud-agents` 与测试仓库 `hifizz/tars-sandbox-playground`；org 下其他 Sprite、E2B/InstaBox 账户里其他沙箱与 Fly app 一律不得改动。
 
 ## 验收
 

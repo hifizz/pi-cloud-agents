@@ -437,6 +437,9 @@ test("config: sandbox settings (pure function) select by TARSBOT_SANDBOX", async
   const e2b = (name) => ({ sandbox: "e2b", sandboxName: name, spriteName: undefined, home: "/home/user", spaceCwd: "/home/user/workspace" });
   assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "e2b", TARSBOT_SPRITE_NAME: "ignored" }), e2b("pi-cloud-agents"));
   assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "e2b", TARSBOT_E2B_NAME: "mine" }), e2b("mine"));
+  const ib = (name) => ({ sandbox: "instabox", sandboxName: name, spriteName: undefined, home: "/data/home", spaceCwd: "/data/home/workspace" });
+  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "instabox" }), ib("pi-cloud-agents"));
+  assert.deepEqual(sandboxSettings({ TARSBOT_SANDBOX: "instabox", TARSBOT_SPRITE_NAME: "ignored", TARSBOT_INSTABOX_NAME: "mine" }), ib("mine"));
   assert.throws(() => sandboxSettings({ TARSBOT_SANDBOX: "docker" }), /docker.*sprites, e2b/);
 });
 
@@ -463,6 +466,18 @@ test("e2b: env id is e2b:<name> and `~` resolves to /home/user", () => {
   const r = child(code, { TARSBOT_SANDBOX: "e2b" });
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(JSON.parse(r.stdout), ["e2b:pi-cloud-agents", "/home/user/workspace", "/home/user", "/home/user/n.txt"]);
+});
+
+test("instabox: env id is instabox:<name> and `~` resolves to /data/home", () => {
+  const code = `
+    const { SandboxEnv } = await import(${JSON.stringify(ENV_URL)});
+    const { config } = await import(${JSON.stringify(CONFIG_URL)});
+    const bash = async () => ({ stdout: "", stderr: "", exitCode: 0 });
+    const env = new SandboxEnv({ cwd: config.spaceCwd, bash, home: config.home });
+    console.log(JSON.stringify([env.id, config.spaceCwd, (await env.absolutePath("~")).value, (await env.absolutePath("~/n.txt")).value]));`;
+  const r = child(code, { TARSBOT_SANDBOX: "instabox" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout), ["instabox:pi-cloud-agents", "/data/home/workspace", "/data/home", "/data/home/n.txt"]);
 });
 
 test("`~` resolves to /home/sprite and ids are sprites:<name>", () => {
@@ -548,4 +563,11 @@ test("spaceEnv() under e2b needs no sprite name", () => {
   const r = child(code, { TARSBOT_SANDBOX: "e2b" });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), "e2b:pi-cloud-agents /home/user/workspace");
+});
+
+test("spaceEnv() under instabox needs no sprite name", () => {
+  const code = `const { spaceEnv } = await import(${JSON.stringify(ENV_URL)}); const e = spaceEnv()({}); console.log(e.id, e.cwd)`;
+  const r = child(code, { TARSBOT_SANDBOX: "instabox" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "instabox:pi-cloud-agents /data/home/workspace");
 });

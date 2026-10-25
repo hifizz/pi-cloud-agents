@@ -6,7 +6,7 @@ const SPRITE_WORKDIR = "/home/sprite/workspace";
 
 export function WorktreeStrip({ space, cwd }: { space?: SpaceInfo; cwd?: string }) {
   if (!space) return null;
-  const label = `${space.sandbox === "e2b" ? "E2B" : "Sprite"} ${space.name ?? "(未配置)"}`;
+  const label = `${space.sandbox === "e2b" ? "E2B" : space.sandbox === "instabox" ? "InstaBox" : "Sprite"} ${space.name ?? "(未配置)"}`;
   const dir = cwd ?? space.cwd ?? SPRITE_WORKDIR;
   return (
     <div className="mx-2.5 flex h-[34px] items-center justify-between gap-3 rounded-b-[10px] border border-t-0 border-[#222] bg-[#101010] px-3 text-[11.5px] text-fg-faint">

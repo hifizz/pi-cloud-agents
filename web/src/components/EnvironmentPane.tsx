@@ -27,7 +27,7 @@ export function EnvironmentPane({ space, failed = false, bot, vm }: EnvironmentP
     >
       <dt className="text-xs text-fg-muted">执行环境</dt>
       <dd className="min-w-0 text-fg">
-        {space.sandbox === "e2b" ? "E2B" : "Sprite"} <code className={code}>{space.name ?? "(未配置)"}</code>
+        {space.sandbox === "e2b" ? "E2B" : space.sandbox === "instabox" ? "InstaBox" : "Sprite"} <code className={code}>{space.name ?? "(未配置)"}</code>
       </dd>
       <dt className="text-xs text-fg-muted">工作目录</dt>
       <dd className="min-w-0 break-all">
