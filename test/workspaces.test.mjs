@@ -870,6 +870,30 @@ test("kill after createBot, before the link: restart adopts the orphan Bot (no s
   }
 });
 
+test("orphan Bot lookup uses the workspace marker, not instruction text: an unlinked look-alike Bot is never adopted", async () => {
+  await withWorld(async (w) => {
+    const a = w.boot();
+    const reached = w.arm("bots.afterCreate");
+    const created = await a.svc.create(input(1));
+    await reached; // the service's Bot exists, but is not linked yet
+    const own = w.bots.list().find((b) => b.workspaceId === created.id);
+    assert.ok(own, "the Bot made by the service carries the workspace id");
+    // an unrelated, unlinked Bot with exactly the same instruction text and no marker (a fork copies instructions)
+    const lookalike = await w.bots.createBot({ name: "lookalike", model: FAUX, instructions: own.instructions });
+    assert.ok(!lookalike.workspaceId);
+    a.crash();
+    const b = w.boot();
+    await b.svc.resumePending({ wait: true });
+    assert.equal(b.store.workspaces.get(created.id).status, "ready");
+    assert.equal(b.store.links.conversationsOf(created.id).length, 1, "exactly one conversation");
+    const link = b.store.links.conversationsOf(created.id)[0];
+    assert.equal(link.botId, own.id, "adopted its own Bot");
+    assert.equal(b.store.links.workspaceOf(String(lookalike.conversationId)), undefined, "the look-alike stays unlinked");
+    assert.equal(w.createBotCalls.length, 2, "service createBot once + the look-alike made by the test; no third");
+    b.store.close();
+  });
+});
+
 test("agent step: linked conversation = done (no inference from messages); duplicate Bot name gets a suffix", async () => {
   await withWorld(async (w) => {
     await w.bots.createBot({ name: "same", model: FAUX });

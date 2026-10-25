@@ -361,9 +361,10 @@ export function createWorkspaceService({
   async function stepAgent(ws) {
     if (store.links.conversationsOf(ws.id).length > 0) return; // already done: do not infer from message history
     const instructions = workspaceInstructions(ws);
-    // a Bot created by an interrupted earlier pass (created, not yet linked) carries the same unique instructions
-    let bot = bots.list().find((b) => b.instructions === instructions && !store.links.workspaceOf(String(b.conversationId)));
-    if (!bot) bot = await bots.createBot({ name: freeBotName(ws), model: ws.model, cwd: ws.cwd, instructions });
+    // a Bot created by an interrupted earlier pass (created, not yet linked) carries this workspace's id; matching on
+    // instruction text would also adopt an unrelated Bot that happens to have the same text (a fork copies it)
+    let bot = bots.list().find((b) => b.workspaceId === ws.id && !store.links.workspaceOf(String(b.conversationId)));
+    if (!bot) bot = await bots.createBot({ name: freeBotName(ws), model: ws.model, cwd: ws.cwd, instructions, workspaceId: ws.id });
     // Pi Durable conversation ids are numbers; the control store keys them as text
     store.links.link({ conversationId: String(bot.conversationId), workspaceId: ws.id, botId: bot.id });
   }
