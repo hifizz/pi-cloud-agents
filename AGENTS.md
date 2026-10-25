@@ -33,10 +33,11 @@ pi-cloud-agents 在云端常驻运行基于 Pi Durable（`@earendil-works/pi-dur
 | `src/env.mjs` | `ExecutionEnv` 实现（`SandboxEnv`，只依赖传入的 `bash` 原语） |
 | `src/workspace-env.mjs` | 会话 → 工作区 → 绑定 → provider.bash → `SandboxEnv` 的 env 工厂 |
 | `src/control/` | 控制库（`control.sqlite`）：项目、工作区、步骤、绑定、会话关联、意图日志、检查点 |
-| `src/providers/` | 运行环境供应商（`sprites.mjs`：每个工作区一台 Sprite，确定性命名、`isManaged` 守卫） |
+| `src/providers/` | 运行环境供应商（`sprites.mjs`：每个工作区一台 Sprite；`instabox.mjs`：每个工作区一台 InstaBox 机器，`TARSBOT_PROVIDER` 选择，见 `docs/INSTABOX-PLAN.md`） |
 | `src/runner/` | Sprite 内的 runner（`runner.sh`）与 Node 客户端（`client.mjs`） |
 | `src/workspaces.mjs` / `workspace-rebuild.mjs` / `checkpoint.mjs` / `github.mjs` | 工作区服务、重建、手动检查点、GitHub 薄封装 |
 | `src/sandbox/sprites.mjs` | Sprites exec 原语（`createSpritesBash`、`redactMessage`），由供应商使用 |
+| `src/sandbox/instabox.mjs` | InstaBox REST exec 原语（`createInstaboxBash`、`instaboxApi`、`waitOperation`），由供应商使用 |
 | `src/auth.mjs` | 登录核心：白名单、scrypt 密码、session、Google OAuth（`node:crypto` + `node:sqlite`） |
 | `src/routes/auth.mjs` | 鉴权路由与全局守卫；其余 `src/routes/*.mjs` 为路由插件，导出 `register(app)`，**不改 `api.mjs` 本体** |
 | `src/ext/*.mjs` | pi-durable 扩展：preamble、search、history、routines、approval |
@@ -67,7 +68,7 @@ fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --
 
 - 新功能以扩展（`src/ext/`）或路由插件（`src/routes/`）的形式加入，在 `src/runtime.mjs` 集成；不要把逻辑散落到 `server.mjs` / `api.mjs`。
 - 对 pi-durable 的依赖收敛在 `env.mjs`、`ext/`、`server.mjs` 三处，方便 API 变动时迁移。
-- 运行环境供应商（`src/providers/<name>.mjs`）提供 `ensure` / `init` / `bash` / `status` / `list` / `release`；任何创建、删除路径都必须先过 `provider.isManaged()`；文件与 exec 逻辑留在 `env.mjs`。
+- 运行环境供应商（`src/providers/<name>.mjs`）提供 `ensure` / `init` / `bash` / `status` / `list` / `release`；任何创建、删除路径都必须先过 `provider.isManaged()`；文件与 exec 逻辑留在 `env.mjs`。新工作区用哪个供应商由 `TARSBOT_PROVIDER`（默认 `sprites`）决定；InstaBox 供应商需 `INSTABOX_API_KEY`，且 free plan 一个 org 最多 5 台机器。
 - 离线测试模板：`test/harness.test.mjs`（`fauxProvider` + `MemoryStorage`），新测试不要依赖真实模型或真实 Sprite。
 - 存储只允许一个写进程：Fly 只跑 1 台 Machine；测试用临时 `TARSBOT_DATA_DIR`。
 

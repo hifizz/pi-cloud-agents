@@ -26,7 +26,7 @@ Bot 记录（bots.json）：`{ id, name, conversationId, model:{provider,modelId
 
 ## 2. 沙箱原语契约
 
-沙箱原语是一个函数：`bash(command, {timeoutMs}) -> Promise<{stdout, stderr, exitCode, timedOut}>`（`/bin/sh -c` 语义，非流式）。`src/sandbox/sprites.mjs` 导出实现（`createSpritesBash`、`redactMessage`，Sprites WSS exec）；`src/providers/sprites.mjs` 按 runtime（每个工作区一台 Sprite）提供它（`provider.bash(runtimeId)`）。
+沙箱原语是一个函数：`bash(command, {timeoutMs}) -> Promise<{stdout, stderr, exitCode, timedOut}>`（`/bin/sh -c` 语义，非流式）。`src/sandbox/sprites.mjs` 导出 Sprites 实现（`createSpritesBash`、`redactMessage`，WSS exec）；`src/sandbox/instabox.mjs` 导出 InstaBox 实现（`createInstaboxBash`、`instaboxApi`、`waitOperation`，REST exec、停机自动唤醒，见 `docs/INSTABOX-PLAN.md`）。供应商按 runtime（每个工作区一台机器）提供它：`provider.bash(runtimeId)`。
 
 `src/env.mjs` 的 `SandboxEnv`（`ExecutionEnv` 实现）只依赖传入的 `bash` 原语（必填，没有全局默认沙箱），文件读写、编辑等均经 `bash` 完成。哪个会话用哪台 Sprite 由 `src/workspace-env.mjs` 决定（§7）。
 
@@ -78,6 +78,7 @@ Bot 记录（bots.json）：`{ id, name, conversationId, model:{provider,modelId
 - **控制库** `src/control/store.mjs`：`openControlStore({path, now?})`，单写者同步事务；表 projects / workspaces / workspace_steps / runtime_bindings / conversation_links / intents / requests / executions / checkpoints / meta。会话 id 在控制库里一律是**字符串**（Pi Durable 的会话 id 是数字，调用处 `String()`）。`meta.ensure("namespace" | "generation")` 在启动时写入，`runId = sha256(namespace:generation:taskId)` 前 24 位。
 - **GitHub** `src/github.mjs`：`createGithubClient({token?, fetch?, apiBase?})`，`ensurePull(..., {intents, requestId})` 超时后核对再决定；`GithubError.code` = not_found / unauthorized / rate_limited / conflict / unknown；token 不进任何错误与返回值。
 - **供应商** `src/providers/sprites.mjs`：`createSpritesProvider({client, ghToken?, gitEmail?, log?, cpus?, ramMB?, legacyNames?})`；`runtimeName(requestId)` = `pca-<10 hex>`；`isManaged(name, labels?)` 要求前缀 `pca-` 且标签 `app:pi-cloud-agents`，旧共享 Sprite 永不受管；`ensure` 只在确切 404 后创建；`release` 只给受管 Sprite，M1 不对 UI 开放。
+- **供应商** `src/providers/instabox.mjs`：`createInstaboxProvider({apiKey, baseUrl?, ghToken?, gitEmail?, templateId?, log?})`，同一接口；机器命名/受管规则同 Sprites（`pca-` + metadata `app=pi-cloud-agents`，`kind: "instabox"`、`home: "/data/home"`）。默认供应商由 `TARSBOT_PROVIDER`（默认 `sprites`）选择；`INSTABOX_API_KEY` 未配置时不注册。共享的 gh/git 初始化步骤在 `sprites-init.mjs` 的 `initCommon`（InstaBox 无网络策略步骤）。
 - **runner** `src/runner/runner.sh` + `client.mjs`：`createRunnerClient({bash, runnerPath?, home?})` → `install / prepare({id,cwd,command}) / start(id) / wait({id,from,maxSeconds}) / status(id) / kill(id)`。`prepare` 另需命令的 sha256（客户端自动给），`start` 先 `mkdir starting` 做至多一次闩锁；崩溃在闩锁与进程身份之间 → `claimed` 且 `launched=1`，视为「结果待确认」。`wait` 返回 `{state, exit, offset, size, bytes, text, done}`（单次最多 32 KiB），状态 `running | exited | lost | claimed | missing`，后三者**不得自动重启**。M1 不向 runner 传环境变量（Sprites 原语不声明 `supportsEnv`，`GH_TOKEN` 已在 provider.bash 的 exec 环境里并被子进程继承）。
 - **执行工具** `src/ext/exec.mjs`：扩展 `Exec`（`tarsbot.exec`），装在 `CodingTools` 之后覆盖内置 `bash`，`replay: "safe"`；`setExecResolver(({conversationId}) => ({store, runner, workspace, binding}) | undefined)`；memo 固定首次的 binding，重放时与 `store.bindings.current` 比较，不一致 → 「结果待确认」，不 prepare / start；解析不到工作区 → 明确报错，不回退 `api.env.exec`。
 - **环境路由** `src/workspace-env.mjs`：`createWorkspaceEnv({store, providers}) -> ({conversationId, cwd}) => SandboxEnv`，未就绪一律抛带原因的错误。

@@ -1,7 +1,7 @@
-// Idempotent per-Sprite initialisation (gh, git identity + credential helper, network policy).
-// Rewritten from scratch/sprite-setup.mjs for per-workspace Sprites (docs/M1-PLAN.md §4.3). The GitHub token is only
-// ever passed through the exec env (GH_TOKEN) by the caller's bash primitive; it never lands on the Sprite's disk or
-// in git config. No npm self-check, no checkpoint.
+// Idempotent per-runtime initialisation. `initCommon` (gh, git identity + credential helper) runs on any provider's
+// bash primitive; `initSprite` adds the Sprite-only network policy step. Rewritten from scratch/sprite-setup.mjs for
+// per-workspace Sprites (docs/M1-PLAN.md §4.3). The GitHub token is only ever passed through the exec env (GH_TOKEN)
+// by the caller's bash primitive; it never lands on the machine's disk or in git config. No npm self-check.
 
 export const CRED_HELPER = '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f';
 
@@ -34,15 +34,26 @@ rm -rf /tmp/gh-install
 "$HOME/.local/bin/gh" --version | head -1`;
 
 /**
+ * Provider-agnostic init steps (gh, git identity + credential helper) over any provider's bash primitive.
  * @param {object} o
  * @param {(cmd: string, opts?: {timeoutMs?: number}) => Promise<{stdout: string, stderr: string, exitCode?: number, timedOut?: boolean}>} o.bash
- * @param {{getNetworkPolicy(): Promise<{rules: object[]}>, updateNetworkPolicy(p: {rules: object[]}): Promise<void>}} o.sprite
  * @param {string} [o.gitEmail]
  * @param {string} [o.gitName]
  * @param {boolean} [o.credentialHelper] set the credential helper (only useful when a token is configured)
+ * @param {string} [o.ghProbe] probe command that exits 0 when gh is already installed (providers pass their own paths)
+ * @param {(s: string) => string} [o.redact]
+ * @param {string} [o.what] label for error messages (e.g. "sprite init")
  * @returns {Promise<{steps: {step: string, state: "done"|"skipped", detail?: string}[]}>} throws on the first failing step
  */
-export async function initSprite({ bash, sprite, gitEmail, gitName = "TARSBot", credentialHelper = true, redact = (s) => s }) {
+export async function initCommon({
+  bash,
+  gitEmail,
+  gitName = "TARSBot",
+  credentialHelper = true,
+  ghProbe = "command -v gh >/dev/null 2>&1 || test -x /.sprite/bin/gh || test -x \"$HOME/.local/bin/gh\"",
+  redact = (s) => s,
+  what = "init",
+} = {}) {
   const steps = [];
   const sh = async (script, timeoutMs = 120_000) => {
     const r = await bash(script, { timeoutMs });
@@ -50,11 +61,11 @@ export async function initSprite({ bash, sprite, gitEmail, gitName = "TARSBot", 
   };
   const fail = (step, r) => {
     const why = r.timedOut ? "timed out" : `exit ${r.code}: ${(r.err || r.out).trim().split("\n").slice(-3).join(" | ")}`;
-    throw new Error(redact(`sprite init step "${step}" failed: ${why}`));
+    throw new Error(redact(`${what} step "${step}" failed: ${why}`));
   };
 
-  // 1. gh: new instances already ship it (/.sprite/bin); probe before installing.
-  const have = await sh("command -v gh >/dev/null 2>&1 || test -x /.sprite/bin/gh || test -x \"$HOME/.local/bin/gh\"");
+  // 1. gh: Sprites already ship it (/.sprite/bin); probe before installing.
+  const have = await sh(ghProbe);
   if (have.ok) steps.push({ step: "gh", state: "skipped", detail: "already installed" });
   else {
     const r = await sh(GH_INSTALL, 300_000);
@@ -76,6 +87,21 @@ export async function initSprite({ bash, sprite, gitEmail, gitName = "TARSBot", 
     changed.push(key);
   }
   steps.push({ step: "git", state: changed.length ? "done" : "skipped", detail: changed.length ? `updated ${changed.join(", ")}` : "already set" });
+  return { steps };
+}
+
+/**
+ * Per-Sprite initialisation: initCommon plus the network policy step.
+ * @param {object} o
+ * @param {(cmd: string, opts?: {timeoutMs?: number}) => Promise<{stdout: string, stderr: string, exitCode?: number, timedOut?: boolean}>} o.bash
+ * @param {{getNetworkPolicy(): Promise<{rules: object[]}>, updateNetworkPolicy(p: {rules: object[]}): Promise<void>}} o.sprite
+ * @param {string} [o.gitEmail]
+ * @param {string} [o.gitName]
+ * @param {boolean} [o.credentialHelper] set the credential helper (only useful when a token is configured)
+ * @returns {Promise<{steps: {step: string, state: "done"|"skipped", detail?: string}[]}>} throws on the first failing step
+ */
+export async function initSprite({ bash, sprite, gitEmail, gitName = "TARSBot", credentialHelper = true, redact = (s) => s }) {
+  const { steps } = await initCommon({ bash, gitEmail, gitName, credentialHelper, redact, what: "sprite init" });
 
   // 3. network policy
   const current = await sprite.getNetworkPolicy();

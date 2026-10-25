@@ -17,6 +17,7 @@ import { createApi } from "./api.mjs";
 import { openControlStore } from "./control/store.mjs";
 import { createGithubClient } from "./github.mjs";
 import { createSpritesProvider } from "./providers/sprites.mjs";
+import { createInstaboxProvider } from "./providers/instabox.mjs";
 import { createCheckpointService } from "./checkpoint.mjs";
 import { createWorkspaceService } from "./workspaces.mjs";
 import { rebuildWorkspace, register as registerRebuildRoute } from "./workspace-rebuild.mjs";
@@ -94,15 +95,29 @@ export async function assemble({
         gitEmail: process.env.TARSBOT_GIT_EMAIL || undefined,
         log: process.env.TARSBOT_SPRITES_LOG ? (e) => console.error(`[sprites] ${JSON.stringify(e)}`) : undefined,
       }),
+      // InstaBox machines are opt-in: registered only when a key is configured; TARSBOT_PROVIDER=instabox makes them
+      // the default for new workspaces (docs/INSTABOX-PLAN.md §"M1 适配").
+      ...(process.env.INSTABOX_API_KEY
+        ? {
+            instabox: createInstaboxProvider({
+              apiKey: process.env.INSTABOX_API_KEY,
+              baseUrl: process.env.INSTABOX_BASE_URL || undefined,
+              templateId: process.env.TARSBOT_INSTABOX_TEMPLATE_ID || undefined,
+              ghToken: process.env.GITHUB_TOKEN || undefined,
+              gitEmail: process.env.TARSBOT_GIT_EMAIL || undefined,
+              log: process.env.TARSBOT_INSTABOX_LOG ? (e) => console.error(`[instabox] ${JSON.stringify(e)}`) : undefined,
+            }),
+          }
+        : {}),
     };
   }
-  const redactList = [...secrets, process.env.GITHUB_TOKEN, process.env.SPRITES_TOKEN].filter(Boolean);
+  const redactList = [...secrets, process.env.GITHUB_TOKEN, process.env.SPRITES_TOKEN, process.env.INSTABOX_API_KEY].filter(Boolean);
   const checkpoints = createCheckpointService({ store, dir: checkpointDir });
 
   // runner clients: one per runtime, created on demand. A runtime that is no longer the active binding of its workspace
   // (replaced by a rebuild) is dropped from the cache so a long-running server does not keep every Sprite it ever used.
   const runners = createRunnerCache({ runnerFor: givenRunnerFor, createClient: createRunnerClient });
-  const runnerFor = (runtimeId) => runners.getSync(runtimeId, providers.sprites); // synchronous: the Exec resolver cannot await
+  const runnerFor = (runtimeId, provider) => runners.getSync(runtimeId, provider ?? providers.sprites); // synchronous: the Exec resolver cannot await
   const releaseRunner = (runtimeId) => runners.forget(runtimeId);
 
   // 3. harness, not scheduled yet
@@ -119,7 +134,7 @@ export async function assemble({
     if (!binding) return undefined;
     const provider = Object.hasOwn(providers, binding.provider) ? providers[binding.provider] : undefined;
     if (!provider) return undefined;
-    return { store, runner: runnerFor(binding.runtimeId), workspace, binding };
+    return { store, runner: runnerFor(binding.runtimeId, provider), workspace, binding };
   });
 
   const workspaces = createWorkspaceService({ store, github, providers, bots, ctx, runnerFor, secrets: redactList, ...serviceOptions });
