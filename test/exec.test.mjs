@@ -1018,6 +1018,34 @@ if (CHILD) {
       assert.ok(!("env" in runner.calls[0][1]));
     });
 
+    it("replay of a call that already pinned its intent: an unresolvable world is 结果待确认, not a hard failure; a first call still fails hard", async () => {
+      const d = directWorld(sb);
+      const pinned = {
+        runId: d.runIdOf(23),
+        workspaceId: d.workspace.id,
+        runtimeId: "rt-1",
+        bindingVersion: 1,
+        cwd: sb.work,
+        commandHash: commandHash("echo hi", sb.work),
+      };
+      for (const [label, opts] of [
+        ["no resolver", { resolve: () => undefined }],
+        ["no runner / binding", { resolve: () => ({ store: d.store, workspace: d.workspace, runner: undefined, binding: undefined }) }],
+      ]) {
+        const runner = fakeRunner();
+        const memos = new Map([["exec", pinned]]);
+        const { result, error } = await callDirect(d, { command: "echo hi", taskId: 23, runner, memos, execOptions: opts });
+        assert.ifError(error);
+        assert.ok(isUnconfirmed(result), `${label}: ${JSON.stringify(result)}`);
+        assert.equal(result.details.runId, pinned.runId);
+        assert.equal(runner.ops().length, 0, `${label}: the runner was not touched`);
+      }
+      // nothing pinned yet: the command definitely did not start, so a clear error is right
+      const fresh = await callDirect(d, { command: "echo hi", taskId: 24, runner: fakeRunner(), execOptions: { resolve: () => undefined } });
+      assert.ok(fresh.error, "first call with no workspace throws");
+      assert.match(String(fresh.error.message), /没有关联工作区/);
+    });
+
     it("binding changed since the intent was pinned (rebuild): result unconfirmed, no runner call at all", async () => {
       const d = directWorld(sb);
       const memos = new Map();

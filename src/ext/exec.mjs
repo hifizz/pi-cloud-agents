@@ -120,21 +120,39 @@ export function createExec(opts = {}) {
       const clock = opts.now ?? (() => api.now());
 
       // ---- 1. resolve (no fallback to api.env.exec, ever) ------------------------------------------------------------
+      // A replay of a call that already pinned its intent must never end as a hard failure just because the world is
+      // briefly unresolvable now (resolver installed a moment late, binding missing during a rebuild): the command may
+      // have started, so the honest answer is "result unconfirmed". The read-only memo lookup tells the two cases apart.
       const conversationId = String(api.conversationId);
+      const earlier = await api.memo(EXEC_MEMO, context);
+      const cannotRun = (reason) => {
+        if (earlier !== undefined) {
+          return {
+            isError: true,
+            details: { runId: earlier.runId, state: "claimed", exit: null, offset: 0 },
+            diagnostics: [
+              {
+                severity: "error",
+                code: "result_unconfirmed",
+                message: `结果待确认：${reason}。命令可能已经执行（或仍在运行），不会自动重新运行。请先检查实际状态再决定下一步。 (result unconfirmed: the command may have run; verify before retrying)`,
+              },
+            ],
+          };
+        }
+        throw new Error(`bash 不可用：${reason}。不会回退到本地环境。`);
+      };
       if (!currentResolver && !opts.resolve && !(opts.store && opts.runnerFor)) {
-        throw new Error("bash 不可用：执行解析器尚未设置（Exec resolver not installed）。不会回退到本地环境。");
+        return cannotRun("执行解析器尚未设置（Exec resolver not installed）");
       }
       const resolved = await resolve({ conversationId });
-      if (!resolved) {
-        throw new Error(`bash 不可用：会话 ${conversationId} 没有关联工作区（no workspace for this conversation）。不会回退到本地环境。`);
-      }
+      if (!resolved) return cannotRun(`会话 ${conversationId} 没有关联工作区（no workspace for this conversation）`);
       const { store, runner, workspace, binding } = resolved;
       if (!store || !workspace || !runner || !binding) {
-        throw new Error(`bash 不可用：工作区 ${workspace?.id ?? "(未知)"} 没有可用的运行环境绑定（no active runtime binding）。`);
+        return cannotRun(`工作区 ${workspace?.id ?? "(未知)"} 没有可用的运行环境绑定（no active runtime binding）`);
       }
       const agent = await api.agent(context);
       const cwd = agent.cwd ?? workspace.cwd;
-      if (typeof cwd !== "string" || !cwd.startsWith("/")) throw new Error(`bash 不可用：工作目录无效（${String(cwd)}）。`);
+      if (typeof cwd !== "string" || !cwd.startsWith("/")) return cannotRun(`工作目录无效（${String(cwd)}）`);
 
       // ---- 2. pin the intent ----------------------------------------------------------------------------------------
       const namespace = store.meta.get("namespace");
