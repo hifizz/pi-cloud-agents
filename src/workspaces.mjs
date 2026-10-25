@@ -77,6 +77,7 @@ export function createWorkspaceService({
   runnerFor,
   now = Date.now,
   home,
+  providerKind = process.env.TARSBOT_PROVIDER ?? "sprites",
   cloneUrl = (repo) => `https://github.com/${repo}.git`,
   defaultModel: modelDefault = configDefaultModel,
   secrets = [],
@@ -102,7 +103,10 @@ export function createWorkspaceService({
   // ---- redaction ----------------------------------------------------------------------------------------------------
   const sanitize = makeSanitizer(secrets);
 
-  const homeDir = () => home ?? providers.sprites?.home ?? "/home/sprite";
+  // Which provider hosts NEW workspaces (TARSBOT_PROVIDER; sprites is the default). Rebuilds and re-prepares follow
+  // the binding recorded per workspace, so this only picks the host for first preparation.
+  const defaultProvider = providers[providerKind] ?? providers.sprites;
+  const homeDir = () => home ?? defaultProvider?.home ?? "/home/sprite";
 
   // ---- helpers ------------------------------------------------------------------------------------------------------
   function bindingOf(ws) {
@@ -130,8 +134,8 @@ export function createWorkspaceService({
 
   // ---- steps --------------------------------------------------------------------------------------------------------
   async function stepRuntime(ws) {
-    const provider = providers.sprites;
-    if (!provider) throw definite("供应商 sprites 未配置");
+    const provider = defaultProvider;
+    if (!provider) throw definite(`供应商 ${providerKind} 未配置`);
     const rid = `ws:${ws.id}:sprites.create`;
     const name = provider.runtimeName(ws.requestId);
     const { intent } = store.intents.begin({ requestId: rid, kind: "sprites.create", target: name, workspaceId: ws.id });
@@ -174,7 +178,8 @@ export function createWorkspaceService({
       store.workspaces.update(ws.id, { baseCommit });
     }
     const command = codeScript({ url: cloneUrl(ws.repo), dir: ws.cwd, branch: ws.branch, commit: baseCommit });
-    await runCommand({ ws, runtimeId: binding.runtimeId, provider, step: "code", cwd: homeDir(), command });
+    // cd into the HOME of THIS workspace's provider (a re-prepare may run on a non-default provider)
+    await runCommand({ ws, runtimeId: binding.runtimeId, provider, step: "code", cwd: provider?.home ?? homeDir(), command });
   }
 
   async function stepDeps(ws) {

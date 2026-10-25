@@ -40,7 +40,7 @@ function cleanScript({ dir, commit }) {
  * @param {any} deps.svc    workspace service (svc.get)
  * @param {any} deps.store  control store
  * @param {any} [deps.github] unused today (the base commit comes from the checkpoint); kept for the contract
- * @param {Record<string, any>} deps.providers  `providers.sprites` hosts rebuilt workspaces
+ * @param {Record<string, any>} deps.providers  the default provider (deps.providerKind, sprites by default) hosts rebuilt workspaces
  * @param {any} deps.cps    checkpoint service (verify, apply)
  * @param {(runtimeId: string) => any} [deps.runnerFor] runner client factory (default: createRunnerClient over provider.bash)
  * @param {string} [deps.home] Sprite home (default provider.home or /home/sprite)
@@ -49,7 +49,17 @@ function cleanScript({ dir, commit }) {
  * @param {(entry: object) => void} [deps.log]
  */
 export function createRebuilder(deps) {
-  const { svc, store, providers, cps, runnerFor, cloneUrl = (repo) => `https://github.com/${repo}.git`, secrets = [], log = () => {} } = deps ?? {};
+  const {
+    svc,
+    store,
+    providers,
+    providerKind = process.env.TARSBOT_PROVIDER ?? "sprites",
+    cps,
+    runnerFor,
+    cloneUrl = (repo) => `https://github.com/${repo}.git`,
+    secrets = [],
+    log = () => {},
+  } = deps ?? {};
   const {
     now = Date.now,
     stepTimeoutMs = 30 * 60_000,
@@ -121,8 +131,8 @@ export function createRebuilder(deps) {
     const nextVersion = Math.max(0, ...history.map((b) => b.version)) + 1;
 
     const rid = requestId ?? `${ws.id}:rebuild:${nextVersion}`;
-    const provider = providers.sprites;
-    if (!provider) throw new RebuildError("conflict", "供应商 sprites 未配置");
+    const provider = providers[providerKind] ?? providers.sprites;
+    if (!provider) throw new RebuildError("conflict", `供应商 ${providerKind} 未配置`);
     const baseCommit = checkpoint.baseCommit ?? ws.baseCommit;
     if (!baseCommit) throw new RebuildError("invalid", "检查点和工作区都没有记录基准提交，无法重建");
 
