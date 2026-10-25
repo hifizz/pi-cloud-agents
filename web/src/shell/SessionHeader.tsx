@@ -37,7 +37,7 @@ export function SessionHeader({ bot, vm, status, space, railOpen, panelOpen, onE
         {bot && space && (
           <>
             <span className="flex size-5 shrink-0 items-center justify-center rounded bg-brand text-[9px] font-bold text-white" aria-hidden="true">
-              {space.sandbox === "e2b" ? "E2" : "SP"}
+              {space.sandbox === "e2b" ? "E2" : space.sandbox === "instabox" ? "IB" : "SP"}
             </span>
             <span className="min-w-0 max-w-40 shrink truncate text-fg-muted">{space.name ?? "sandbox"}</span>
             <span className="text-fg-faint" aria-hidden="true">

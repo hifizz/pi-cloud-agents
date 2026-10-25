@@ -31,7 +31,7 @@ Bot 记录（bots.json）：`{ id, name, conversationId, model:{provider,modelId
 - `bash(command, {timeoutMs}) -> Promise<{stdout, stderr, exitCode, timedOut}>`
 - `info() -> {sandbox, name}`
 
-`src/env.mjs` 的 `SandboxEnv`（`ExecutionEnv` 实现）只依赖这两个原语，文件读写、编辑等均经 `bash` 完成。现有实现：`sprites.mjs`（Fly.io Sprites，WSS exec，工作目录 `/home/sprite/workspace`）、`e2b.mjs`（E2B，暂停即持久化，工作目录 `/home/user/workspace`，见 `docs/E2B-PLAN.md`）。`src/sandbox/index.mjs` 的 `loadSandbox(kind = config.sandbox)` 按 `TARSBOT_SANDBOX`（`sprites` 默认 / `e2b`，其他值启动即抛错）懒加载实现；`config` 提供 `sandbox`、`sandboxName`、`home`、`spaceCwd`，env id 为 `<sandbox>:<sandboxName>`。`GET /api/space` 返回 `{sandbox, name, cwd}`。新增沙箱：新增满足该接口的文件，并在 `config.sandboxSettings` 与 `SANDBOXES` 中登记。
+`src/env.mjs` 的 `SandboxEnv`（`ExecutionEnv` 实现）只依赖这两个原语，文件读写、编辑等均经 `bash` 完成。现有实现：`sprites.mjs`（Fly.io Sprites，WSS exec，工作目录 `/home/sprite/workspace`）、`e2b.mjs`（E2B，暂停即持久化，工作目录 `/home/user/workspace`，见 `docs/E2B-PLAN.md`）、`instabox.mjs`（InstaBox，REST exec，`/data` 持久 + autoSuspend，工作目录 `/data/home/workspace`，见 `docs/INSTABOX-PLAN.md`）。`src/sandbox/index.mjs` 的 `loadSandbox(kind = config.sandbox)` 按 `TARSBOT_SANDBOX`（`sprites` 默认 / `e2b` / `instabox`，其他值启动即抛错）懒加载实现；`config` 提供 `sandbox`、`sandboxName`、`home`、`spaceCwd`，env id 为 `<sandbox>:<sandboxName>`。`GET /api/space` 返回 `{sandbox, name, cwd}`。新增沙箱：新增满足该接口的文件，并在 `config.sandboxSettings` 与 `SANDBOXES` 中登记。
 
 ## 3. pi-durable 关键契约（1.4.0）
 

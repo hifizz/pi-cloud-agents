@@ -2,7 +2,9 @@
 // `bash(command, {timeoutMs})` and `info()` (see docs/CONTRACTS.md).
 import { config } from "../config.mjs";
 
-export const SANDBOXES = ["sprites", "e2b"];
+export const SANDBOXES = ["sprites", "e2b", "instabox"];
+
+const FILES = { sprites: "./sprites.mjs", e2b: "./e2b.mjs", instabox: "./instabox.mjs" };
 
 const cache = new Map();
 
@@ -13,7 +15,7 @@ export async function loadSandbox(kind = config.sandbox) {
   }
   let p = cache.get(kind);
   if (!p) {
-    p = (kind === "e2b" ? import("./e2b.mjs") : import("./sprites.mjs")).then(({ bash, info }) => ({ bash, info }));
+    p = import(FILES[kind]).then(({ bash, info }) => ({ bash, info }));
     p.catch(() => cache.delete(kind));
     cache.set(kind, p);
   }
