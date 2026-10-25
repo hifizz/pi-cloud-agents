@@ -401,7 +401,17 @@ const REBUILDERS = new WeakMap();
 const STATUS = { not_found: 404, conflict: 409, invalid: 400, integrity: 409, uncertain: 502, failed: 500 };
 
 /** Safe summary of a binding for API responses (no secrets exist in a binding; ids are Sprite names). */
-const bindingView = (b) => ({ id: b.id, workspaceId: b.workspaceId, provider: b.provider, runtimeId: b.runtimeId, version: b.version, state: b.state, createdAt: b.createdAt });
+const bindingView = (b, replaced) => ({
+  id: b.id,
+  workspaceId: b.workspaceId,
+  provider: b.provider,
+  runtimeId: b.runtimeId,
+  version: b.version,
+  state: b.state,
+  createdAt: b.createdAt,
+  // The previous environment is kept (M1 never releases it); its name is how newer work can still be recovered.
+  ...(replaced ? { replaced: { runtimeId: replaced.runtimeId, version: replaced.version } } : {}),
+});
 
 /**
  * POST /api/workspaces/:id/rebuild  body {checkpointId, requestId?} -> the new binding.
@@ -409,7 +419,7 @@ const bindingView = (b) => ({ id: b.id, workspaceId: b.workspaceId, provider: b.
  * (M1-13 builds it with `(args) => rebuildWorkspace({ svc, store, github, providers, cps, ... }, args)`).
  */
 export function register(app) {
-  const { rebuild } = app.ctx ?? {};
+  const { rebuild, control } = app.ctx ?? {};
   if (typeof rebuild !== "function") return;
 
   app.post("/api/workspaces/:id/rebuild", async (_req, _res, { params, body }) => {
@@ -422,7 +432,8 @@ export function register(app) {
         checkpointId: body.checkpointId.trim(),
         ...(body.requestId ? { requestId: body.requestId.trim() } : {}),
       });
-      return bindingView(binding);
+      const previous = control?.bindings?.history?.(params.id)?.filter((x) => x.version < binding.version).pop();
+      return bindingView(binding, previous);
     } catch (e) {
       if (e instanceof HttpError) throw e;
       if (e instanceof RebuildError) throw new HttpError(STATUS[e.code] ?? 500, e.message);

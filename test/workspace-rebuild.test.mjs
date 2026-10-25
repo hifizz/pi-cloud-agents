@@ -719,14 +719,16 @@ if (!CHILD) {
   test("routes + real rebuild: success returns the new binding; a foreign checkpoint is a 404 and creates nothing", async () => {
     const w = await setup({ dirtyWork: false });
     const routes = {};
-    register({ ctx: { rebuild: (a) => rebuildWorkspace(w.deps(), a) }, get() {}, post: (p, h) => (routes[p] = h) });
+    register({ ctx: { rebuild: (a) => rebuildWorkspace(w.deps(), a), control: w.store }, get() {}, post: (p, h) => (routes[p] = h) });
     const post = routes["/api/workspaces/:id/rebuild"];
     await assert.rejects(post({}, {}, { params: { id: w.ws.id }, body: { checkpointId: "cp_other" } }), (e) => e.status === 404);
     assert.equal(w.provider.ensures, 0);
+    const oldRuntime = w.store.bindings.current(w.ws.id).runtimeId;
     const out = await post({}, {}, { params: { id: w.ws.id }, body: { checkpointId: w.checkpoint.id, requestId: "route-1" } });
     assert.equal(out.version, 2);
     assert.equal(out.state, "active");
     assert.equal(out.runtimeId, w.store.bindings.current(w.ws.id).runtimeId);
+    assert.deepEqual(out.replaced, { runtimeId: oldRuntime, version: 1 }, "the response names the kept old environment, where newer work still lives");
     assert.ok(!JSON.stringify(out).includes(tmpdir()));
   });
 

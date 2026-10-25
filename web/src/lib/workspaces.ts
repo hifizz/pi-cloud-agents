@@ -89,6 +89,8 @@ export interface RebuildResult {
   version?: number;
   provider?: string;
   runtimeId?: string;
+  /** The environment that was replaced (kept, never released in M1). */
+  replaced?: { runtimeId: string; version: number };
 }
 
 export const STEP_ORDER: StepName[] = ["runtime", "init", "code", "deps", "agent"];

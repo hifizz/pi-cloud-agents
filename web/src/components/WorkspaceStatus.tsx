@@ -190,7 +190,7 @@ function RebuildConfirm({
           从检查点重建环境
         </h2>
         <p className="mt-2 text-xs text-fg-dim">
-          会新建一台环境并恢复到该检查点（{formatTime(checkpoint.createdAt) || "时间未知"} · {formatBytes(checkpoint.size)}）。旧环境不会被删除；检查点之后的未保存改动不会出现在新环境里。
+          会新建一台环境并恢复到该检查点（{formatTime(checkpoint.createdAt) || "时间未知"} · {formatBytes(checkpoint.size)}）。旧环境不会被删除，但新环境只包含该检查点的内容：比它更新的提交和未保存改动都不会出现在新环境里，只留在旧环境中。
         </p>
         {error && (
           <p role="alert" className="mt-2 break-words text-xs text-bad">
@@ -241,7 +241,7 @@ export function WorkspaceActions({ workspace, onChanged }: WorkspaceActionsProps
   const rebuildRequestId = useRef<string | undefined>(undefined);
   const [rebuilding, setRebuilding] = useState(false);
   const [rebuildError, setRebuildError] = useState<string>();
-  const [rebuilt, setRebuilt] = useState(false);
+  const [rebuilt, setRebuilt] = useState<{ replaced?: string }>();
 
   const loadCheckpoints = useCallback(async () => {
     try {
@@ -299,9 +299,9 @@ export function WorkspaceActions({ workspace, onChanged }: WorkspaceActionsProps
     setRebuilding(true);
     setRebuildError(undefined);
     try {
-      await workspacesApi.rebuild(id, { checkpointId: rebuildTarget.id, requestId: rebuildRequestId.current });
+      const result = await workspacesApi.rebuild(id, { checkpointId: rebuildTarget.id, requestId: rebuildRequestId.current });
       setRebuildTarget(undefined);
-      setRebuilt(true);
+      setRebuilt({ replaced: result?.replaced?.runtimeId });
       onChanged?.();
     } catch (e) {
       setRebuildError(describeError(e));
@@ -390,6 +390,7 @@ export function WorkspaceActions({ workspace, onChanged }: WorkspaceActionsProps
         {rebuilt && (
           <p role="status" className="mt-2 text-xs text-ok">
             已新建环境并恢复到检查点。
+            {rebuilt.replaced ? `旧环境 ${rebuilt.replaced} 仍保留，比该检查点更新的内容只在旧环境里。` : ""}
           </p>
         )}
       </div>

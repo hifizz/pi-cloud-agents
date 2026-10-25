@@ -311,7 +311,7 @@ describe("WorkspaceActions", () => {
         saved = true;
         return json(cp);
       }
-      if (method === "POST" && path === "/api/workspaces/w1/rebuild") return json({ version: 2 });
+      if (method === "POST" && path === "/api/workspaces/w1/rebuild") return json({ version: 2, replaced: { runtimeId: "pca-oldenv0001", version: 1 } });
       return undefined;
     });
     const onChanged = vi.fn();
@@ -325,8 +325,10 @@ describe("WorkspaceActions", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("会新建一台环境并恢复到该检查点");
     expect(calls.some((c) => c.path.endsWith("/rebuild"))).toBe(false);
+    expect(dialog).toHaveTextContent("比它更新的提交和未保存改动都不会出现在新环境里");
     await user.click(within(dialog).getByRole("button", { name: "确认重建" }));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(await screen.findByText(/旧环境 pca-oldenv0001 仍保留/)).toBeInTheDocument();
     const rebuild = calls.find((c) => c.path.endsWith("/rebuild"))!;
     expect(rebuild.body).toMatchObject({ checkpointId: "c1" });
     expect(typeof rebuild.body!.requestId).toBe("string");
