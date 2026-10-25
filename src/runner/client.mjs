@@ -327,10 +327,13 @@ export function createRunnerClient({
     const size = intOrUndefined(kv.size);
     // `done` only for a normally finished run; `claimed` / `lost` / `missing` are not completions (caller inspects `state`).
     const done = kv.state === "exited" && offset >= size;
-    if (done || ((kv.state === "lost") && offset >= size)) text += dec.decode();
+    const lostAndRead = kv.state === "lost" && offset >= size;
+    if (done || lostAndRead) text += dec.decode();
     if (!decoder) {
-      if (done) decoders.delete(id);
-      else decoders.set(id, { offset, decoder: dec });
+      // Every state that ends the run (exited, lost, missing, claimed-and-abandoned) must release its decoder; keeping only
+      // the still-running ones bounds the map by the number of runs being followed right now.
+      if (kv.state === "running" || (kv.state === "exited" && !done)) decoders.set(id, { offset, decoder: dec });
+      else decoders.delete(id);
     }
     return { state: kv.state, exit: intOrUndefined(kv.exit), offset, size, bytes, text, done };
   }

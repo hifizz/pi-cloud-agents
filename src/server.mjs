@@ -20,6 +20,7 @@ import { createSpritesProvider } from "./providers/sprites.mjs";
 import { createCheckpointService } from "./checkpoint.mjs";
 import { createWorkspaceService } from "./workspaces.mjs";
 import { rebuildWorkspace, register as registerRebuildRoute } from "./workspace-rebuild.mjs";
+import { createRunnerCache } from "./runner/attempt.mjs";
 import { createRunnerClient } from "./runner/client.mjs";
 import { setExecResolver } from "./ext/exec.mjs";
 
@@ -98,18 +99,11 @@ export async function assemble({
   const redactList = [...secrets, process.env.GITHUB_TOKEN, process.env.SPRITES_TOKEN].filter(Boolean);
   const checkpoints = createCheckpointService({ store, dir: checkpointDir });
 
-  // runner clients: one per runtime
-  const runners = new Map();
-  const runnerForRuntime = (provider, runtimeId) => {
-    let r = runners.get(runtimeId);
-    if (!r) {
-      r = createRunnerClient({ bash: provider.bash(runtimeId) });
-      runners.set(runtimeId, r);
-    }
-    return r;
-  };
-  // The workspace service and rebuild only create Sprites through `providers.sprites`.
-  const runnerFor = givenRunnerFor ?? ((runtimeId) => runnerForRuntime(providers.sprites, runtimeId));
+  // runner clients: one per runtime, created on demand. A runtime that is no longer the active binding of its workspace
+  // (replaced by a rebuild) is dropped from the cache so a long-running server does not keep every Sprite it ever used.
+  const runners = createRunnerCache({ runnerFor: givenRunnerFor, createClient: createRunnerClient });
+  const runnerFor = (runtimeId) => runners.getSync(runtimeId, providers.sprites); // synchronous: the Exec resolver cannot await
+  const releaseRunner = (runtimeId) => runners.forget(runtimeId);
 
   // 3. harness, not scheduled yet
   const { harness } = await bootstrap({ ...harnessOptions, store, providers, resume: false });
@@ -125,12 +119,16 @@ export async function assemble({
     if (!binding) return undefined;
     const provider = Object.hasOwn(providers, binding.provider) ? providers[binding.provider] : undefined;
     if (!provider) return undefined;
-    return { store, runner: givenRunnerFor ? givenRunnerFor(binding.runtimeId) : runnerForRuntime(provider, binding.runtimeId), workspace, binding };
+    return { store, runner: runnerFor(binding.runtimeId), workspace, binding };
   });
 
   const workspaces = createWorkspaceService({ store, github, providers, bots, ctx, runnerFor, secrets: redactList, ...serviceOptions });
-  const rebuild = (args) =>
-    rebuildWorkspace({ svc: workspaces, store, github, providers, cps: checkpoints, runnerFor, secrets: redactList }, args);
+  const rebuild = async (args) => {
+    const before = store.bindings.current(args?.workspaceId)?.runtimeId;
+    const binding = await rebuildWorkspace({ svc: workspaces, store, github, providers, cps: checkpoints, runnerFor, secrets: redactList }, args);
+    if (before && before !== binding.runtimeId) releaseRunner(before); // the replaced environment is no longer driven by this process
+    return binding;
+  };
 
   const runtimeBash = async (workspaceId) => {
     const binding = store.bindings.current(workspaceId);
