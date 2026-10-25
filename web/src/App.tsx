@@ -3,8 +3,10 @@ import { ApiError, api } from "./lib/api";
 import { useBotStream } from "./hooks/useBotStream";
 import { BotList } from "./components/BotList";
 import { ApprovalBar } from "./components/ApprovalBar";
+import { AskBar } from "./components/AskBar";
 import { ForkDialog } from "./components/ForkDialog";
 import { useApprovals } from "./hooks/useApprovals";
+import { useAsks } from "./hooks/useAsks";
 import { useSpace } from "./hooks/useSpace";
 import { MessageList } from "./components/Chat/MessageList";
 import { Composer, type SendMode } from "./components/Chat/Composer";
@@ -24,6 +26,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const [error, setError] = useState<string>();
   const { vm, status } = useBotStream(selectedId);
   const approvals = useApprovals();
+  const asks = useAsks();
   const [forkAt, setForkAt] = useState<number | string>();
   const rail = useRailState();
   const panels = usePanelState(PANELS[0]?.id);
@@ -95,6 +98,10 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     () => (bot ? approvals.filter((a) => a.conversationId === String(bot.conversationId)) : []),
     [approvals, bot],
   );
+  const botAsks = useMemo(
+    () => (bot ? asks.filter((a) => a.conversationId === String(bot.conversationId)) : []),
+    [asks, bot],
+  );
   const otherPending = Object.entries(pendingByBot).filter(([id]) => id !== selectedId).reduce((n, [, c]) => n + c, 0);
 
   const onSend = (text: string, mode: SendMode) =>
@@ -135,6 +142,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
       />
 
       <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />
+      <AskBar items={botAsks} onAnswer={(id, answer) => api.answerAsk(id, answer)} />
       {otherPending > 0 && (
         <p className="border-b border-warn/30 bg-warn/10 px-4 py-1 text-xs text-warn">
           {otherPending} approval{otherPending === 1 ? "" : "s"} pending on other bots

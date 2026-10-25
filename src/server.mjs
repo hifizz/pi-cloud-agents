@@ -5,8 +5,9 @@ import { pathToFileURL } from "node:url";
 import { ROOT, config } from "./config.mjs";
 import { ctx } from "./harness.mjs";
 import { BotRegistry } from "./bots.mjs";
-import { bootstrap } from "./runtime.mjs";
+import { bootstrap, productionExtensions } from "./runtime.mjs";
 import { createApi } from "./api.mjs";
+import { approvals } from "./ext/approval.mjs";
 
 /** Dynamically import every src/routes/*.mjs (each exports register(app)). */
 export async function loadRoutes(dir = join(ROOT, "src", "routes")) {
@@ -21,10 +22,20 @@ export async function loadRoutes(dir = join(ROOT, "src", "routes")) {
 }
 
 export async function main() {
-  const { harness } = await bootstrap();
+  const { harness, registry } = await bootstrap();
   console.log("resume done");
   const bots = new BotRegistry(harness);
   if (bots.list().length === 0) await bots.createBot({ name: "tars" });
+  // Re-compose with the bot registry so message_bot / routine tools can reach other conversations.
+  for (const ext of await productionExtensions({ harness, bots })) registry.install(ext);
+
+  // sweepStuck (idea 4): remind after 4h, expire after 24h; the waiting approval hook resolves expired items as denied.
+  const sweep = setInterval(() => {
+    const { expired, reminded } = approvals.sweep();
+    if (expired.length) console.log(`approvals expired (denied): ${expired.join(", ")}`);
+    else if (reminded.length) console.log(`approvals waiting >4h: ${reminded.join(", ")}`);
+  }, 15 * 60 * 1000);
+  sweep.unref();
 
   const api = createApi({ harness, bots, staticDir: join(ROOT, "web", "dist"), routes: await loadRoutes() });
   const { port } = await api.listen(config.port, config.host);
@@ -36,6 +47,7 @@ export async function main() {
     closing = true;
     console.log(`${signal} received, shutting down`);
     try {
+      clearInterval(sweep);
       await api.close();
       await harness.close(ctx);
     } finally {

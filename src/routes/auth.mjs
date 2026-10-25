@@ -90,6 +90,10 @@ export function register(app, opts = {}) {
   if (typeof app.guard !== "function") throw new Error("auth: app.guard is required (src/api.mjs)");
   app.guard((req, { kind, path }) => {
     if (settings.disabled) return true;
+    // Inbound webhooks FIRST: external senders (GitHub, etc.) carry no browser Origin header; the per-bot token in
+    // the path is the credential, checked in routes/hooks.mjs. Only the exact delivery route
+    // /api/hooks/:botId/:token (4 slashes incl. leading) is open; management routes stay behind this guard.
+    if (kind === "http" && path.startsWith("/api/hooks/") && (path.match(/\//g) ?? []).length === 4) return true;
     const mutating = kind === "ws" || (req.method !== "GET" && req.method !== "HEAD");
     if (mutating) checkOrigin(req);
     if (kind === "http" && (path.startsWith("/api/auth/") || path === "/api/auth" || path === "/api/health")) return true;
