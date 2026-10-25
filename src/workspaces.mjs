@@ -20,43 +20,22 @@
 //    the env factory's "not ready" error). The submit uses requestId `ws:<id>:task`, which Pi Durable de-duplicates
 //    across restarts (probe A3), and an intent row records whether it completed.
 // Secrets: nothing here ever receives a token; every message stored or logged goes through `sanitize`.
-import { createHash } from "node:crypto";
 import { defaultModel as configDefaultModel } from "./config.mjs";
 import { STEPS } from "./control/db.mjs";
+import { codeScript, createRunnerCache, definite, isUncertain, makeSanitizer, runAttempt, sha256 } from "./runner/attempt.mjs";
 
-export { STEPS };
+export { STEPS, isUncertain };
 
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const REQUEST_ID_RE = /^[\x21-\x7e]{1,200}$/;
 const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/;
 
-const sha256 = (s) => createHash("sha256").update(s).digest("hex");
-const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
-
 function coded(code, message) {
   const e = new Error(message);
   e.code = code;
   return e;
 }
-/** An error whose outcome is certain (nothing happened / it definitely failed). */
-const definite = (message) => Object.assign(new Error(message), { uncertain: false });
-/** An error whose outcome is not known (the action may or may not have taken effect). */
-const uncertain = (message) => Object.assign(new Error(message), { uncertain: true });
-
-const NETWORK_CODE_RE = /^(ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE|ENETUNREACH|EHOSTUNREACH|UND_ERR)/;
-const NETWORK_MSG_RE = /fetch failed|network|timed? ?out|timeout|socket|ECONN|ETIMEDOUT|aborted|connection (?:ended|closed|reset|lost)|may or may not/i;
-
-/** True when an error leaves the real outcome unknown (5xx, 408, network errors, "may or may not have run"). */
-export function isUncertain(e) {
-  if (e?.uncertain === true) return true;
-  if (e?.uncertain === false) return false;
-  const status = e?.statusCode ?? e?.status;
-  if (typeof status === "number") return status >= 500 || status === 408;
-  if (NETWORK_CODE_RE.test(String(e?.code ?? ""))) return true;
-  return NETWORK_MSG_RE.test(String(e?.message ?? ""));
-}
-
 /** Lower-case `[a-z0-9-]` slug, at most `max` chars; "" when nothing usable is left (e.g. a non-ASCII-only task). */
 export function slugify(text, max = 32) {
   return String(text ?? "")
@@ -76,38 +55,6 @@ export function workspaceInstructions(ws) {
     `- Do NOT clone the repository again and do NOT create another branch: this overrides steps 2 and 3 of the general git workflow. Work inside ${ws.cwd}, and check \`git status\` and \`git log --oneline -5\` first.`,
     `- Commit your work on ${ws.branch} and push only that branch (\`git push -u origin ${ws.branch}\`). Never push to ${ws.baseBranch} or to any other branch.`,
     `- The user normally opens the pull request from the web UI. If you are asked to open it yourself, first run \`gh pr list --head ${ws.branch} --state all\`; only when there is none run \`gh pr create --base ${ws.baseBranch} --head ${ws.branch}\`. Never open a second pull request for this branch.`,
-  ].join("\n");
-}
-
-/** Shell script for the `code` step. Idempotent: never re-clones an existing repository, never resets a branch. */
-function codeScript({ url, dir, branch, commit }) {
-  return [
-    "set -eu",
-    `REPO_URL=${sq(url)}`,
-    `DIR=${sq(dir)}`,
-    `BRANCH=${sq(branch)}`,
-    `COMMIT=${sq(commit)}`,
-    'mkdir -p "$(dirname "$DIR")"',
-    'if [ -d "$DIR/.git" ]; then',
-    '  echo "repository already present, not cloning again"',
-    'elif [ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ]; then',
-    '  echo "$DIR exists and is not a git repository; refusing to touch it" >&2',
-    "  exit 3",
-    "else",
-    '  git clone "$REPO_URL" "$DIR"',
-    "fi",
-    'cd "$DIR"',
-    "git fetch origin",
-    'git cat-file -e "$COMMIT^{commit}" 2>/dev/null || git fetch origin "$COMMIT"',
-    "CUR=$(git symbolic-ref --short -q HEAD || true)",
-    'if [ "$CUR" = "$BRANCH" ]; then',
-    '  echo "already on $BRANCH, leaving it as is"',
-    'elif git show-ref --verify --quiet "refs/heads/$BRANCH"; then',
-    '  git checkout "$BRANCH"',
-    "else",
-    '  git checkout -B "$BRANCH" "$COMMIT"',
-    "fi",
-    "git rev-parse HEAD",
   ].join("\n");
 }
 
@@ -153,19 +100,7 @@ export function createWorkspaceService({
   };
 
   // ---- redaction ----------------------------------------------------------------------------------------------------
-  const secretValues = secrets.filter((s) => typeof s === "string" && s.length >= 4);
-  function sanitize(text, max = 600) {
-    let t = String(text ?? "").replace(/\u0000/g, "");
-    for (const s of secretValues) t = t.split(s).join("***");
-    t = t
-      .replace(/\bgh[pousr]_[A-Za-z0-9]{16,}/g, "***")
-      .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}/g, "***")
-      .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}/g, "***")
-      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer ***")
-      .replace(/(\bhttps?:\/\/)[^\s/@:]+(?::[^\s/@]*)?@/gi, "$1***@")
-      .replace(/(\b(?:https?|wss?):\/\/[^\s)?]*)\?[^\s)]*/gi, "$1");
-    return t.length > max ? `${t.slice(0, max)}…` : t;
-  }
+  const sanitize = makeSanitizer(secrets);
 
   const homeDir = () => home ?? providers.sprites?.home ?? "/home/sprite";
 
@@ -178,118 +113,19 @@ export function createWorkspaceService({
     return { binding, provider };
   }
 
-  const runnerCache = new Map();
-  async function getRunner(runtimeId, provider) {
-    if (runnerFor) return runnerFor(runtimeId);
-    let r = runnerCache.get(runtimeId);
-    if (!r) {
-      const { createRunnerClient } = await import("./runner/client.mjs");
-      r = createRunnerClient({ bash: provider.bash(runtimeId) });
-      runnerCache.set(runtimeId, r);
-    }
-    return r;
-  }
+  const runners = createRunnerCache({ runnerFor });
+  const getRunner = (runtimeId, provider) => runners.get(runtimeId, provider);
 
   /**
-   * Run `command` through the runner as a restart-safe attempt (see header). Resolves on exit code 0.
+   * Run `command` through the runner as a restart-safe attempt (see src/runner/attempt.mjs). Resolves on exit code 0.
    * Throws definite(...) for a non-zero exit, uncertain(...) when the outcome cannot be confirmed.
    */
   async function runCommand({ ws, runtimeId, provider, step, cwd, command }) {
     const runner = await getRunner(runtimeId, provider);
-    const hash = sha256(`${cwd}\n${command}`).slice(0, 10);
-
-    // pick the attempt: skip settled failures, return early on a confirmed one
-    let n = 0;
-    let rid;
-    let intent;
-    for (;; n++) {
-      rid = `ws:${ws.id}:${runtimeId}:${step}:${hash}:${n}`;
-      intent = store.intents.begin({
-        requestId: rid,
-        kind: `workspace.${step}`,
-        target: `wsr-${sha256(rid).slice(0, 24)}`,
-        workspaceId: ws.id,
-      }).intent;
-      if (intent.state === "confirmed") return { reused: true };
-      if (intent.state === "failed" || intent.state === "unknown") continue;
-      break; // planned or sent: this is the live attempt
-    }
-    const id = intent.target;
-
-    const settleUnknown = (msg) => {
-      store.intents.settle(rid, { state: "unknown", evidence: { reason: sanitize(msg, 300) } });
-      return uncertain(msg);
-    };
-
-    if (intent.state === "planned") {
-      // prepare is idempotent (never overwrites an existing run directory); `sent` is recorded BEFORE start, so a
-      // `planned` intent proves start was never issued.
-      await runner.prepare({ id, cwd, command });
-      store.intents.markSent(rid);
-      try {
-        await runner.start(id);
-      } catch (e) {
-        let st;
-        try {
-          st = (await runner.status(id))?.state;
-        } catch {
-          // cannot even ask: leave the intent `sent`; a retry reattaches or reports it
-          throw e;
-        }
-        if (st === "running" || st === "exited") {
-          // the start did take effect despite the error
-        } else if (st === "claimed" || st === "lost" || st === "missing") {
-          throw settleUnknown(`命令是否已启动无法确认（runner 状态 ${st}）：${e?.message ?? e}`);
-        } else {
-          throw e;
-        }
-      }
-    } else {
-      const st = (await runner.status(id))?.state;
-      if (st !== "running" && st !== "exited") {
-        throw settleUnknown(`上次启动的命令状态为 ${st ?? "未知"}，无法确认是否已执行，请重试`);
-      }
-    }
-
-    // follow the log from offset 0 until the command exits
-    let from = 0;
-    let tail = "";
-    let failures = 0;
-    const deadline = now() + stepTimeoutMs;
-    let exit;
-    for (;;) {
-      let r;
-      try {
-        r = await runner.wait({ id, from, maxSeconds: waitSeconds });
-        failures = 0;
-      } catch (e) {
-        if (!isUncertain(e) || ++failures > waitRetries) throw e;
-        await sleep(retryDelayMs * failures);
-        continue;
-      }
-      const raw = r?.data ?? r?.text ?? r?.output;
-      const data = raw === undefined || raw === null ? "" : String(raw);
-      if (data) tail = (tail + data).slice(-4000);
-      from = typeof r?.offset === "number" ? r.offset : from + Buffer.byteLength(data);
-      if (r?.state === "exited") {
-        exit = r.exit ?? r.exitCode;
-        break;
-      }
-      if (r?.state === "running") {
-        if (now() > deadline) {
-          // leave the intent `sent`: a retry reattaches to the same run instead of starting a second one
-          throw uncertain(`命令仍在运行，已等待 ${Math.round(stepTimeoutMs / 1000)} 秒`);
-        }
-        continue;
-      }
-      throw settleUnknown(`命令状态为 ${r?.state ?? "未知"}，无法确认是否已执行，请重试`);
-    }
-    if (exit === 0) {
-      store.intents.settle(rid, { state: "confirmed", evidence: { exit: 0 } });
-      return { reused: false, tail };
-    }
-    store.intents.settle(rid, { state: "failed", evidence: { exit: exit ?? null } });
-    throw definite(`命令退出码 ${exit ?? "未知"}：${sanitize(tail.trim().slice(-500))}`);
+    return runAttempt(
+      { store, runner, sanitize, now, sleep, stepTimeoutMs, waitSeconds, waitRetries, retryDelayMs },
+      { workspaceId: ws.id, keyPrefix: `ws:${ws.id}:${runtimeId}:${step}`, kind: `workspace.${step}`, cwd, command },
+    );
   }
 
   // ---- steps --------------------------------------------------------------------------------------------------------

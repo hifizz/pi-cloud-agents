@@ -15,13 +15,10 @@
 //    {runtimeId, bindingVersion} in a memo and refuses to prepare/start when the current binding differs. Rebuilding bumps the
 //    binding version, which is what makes that check fire (see test/workspace-rebuild.test.mjs).
 //  - Nothing here receives a token; messages that are stored or returned go through `sanitize`.
-import { createHash } from "node:crypto";
 import { HttpError } from "./api.mjs";
-import { isUncertain } from "./workspaces.mjs";
+import { codeScript, createRunnerCache, definite, isUncertain, makeSanitizer, runAttempt, sq } from "./runner/attempt.mjs";
 
 const REQUEST_ID_RE = /^[\x21-\x7e]{1,200}$/;
-const sha256 = (s) => createHash("sha256").update(s).digest("hex");
-const sq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 export class RebuildError extends Error {
   /** @param {"not_found"|"conflict"|"invalid"|"integrity"|"failed"|"uncertain"} code */
@@ -31,41 +28,6 @@ export class RebuildError extends Error {
     this.code = code;
     Object.assign(this, extra);
   }
-}
-
-const definite = (message) => Object.assign(new Error(message), { uncertain: false });
-const uncertain = (message) => Object.assign(new Error(message), { uncertain: true });
-
-/** Clone (if absent) and check out the work branch at `commit`. Same semantics as the `code` step in src/workspaces.mjs. */
-function codeScript({ url, dir, branch, commit }) {
-  return [
-    "set -eu",
-    `REPO_URL=${sq(url)}`,
-    `DIR=${sq(dir)}`,
-    `BRANCH=${sq(branch)}`,
-    `COMMIT=${sq(commit)}`,
-    'mkdir -p "$(dirname "$DIR")"',
-    'if [ -d "$DIR/.git" ]; then',
-    '  echo "repository already present, not cloning again"',
-    'elif [ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ]; then',
-    '  echo "$DIR exists and is not a git repository; refusing to touch it" >&2',
-    "  exit 3",
-    "else",
-    '  git clone "$REPO_URL" "$DIR"',
-    "fi",
-    'cd "$DIR"',
-    "git fetch origin",
-    'git cat-file -e "$COMMIT^{commit}" 2>/dev/null || git fetch origin "$COMMIT"',
-    "CUR=$(git symbolic-ref --short -q HEAD || true)",
-    'if [ "$CUR" = "$BRANCH" ]; then',
-    '  echo "already on $BRANCH, leaving it as is"',
-    'elif git show-ref --verify --quiet "refs/heads/$BRANCH"; then',
-    '  git checkout "$BRANCH"',
-    "else",
-    '  git checkout -B "$BRANCH" "$COMMIT"',
-    "fi",
-    "git rev-parse HEAD",
-  ].join("\n");
 }
 
 /** Put the half-built clone back on the base commit with a clean tree (only used on a Sprite that was never bound). */
@@ -108,115 +70,20 @@ export function createRebuilder(deps) {
     }
   };
 
-  const secretValues = secrets.filter((s) => typeof s === "string" && s.length >= 4);
-  function sanitize(text, max = 600) {
-    let t = String(text ?? "").replace(/\u0000/g, "");
-    for (const s of secretValues) t = t.split(s).join("***");
-    t = t
-      .replace(/\bgh[pousr]_[A-Za-z0-9]{16,}/g, "***")
-      .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}/g, "***")
-      .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}/g, "***")
-      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer ***")
-      .replace(/(\bhttps?:\/\/)[^\s/@:]+(?::[^\s/@]*)?@/gi, "$1***@")
-      .replace(/(\b(?:https?|wss?):\/\/[^\s)?]*)\?[^\s)]*/gi, "$1")
-      .replace(/(?:\/Users|\/private\/var|\/var\/folders)\/[^\s'"):]+/g, "<path>");
-    return t.length > max ? `${t.slice(0, max)}…` : t;
-  }
+  const sanitize = makeSanitizer(secrets);
 
   const getWorkspace = (id) => (svc?.get ? svc.get(id) : store.workspaces.get(id));
 
-  const runnerCache = new Map();
-  async function getRunner(runtimeId, provider) {
-    if (runnerFor) return runnerFor(runtimeId);
-    let r = runnerCache.get(runtimeId);
-    if (!r) {
-      const { createRunnerClient } = await import("./runner/client.mjs");
-      r = createRunnerClient({ bash: provider.bash(runtimeId) });
-      runnerCache.set(runtimeId, r);
-    }
-    return r;
-  }
+  const runners = createRunnerCache({ runnerFor });
+  const getRunner = (runtimeId, provider) => runners.get(runtimeId, provider);
 
-  /** Run `command` through the runner on the new Sprite as a restart-safe attempt (see src/workspaces.mjs runCommand). */
+  /** Run `command` through the runner on the new Sprite as a restart-safe attempt (src/runner/attempt.mjs). */
   async function runCommand({ workspaceId, rid, runtimeId, provider, step, cwd, command }) {
     const runner = await getRunner(runtimeId, provider);
-    const hash = sha256(`${cwd}\n${command}`).slice(0, 10);
-    let n = 0;
-    let arid;
-    let intent;
-    for (;; n++) {
-      arid = `${rid}:${step}:${hash}:${n}`;
-      intent = store.intents.begin({ requestId: arid, kind: `workspace.rebuild.${step}`, target: `wsr-${sha256(arid).slice(0, 24)}`, workspaceId }).intent;
-      if (intent.state === "confirmed") return;
-      if (intent.state === "failed" || intent.state === "unknown") continue;
-      break;
-    }
-    const id = intent.target;
-    const settleUnknown = (msg) => {
-      store.intents.settle(arid, { state: "unknown", evidence: { reason: sanitize(msg, 300) } });
-      return uncertain(msg);
-    };
-
-    if (intent.state === "planned") {
-      await runner.prepare({ id, cwd, command });
-      store.intents.markSent(arid); // recorded BEFORE start: a `planned` intent proves start was never issued
-      try {
-        await runner.start(id);
-      } catch (e) {
-        let st;
-        try {
-          st = (await runner.status(id))?.state;
-        } catch {
-          throw e;
-        }
-        if (st === "running" || st === "exited") {
-          // the start took effect despite the error
-        } else if (st === "claimed" || st === "lost" || st === "missing") {
-          throw settleUnknown(`命令是否已启动无法确认（runner 状态 ${st}）：${e?.message ?? e}`);
-        } else {
-          throw e;
-        }
-      }
-    } else {
-      const st = (await runner.status(id))?.state;
-      if (st !== "running" && st !== "exited") throw settleUnknown(`上次启动的命令状态为 ${st ?? "未知"}，无法确认是否已执行，请重试`);
-    }
-
-    let from = 0;
-    let tail = "";
-    let failures = 0;
-    const deadline = now() + stepTimeoutMs;
-    let exit;
-    for (;;) {
-      let r;
-      try {
-        r = await runner.wait({ id, from, maxSeconds: waitSeconds });
-        failures = 0;
-      } catch (e) {
-        if (!isUncertain(e) || ++failures > waitRetries) throw e;
-        await sleep(retryDelayMs * failures);
-        continue;
-      }
-      const raw = r?.text ?? r?.data ?? r?.output;
-      const data = raw === undefined || raw === null ? "" : String(raw);
-      if (data) tail = (tail + data).slice(-4000);
-      from = typeof r?.offset === "number" ? r.offset : from + Buffer.byteLength(data);
-      if (r?.state === "exited") {
-        exit = r.exit ?? r.exitCode;
-        break;
-      }
-      if (r?.state === "running") {
-        if (now() > deadline) throw uncertain(`命令仍在运行，已等待 ${Math.round(stepTimeoutMs / 1000)} 秒`);
-        continue;
-      }
-      throw settleUnknown(`命令状态为 ${r?.state ?? "未知"}，无法确认是否已执行，请重试`);
-    }
-    if (exit === 0) {
-      store.intents.settle(arid, { state: "confirmed", evidence: { exit: 0 } });
-      return;
-    }
-    store.intents.settle(arid, { state: "failed", evidence: { exit: exit ?? null } });
-    throw definite(`命令退出码 ${exit ?? "未知"}：${sanitize(tail.trim().slice(-500))}`);
+    return runAttempt(
+      { store, runner, sanitize, now, sleep, stepTimeoutMs, waitSeconds, waitRetries, retryDelayMs },
+      { workspaceId, keyPrefix: `${rid}:${step}`, kind: `workspace.rebuild.${step}`, cwd, command },
+    );
   }
 
   // Same-workspace rebuilds are serialized, so a repeated call with the same requestId sees the first one's result.
