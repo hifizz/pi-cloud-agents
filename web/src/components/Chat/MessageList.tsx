@@ -55,7 +55,7 @@ export function MessageList({
           stick.current = near;
           setAway(!near);
         }}
-        className="h-full overflow-y-auto px-[18px]"
+        className="h-full overflow-y-auto overflow-x-hidden px-[18px]"
         role="log"
         aria-live="polite"
         aria-label="Conversation"
