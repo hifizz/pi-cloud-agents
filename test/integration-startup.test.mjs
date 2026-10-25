@@ -254,3 +254,66 @@ test("loadRoutes + ctxForApi register every M1 route (rebuild included)", async 
     await parts.close();
   }
 });
+
+test("a workspace still preparing at startup gets a bounded head start before the harness resumes", async () => {
+  const f = fauxProvider();
+  const models = createModels();
+  models.setProvider(f.provider);
+  const make = async (name, { stuck, prepareGraceMs }) => {
+    const dir = mkdtempSync(join(dataDir, `${name}-`));
+    const events = [];
+    let release;
+    const gate = new Promise((r) => (release = r));
+    // a provider whose `init` is the unfinished step: it either finishes quickly or hangs until released
+    const providers = {
+      sprites: {
+        kind: "sprites",
+        home: "/home/sprite",
+        runtimeName: (rid) => `pca-${rid.slice(0, 10).padEnd(10, "0")}`,
+        ensure: async ({ requestId }) => ({ runtimeId: `pca-${requestId.slice(0, 10).padEnd(10, "0")}`, created: true }),
+        init: async () => (stuck ? gate : undefined),
+        bash: () => noopBash,
+      },
+    };
+    const github = { getBranch: async () => ({ sha: "a".repeat(40) }), listRepos: async () => [{ fullName: "o/r", defaultBranch: "main" }] };
+    // seed a workspace that is `preparing` in the control db, as a crash would leave it
+    const { openControlStore } = await import("../src/control/store.mjs");
+    const store = openControlStore({ path: join(dir, "control.sqlite") });
+    const project = store.projects.upsert({ repo: "o/r", defaultBranch: "main" });
+    const { workspace } = store.workspaces.create({
+      requestId: "grace-1", projectId: project.id, name: "g", baseBranch: "main", branch: "tarsbot/g-000001", cwd: "/home/sprite/workspace/r", model: FAUX, task: null,
+    });
+    const t0 = Date.now();
+    const parts = await assemble({
+      store,
+      checkpointDir: join(dir, "checkpoints"),
+      botsPath: join(dir, "bots.json"),
+      github,
+      providers,
+      runnerFor: () => ({ install: async () => ({}), prepare: async () => ({ prepared: "new" }), start: async () => ({}), status: async () => ({ state: "exited" }), wait: async () => ({ state: "exited", exit: 0, offset: 0, size: 0, text: "", done: true }), kill: async () => ({ killed: "confirmed" }) }),
+      harnessOptions: { storage: await openStorage(dir), models },
+      prepareGraceMs,
+      hooks: { beforeResume: ({ store: st }) => events.push(st.workspaces.get(workspace.id).status) },
+    });
+    const elapsed = Date.now() - t0;
+    return { parts, events, elapsed, release, store, id: workspace.id };
+  };
+
+  // finishes within the grace time -> `ready` by the time the harness resumes
+  const quick = await make("grace-quick", { stuck: false, prepareGraceMs: 5_000 });
+  try {
+    assert.deepEqual(quick.events, ["ready"]);
+  } finally {
+    await quick.parts.close();
+  }
+
+  // hangs -> startup is NOT blocked beyond the grace time, and the workspace is still preparing when the harness resumes
+  const slow = await make("grace-slow", { stuck: true, prepareGraceMs: 300 });
+  try {
+    assert.deepEqual(slow.events, ["preparing"]);
+    assert.ok(slow.elapsed < 3_000, `startup took ${slow.elapsed} ms`);
+  } finally {
+    slow.release();
+    await slow.parts.close();
+  }
+});

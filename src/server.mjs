@@ -37,6 +37,18 @@ export async function loadRoutes(dir = join(ROOT, "src", "routes")) {
   return out;
 }
 
+/** Resolve when `promise` settles or after `ms`, whichever comes first. Never rejects. */
+function settleWithin(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+    Promise.resolve(promise).then(
+      () => (clearTimeout(timer), resolve()),
+      () => (clearTimeout(timer), resolve()),
+    );
+  });
+}
+
 /** Fail at startup with a clear message when a required secret is missing. Values are never printed. */
 export function assertStartupConfig(env = process.env) {
   if (!env.SPRITES_TOKEN) throw new Error("SPRITES_TOKEN is not set: workspaces need Sprites (put it in .env or Fly secrets)");
@@ -45,6 +57,7 @@ export function assertStartupConfig(env = process.env) {
 /**
  * Wire everything in the right order. Nothing is listening yet. Dependencies can be replaced for tests:
  * `providers`, `github`, `bots`, `store`, `runnerFor`, `harnessOptions` (storage / models / settings ...).
+ * `prepareGraceMs` bounds how long unfinished workspace steps may run before the harness is resumed.
  * Returns the pieces plus `ctxForApi` (the `app.ctx` additions for route plugins) and `close()`.
  * `hooks.afterHarnessOpen` / `hooks.beforeResume` are test seams that run at those two points.
  */
@@ -59,6 +72,7 @@ export async function assemble({
   harnessOptions = {},
   secrets = [],
   serviceOptions = {},
+  prepareGraceMs = 15_000,
   hooks = {},
 } = {}) {
   // 1. control db
@@ -128,6 +142,10 @@ export async function assemble({
 
   // 5. continue unfinished workspaces, 6. only then let interrupted tool calls re-enter
   await workspaces.resumePending();
+  // A conversation resumed while its workspace is still `preparing` would meet "工作区未就绪" as a hard tool error even
+  // though the step finishes seconds later. Give the unfinished steps a bounded head start (a clone is usually a few
+  // seconds); workspaces that need longer simply stay `preparing`, and their conversations report that reason as before.
+  await settleWithin(workspaces.idle(), prepareGraceMs);
   await hooks.beforeResume?.({ harness, store, workspaces, rebuild, checkpoints });
   harness.resume();
 
