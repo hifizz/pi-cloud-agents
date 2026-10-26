@@ -10,15 +10,13 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.mjs\"",
     "test:env": "vitest run test/vitest",
-    "start": "node src/server.mjs",
-    "repl": "node src/repl.mjs"
+    "start": "node src/server.mjs"
   },
   "dependencies": {
     "@earendil-works/chord": "1.4.0",
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-durable": "1.4.0",
     "@fly/sprites": "0.2.3",
-    "e2b": "2.56.0",
     "ws": "8.22.0"
   },
   "devDependencies": {

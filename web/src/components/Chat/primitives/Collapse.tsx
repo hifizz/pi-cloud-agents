@@ -53,10 +53,12 @@ export function Collapse({ open, children, className }: { open: boolean; childre
       ref={ref}
       onTransitionEnd={onEnd}
       inert={!expanded}
-      className={cx("grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none", expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0", className)}
+      // grid-cols-[minmax(0,1fr)]: an implicit `auto` column takes its content's min-content width, so one long unbreakable
+      // line (e.g. a shell command) would stretch the whole feed past its parent instead of truncating.
+      className={cx("grid grid-cols-[minmax(0,1fr)] transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none", expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0", className)}
       style={clip ? { contain: "layout paint" } : undefined}
     >
-      <div className={cx("min-h-0", clip && "overflow-hidden")}>{children}</div>
+      <div className={cx("min-h-0 min-w-0", clip && "overflow-hidden")}>{children}</div>
     </div>
   );
 }

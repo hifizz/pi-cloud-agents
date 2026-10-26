@@ -145,6 +145,25 @@ describe("files card: Open diff", () => {
   });
 });
 
+describe("a long unbreakable line cannot widen the conversation", () => {
+  // jsdom computes no layout, so the real guarantee (measured in a browser: scrollWidth 3326 -> 833 with a 1244-char shell
+  // command) is pinned through the classes that produce it.
+  it("the feed clips horizontal overflow, and an open fold row has a shrinkable column", async () => {
+    const user = userEvent.setup();
+    const long = "echo " + "x".repeat(1200);
+    const messages = turn([{ type: "text", text: "On it." }, tool({ id: "1", args: { command: long } }), { type: "text", text: "Done." }]);
+    render(<MessageList messages={messages} busy={false} />);
+    const log = screen.getByRole("log", { name: "Conversation" });
+    expect(log).toHaveClass("overflow-y-auto", "overflow-x-hidden");
+    await user.click(screen.getByRole("button", { name: /worked for/i }));
+    const card = screen.getByTestId("tool-card");
+    const collapse = card.closest(".grid");
+    expect(collapse).not.toBeNull();
+    expect(collapse!.className).toContain("grid-cols-[minmax(0,1fr)]");
+    expect(collapse!.firstElementChild).toHaveClass("min-w-0");
+  });
+});
+
 describe("Collapse via the fold row", () => {
   it("mounts folded rows on open and unmounts them after the close animation", async () => {
     const user = userEvent.setup();

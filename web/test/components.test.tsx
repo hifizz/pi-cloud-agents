@@ -152,26 +152,35 @@ describe("Composer", () => {
 });
 
 describe("BotList / UsageBadge", () => {
-  it("lists bots with busy/idle state and creates a bot from the form", async () => {
+  it("lists a workspace's sessions with busy/idle state and selects them", async () => {
     const user = userEvent.setup();
-    const onCreate = vi.fn().mockResolvedValue(undefined);
-    const onSelect = vi.fn();
+    const onSelectBot = vi.fn();
+    const onSelectWorkspace = vi.fn();
+    const onNewWorkspace = vi.fn();
     const bots = [
       { id: "b1", name: "alice", conversationId: 1, model: { provider: "tokenrouter", modelId: "glm-5.3" }, busy: true, queued: 2 },
-      { id: "b2", name: "bob", conversationId: 2, model: { provider: "tokenrouter", modelId: "glm-5.3" }, busy: false, queued: 0 },
+      { id: "b2", name: "bob", conversationId: 2, model: { provider: "tokenrouter", modelId: "glm-5.3" }, busy: false, queued: 0, parent: { botId: "b1" } },
     ];
-    render(<BotList bots={bots} selectedId="b1" onSelect={onSelect} onCreate={onCreate} />);
+    const workspaces = [{ id: "w1", name: "upload fix", repo: "o/r", baseBranch: "main", branch: "tarsbot/up-1", status: "ready" as const, steps: [], botId: "b1" }];
+    render(
+      <BotList
+        workspaces={workspaces}
+        bots={bots}
+        selectedWorkspaceId="w1"
+        selectedBotId="b1"
+        onSelectWorkspace={onSelectWorkspace}
+        onSelectBot={onSelectBot}
+        onNewWorkspace={onNewWorkspace}
+      />,
+    );
     expect(screen.getByRole("img", { name: "busy" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "idle" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /bob/ }));
-    expect(onSelect).toHaveBeenCalledWith("b2");
-
-    await user.click(screen.getByRole("button", { name: "New bot" }));
-    await user.type(screen.getByLabelText("Name"), "carol");
-    await user.selectOptions(screen.getByLabelText("Model"), "gpt-5.6-terra");
-    await user.type(screen.getByLabelText(/Instructions/), "be brief");
-    await user.click(screen.getByRole("button", { name: "Create" }));
-    expect(onCreate).toHaveBeenCalledWith({ name: "carol", modelId: "gpt-5.6-terra", instructions: "be brief" });
+    expect(onSelectBot).toHaveBeenCalledWith("b2");
+    await user.click(screen.getByRole("button", { name: /upload fix/ }));
+    expect(onSelectWorkspace).toHaveBeenCalledWith("w1");
+    await user.click(screen.getByRole("button", { name: "新建工作区" }));
+    expect(onNewWorkspace).toHaveBeenCalled();
   });
 
   it("formats usage", () => {

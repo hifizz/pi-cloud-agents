@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
-const { createSpritesBash, MAX_EXEC_QUERY_CHARS, redactMessage, spritesBash, getSpriteInfo } = await import("../src/sandbox/sprites.mjs");
+const { createSpritesBash, MAX_EXEC_QUERY_CHARS, redactMessage } = await import("../src/sandbox/sprites.mjs");
 
 const TOKEN = "ghp_SECRETTOKEN1234567890";
 const URL_WITH_SECRETS = `wss://api.sprites.dev/v1/sprites/tarsbot-dev/exec?cmd=%2Fbin%2Fsh&cmd=-c&cmd=echo+hi&env=GH_TOKEN%3D${TOKEN}&stdin=true`;
@@ -292,38 +292,6 @@ test("a throwing log function does not break the call", async () => {
   const { client } = fakeClient([(c) => (c.open(), c.exit(0))]);
   const r = await createSpritesBash(opts(client, { log: () => { throw new Error("log down"); } }))("x");
   assert.equal(r.exitCode, 0);
-});
-
-test("production instance: missing config throws clear errors without token values", async () => {
-  const saved = { t: process.env.SPRITES_TOKEN, n: process.env.TARSBOT_SPRITE_NAME, g: process.env.GITHUB_TOKEN };
-  try {
-    delete process.env.SPRITES_TOKEN;
-    process.env.TARSBOT_SPRITE_NAME = "tarsbot-dev";
-    await assert.rejects(spritesBash("true"), /SPRITES_TOKEN is not set/);
-    process.env.SPRITES_TOKEN = TOKEN;
-    delete process.env.TARSBOT_SPRITE_NAME;
-    await assert.rejects(spritesBash("true"), (e) => {
-      assert.match(e.message, /TARSBOT_SPRITE_NAME is not set/);
-      assert.ok(!e.message.includes(TOKEN));
-      return true;
-    });
-  } finally {
-    for (const [k, v] of [["SPRITES_TOKEN", saved.t], ["TARSBOT_SPRITE_NAME", saved.n], ["GITHUB_TOKEN", saved.g]]) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
-});
-
-test("getSpriteInfo has sandbox and name only", () => {
-  const prev = process.env.TARSBOT_SPRITE_NAME;
-  process.env.TARSBOT_SPRITE_NAME = "tarsbot-dev";
-  try {
-    assert.deepEqual(getSpriteInfo(), { sandbox: "sprites", name: "tarsbot-dev" });
-  } finally {
-    if (prev === undefined) delete process.env.TARSBOT_SPRITE_NAME;
-    else process.env.TARSBOT_SPRITE_NAME = prev;
-  }
 });
 
 test("oversized command (exec URL would exceed the platform limit) fails fast, no connection, no command text in error", async () => {

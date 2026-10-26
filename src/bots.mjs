@@ -46,7 +46,9 @@ export class BotRegistry {
   }
 
   /**
-   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, extensions?: any[], tools?: any[] }} spec
+   * `workspaceId` is a stable marker for the workspace service: a Bot created but not yet linked (crash in between) is found
+   * again by it, never by comparing instruction text.
+   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[] }} spec
    */
   async createBot(spec) {
     if (!spec?.name) throw new Error("name is required");
@@ -66,6 +68,7 @@ export class BotRegistry {
       conversationId: conv.id,
       model: agent.model,
       instructions: spec.instructions ?? "",
+      ...(spec.workspaceId ? { workspaceId: spec.workspaceId } : {}),
       createdAt: new Date().toISOString(),
     };
     this.bots.push(bot);

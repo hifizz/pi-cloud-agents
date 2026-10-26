@@ -1,9 +1,4 @@
 import { test } from "node:test";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import assert from "node:assert/strict";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
@@ -86,10 +81,8 @@ test("health + error formats", async () => {
     assert.match(nb.body.error, /not found/);
     const wrongMethod = await j(t.base, "POST", "/api/health", {});
     assert.equal(wrongMethod.status, 405);
-    const noName = await j(t.base, "POST", "/api/bots", {});
-    assert.equal(noName.status, 400);
-    const badName = await j(t.base, "POST", "/api/bots", { name: 42 });
-    assert.equal(badName.status, 400);
+    const gone = await j(t.base, "POST", "/api/bots", { name: "x" });
+    assert.equal(gone.status, 405, "POST /api/bots no longer exists: bots are created through workspaces");
     const bot = await t.bots.createBot({ name: "errs", model: FAUX });
     const noText = await j(t.base, "POST", `/api/bots/${bot.id}/input`, {});
     assert.equal(noText.status, 400);
@@ -97,7 +90,7 @@ test("health + error formats", async () => {
     assert.equal(badBusy.status, 400);
     const badLimit = await j(t.base, "GET", `/api/bots/${bot.id}/entries?limit=abc`);
     assert.equal(badLimit.status, 400);
-    const res = await fetch(`${t.base}/api/bots`, { method: "POST", headers: { "content-type": "application/json" }, body: "{oops" });
+    const res = await fetch(`${t.base}/api/bots/${bot.id}/input`, { method: "POST", headers: { "content-type": "application/json" }, body: "{oops" });
     assert.equal(res.status, 400);
     assert.match((await res.json()).error, /JSON/);
   } finally {
@@ -105,16 +98,10 @@ test("health + error formats", async () => {
   }
 });
 
-test("create bot via API; duplicate name is 409; list shows busy/queued", async () => {
+test("list shows busy/queued", async () => {
   const t = await setup([]);
   try {
-    const created = await j(t.base, "POST", "/api/bots", { name: "alpha", modelId: "glm-5.3", instructions: "Be brief." });
-    assert.equal(created.status, 200);
-    assert.equal(created.body.name, "alpha");
-    assert.deepEqual(created.body.model, { provider: "tokenrouter", modelId: "glm-5.3" });
-    assert.equal(created.body.instructions, "Be brief.");
-    const dup = await j(t.base, "POST", "/api/bots", { name: "alpha" });
-    assert.equal(dup.status, 409);
+    await t.bots.createBot({ name: "alpha", model: FAUX });
     const list = await j(t.base, "GET", "/api/bots");
     assert.equal(list.body.length, 1);
     assert.equal(list.body[0].busy, false);
@@ -250,58 +237,5 @@ test("route plugins, HttpError, params and query", async () => {
     assert.equal(boom.body.error, "kaboom");
   } finally {
     await t.close();
-  }
-});
-
-// ── /api/space and the sandbox mode (S2-runtime-ui) ──────────────────────────────────────────────────────────────
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-
-test("GET /api/space returns { sandbox, name, cwd }", async () => {
-  const { register } = await import("../src/routes/space.mjs");
-  const prev = process.env.TARSBOT_SPRITE_NAME;
-  process.env.TARSBOT_SPRITE_NAME = "tars-test";
-  const t = await setup([], { routes: [(app) => register(app)] });
-  try {
-    const r = await j(t.base, "GET", "/api/space");
-    assert.equal(r.status, 200);
-    assert.deepEqual(r.body, { sandbox: "sprites", name: "tars-test", cwd: "/home/sprite/workspace" });
-  } finally {
-    if (prev === undefined) delete process.env.TARSBOT_SPRITE_NAME;
-    else process.env.TARSBOT_SPRITE_NAME = prev;
-    await t.close();
-  }
-});
-
-/** Run `code` in a child process (fresh config, clean TARSBOT_* environment plus `vars`). */
-function child(code, vars) {
-  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("TARSBOT_")));
-  const out = execFileSync(process.execPath, ["--input-type=module", "-e", code], {
-    cwd: ROOT,
-    env: { ...base, TARSBOT_NO_DOTENV: "1", ...vars },
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  return JSON.parse(out);
-}
-
-const LOAD_CODE = `
-  const { productionExtensions } = await import("./src/runtime.mjs");
-  const { loadRoutes } = await import("./src/server.mjs");
-  const exts = await productionExtensions();
-  const routes = [];
-  for (const register of await loadRoutes()) register({ get: (p, h) => routes.push([p, h]), post() {}, ws() {}, guard() {}, ctx: {} });
-  const space = routes.find(([p]) => p === "/api/space");
-  console.log(JSON.stringify({ exts: exts.map((e) => e?.name ?? null), body: space ? await space[1]() : null }));`;
-
-test("production extensions and route plugins (no Desktop extension)", () => {
-  const dataDir = mkdtempSync(join(tmpdir(), "api-routes-"));
-  try {
-    const out = child(LOAD_CODE, { TARSBOT_SPRITE_NAME: "tars-test", TARSBOT_DATA_DIR: dataDir });
-    assert.deepEqual(out.body, { sandbox: "sprites", name: "tars-test", cwd: "/home/sprite/workspace" });
-    const e2b = child(LOAD_CODE, { TARSBOT_SANDBOX: "e2b", TARSBOT_DATA_DIR: dataDir });
-    assert.deepEqual(e2b.body, { sandbox: "e2b", name: "pi-cloud-agents", cwd: "/home/user/workspace" });
-    assert.deepEqual(out.exts, ["tarsbot.preamble", "coding-tools", "tarsbot.search", "tarsbot.history", "tarsbot.routines", "tarsbot.approval", "tarsbot.timing"]);
-  } finally {
-    rmSync(dataDir, { recursive: true, force: true });
   }
 });

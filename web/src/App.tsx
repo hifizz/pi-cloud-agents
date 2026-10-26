@@ -1,39 +1,62 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "./lib/api";
 import { useBotStream } from "./hooks/useBotStream";
 import { BotList } from "./components/BotList";
+import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
+import { WorkspaceStatus } from "./components/WorkspaceStatus";
 import { ApprovalBar } from "./components/ApprovalBar";
 import { ForkDialog } from "./components/ForkDialog";
 import { useApprovals } from "./hooks/useApprovals";
-import { useSpace } from "./hooks/useSpace";
 import { MessageList } from "./components/Chat/MessageList";
 import { Composer, type SendMode } from "./components/Chat/Composer";
 import { WorkspaceShell } from "./shell/WorkspaceShell";
 import { PanelHost } from "./shell/PanelHost";
 import { SessionHeader } from "./shell/SessionHeader";
-import { StatusLine, WorktreeStrip } from "./shell/ComposerContext";
+import { StatusLine } from "./shell/ComposerContext";
 import { RailFooter, RailHeader } from "./shell/rail";
 import { usePanelState } from "./shell/usePanelState";
 import { useRailState } from "./shell/useRailState";
 import { PANELS } from "./panels";
-import type { BotSummary, ForkInput, NewBotInput } from "./types";
+import {
+  WorkspaceContext,
+  describeError,
+  mapBotsToWorkspaces,
+  mergeWorkspaceList,
+  upsertWorkspace,
+  useWorkspacePoll,
+  workspacesApi,
+  type LocalWorkspace,
+  type Workspace,
+  type WorkspaceContextValue,
+} from "./lib/workspaces";
+import type { BotSummary, ForkInput } from "./types";
 
 export default function App({ email, onLoggedOut }: { email?: string; onLoggedOut?: () => void } = {}) {
   const [bots, setBots] = useState<BotSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | undefined>(() => globalThis.localStorage?.getItem("tarsbot.bot") ?? undefined);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | undefined>(() => globalThis.localStorage?.getItem("pca.workspace") ?? undefined);
+  /** Session picked inside the selected workspace; undefined = the workspace's primary session. */
+  const [pickedBotId, setPickedBotId] = useState<string>();
+  const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState<string>();
-  const { vm, status } = useBotStream(selectedId);
   const approvals = useApprovals();
   const [forkAt, setForkAt] = useState<number | string>();
   const rail = useRailState();
   const panels = usePanelState(PANELS[0]?.id);
-  const { space, failed: spaceFailed } = useSpace();
+  // Workspaces created in this tab; kept until a list response contains them (see mergeWorkspaceList).
+  const localWorkspaces = useRef(new Map<string, LocalWorkspace>());
 
   const refresh = useCallback(async () => {
-    try {
-      setBots(await api.listBots());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    const [botsResult, wsResult] = await Promise.allSettled([api.listBots(), workspacesApi.list()]);
+    if (botsResult.status === "fulfilled") setBots(botsResult.value);
+    else setError(botsResult.reason instanceof Error ? botsResult.reason.message : String(botsResult.reason));
+    if (wsResult.status === "fulfilled") {
+      setWorkspaces(mergeWorkspaceList(wsResult.value, localWorkspaces.current));
+      setWorkspacesLoaded(true);
+    } else {
+      setError(describeError(wsResult.reason));
+      setWorkspacesLoaded(true);
     }
   }, []);
 
@@ -43,17 +66,33 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Keep the selection valid: default to the first bot.
+  // Keep the workspace selection valid: default to the first one.
   useEffect(() => {
-    if (bots.length === 0) return;
-    if (!selectedId || !bots.some((b) => b.id === selectedId)) setSelectedId(bots[0].id);
-  }, [bots, selectedId]);
+    if (workspaces.length === 0) return;
+    if (!selectedWorkspaceId || !workspaces.some((w) => w.id === selectedWorkspaceId)) setSelectedWorkspaceId(workspaces[0].id);
+  }, [workspaces, selectedWorkspaceId]);
 
   useEffect(() => {
-    if (selectedId) globalThis.localStorage?.setItem("tarsbot.bot", selectedId);
-  }, [selectedId]);
+    if (selectedWorkspaceId) globalThis.localStorage?.setItem("pca.workspace", selectedWorkspaceId);
+  }, [selectedWorkspaceId]);
 
-  const bot = useMemo(() => bots.find((b) => b.id === selectedId), [bots, selectedId]);
+  const workspace = useMemo(() => workspaces.find((w) => w.id === selectedWorkspaceId), [workspaces, selectedWorkspaceId]);
+  const botWorkspace = useMemo(() => mapBotsToWorkspaces(bots, workspaces), [bots, workspaces]);
+  const bot = useMemo(() => {
+    if (!workspace) return undefined;
+    const mine = bots.filter((b) => botWorkspace.get(b.id) === workspace.id);
+    return mine.find((b) => b.id === pickedBotId) ?? mine.find((b) => b.id === workspace.botId) ?? mine[0];
+  }, [bots, botWorkspace, workspace, pickedBotId]);
+  const selectedId = bot?.id;
+  const { vm, status } = useBotStream(selectedId);
+
+  const onUpdateWorkspace = useCallback((ws: Workspace) => setWorkspaces((list) => upsertWorkspace(list, ws)), []);
+  useWorkspacePoll(workspace?.id, workspace?.status === "preparing", onUpdateWorkspace);
+
+  const workspaceCtx = useMemo<WorkspaceContextValue>(
+    () => ({ workspace, loading: !workspacesLoaded, onUpdate: onUpdateWorkspace, onChanged: () => void refresh() }),
+    [workspace, workspacesLoaded, onUpdateWorkspace, refresh],
+  );
 
   const guard = async (fn: () => Promise<unknown>) => {
     setError(undefined);
@@ -65,16 +104,23 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     }
   };
 
-  const onCreate = async (input: NewBotInput) => {
-    const created = await api.createBot(input);
-    await refresh();
-    setSelectedId(created.id);
+  const onWorkspaceCreated = (ws: Workspace) => {
+    localWorkspaces.current.set(ws.id, { workspace: ws, at: Date.now() });
+    setWorkspaces((list) => upsertWorkspace(list, ws));
+    setSelectedWorkspaceId(ws.id);
+    setPickedBotId(undefined);
+    void refresh();
+  };
+
+  const selectWorkspace = (id: string) => {
+    setSelectedWorkspaceId(id);
+    setPickedBotId(undefined);
   };
 
   const onFork = async (input: ForkInput) => {
     const created = await api.forkBot(bot!.id, input);
     await refresh();
-    setSelectedId(created.id);
+    setPickedBotId(created.id);
   };
 
   const onResolveApproval = async (taskId: string, approved: boolean) => {
@@ -113,7 +159,17 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     <>
       <RailHeader onCollapse={rail.close} />
       <div className="min-h-0 flex-1">
-        <BotList bots={bots} selectedId={selectedId} onSelect={setSelectedId} onCreate={onCreate} pendingApprovals={pendingByBot} />
+        <BotList
+          workspaces={workspaces}
+          bots={bots}
+          selectedWorkspaceId={selectedWorkspaceId}
+          selectedBotId={selectedId}
+          onSelectWorkspace={selectWorkspace}
+          onSelectBot={setPickedBotId}
+          onNewWorkspace={() => setShowNew(true)}
+          pendingApprovals={pendingByBot}
+          loading={!workspacesLoaded}
+        />
       </div>
       <RailFooter email={email} onLoggedOut={onLoggedOut} />
     </>
@@ -125,7 +181,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         bot={bot}
         vm={vm}
         status={status}
-        space={space}
+        workspace={workspace}
         railOpen={rail.open}
         panelOpen={panels.open}
         onExpandRail={rail.show}
@@ -158,24 +214,46 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             onFork={setForkAt}
             onOpenDiff={(turnKey, path) => panels.openPanel("diff", { turnKey, path })}
           />
+          {workspace && workspace.status !== "ready" && <WorkspaceStatus workspace={workspace} onUpdate={onUpdateWorkspace} variant="banner" />}
           <Composer
             busy={vm.busy}
+            disabled={workspace?.status !== "ready"}
             model={model}
             queued={vm.inbox.length}
             onSend={onSend}
             onAbort={() => void guard(() => api.abort(bot.id)).catch(() => {})}
-            context={<WorktreeStrip space={space} cwd={vm.agent.cwd} />}
             status={<StatusLine busy={vm.busy} queued={vm.inbox.length} status={status} />}
           />
         </>
+      ) : workspace ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-6">
+          <div className="mx-auto max-w-xl space-y-3">
+            <h2 className="text-base font-semibold text-fg">{workspace.name}</h2>
+            <p className="text-sm text-fg-muted">
+              {workspace.status === "ready" ? "工作区已就绪，会话正在加载。" : "工作区还没有可用的会话。准备完成后会自动出现，输入框此前保持禁用。"}
+            </p>
+            <WorkspaceStatus workspace={workspace} onUpdate={onUpdateWorkspace} />
+          </div>
+        </div>
       ) : (
-        <p className="m-auto text-sm text-fg-muted">Create or select a bot to start.</p>
+        <div className="m-auto max-w-sm space-y-3 p-6 text-center">
+          <p className="text-sm text-fg-muted">{workspacesLoaded ? "还没有工作区。新建一个工作区，选择仓库并描述需求，Agent 会在独立的云环境里开始工作。" : "加载中…"}</p>
+          {workspacesLoaded && (
+            <button
+              type="button"
+              onClick={() => setShowNew(true)}
+              className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              新建工作区
+            </button>
+          )}
+        </div>
       )}
     </>
   );
 
   return (
-    <>
+    <WorkspaceContext.Provider value={workspaceCtx}>
       <WorkspaceShell
         railOpen={rail.open}
         panelOpen={panels.open}
@@ -187,7 +265,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             active={panels.active}
             onSelect={panels.select}
             onClose={panels.close}
-            ctx={{ bot, bots, vm, space, spaceFailed }}
+            ctx={{ bot, bots, vm }}
             focus={panels.focus}
           />
         }
@@ -201,6 +279,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           onClose={() => setForkAt(undefined)}
         />
       )}
-    </>
+      {showNew && <NewWorkspaceDialog onCreated={onWorkspaceCreated} onClose={() => setShowNew(false)} />}
+    </WorkspaceContext.Provider>
   );
 }

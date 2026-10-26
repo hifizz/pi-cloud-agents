@@ -11,6 +11,7 @@ import { PANELS } from "../src/panels";
 import { emptyVM } from "../src/lib/reducer";
 import type { PanelDefinition } from "../src/panels/types";
 import type { BotSummary } from "../src/types";
+import type { Workspace } from "../src/lib/workspaces";
 
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
@@ -119,15 +120,19 @@ describe("WorkspaceShell", () => {
 });
 
 describe("BotList search", () => {
-  it("filters bots by name", async () => {
+  it("filters workspaces by name", async () => {
     const user = userEvent.setup();
+    const mk = (id: string, name: string, botId: string): Workspace => ({
+      id, name, repo: "o/r", baseBranch: "main", branch: `tarsbot/${id}`, status: "ready", steps: [], botId,
+    });
+    const workspaces = [mk("w1", "tars", "b1"), mk("w2", "reviewer", "b2"), mk("w3", "Builder", "b3")];
     const bots = [bot(), bot({ id: "b2", name: "reviewer" }), bot({ id: "b3", name: "Builder" })];
-    render(<BotList bots={bots} onSelect={vi.fn()} onCreate={vi.fn()} />);
-    await user.type(screen.getByLabelText("Search bots"), "rev");
+    render(<BotList workspaces={workspaces} bots={bots} onSelectWorkspace={vi.fn()} onSelectBot={vi.fn()} onNewWorkspace={vi.fn()} />);
+    await user.type(screen.getByLabelText("搜索工作区"), "rev");
     expect(screen.getByText("reviewer")).toBeInTheDocument();
     expect(screen.queryByText("tars")).not.toBeInTheDocument();
-    await user.clear(screen.getByLabelText("Search bots"));
-    await user.type(screen.getByLabelText("Search bots"), "BUILD");
+    await user.clear(screen.getByLabelText("搜索工作区"));
+    await user.type(screen.getByLabelText("搜索工作区"), "BUILD");
     expect(screen.getByText("Builder")).toBeInTheDocument();
     expect(screen.queryByText("reviewer")).not.toBeInTheDocument();
   });
@@ -146,32 +151,38 @@ describe("RoutinesPanel embedded", () => {
 });
 
 describe("EnvironmentPane", () => {
-  it("shows loading / unavailable without space", () => {
-    const { rerender } = render(<EnvironmentPane />);
+  const ws: Workspace = {
+    id: "w1", name: "fix upload", repo: "hifizz/demo", baseBranch: "main", baseCommit: "abcdef1234567", branch: "tarsbot/fix-1a2b3c",
+    status: "ready", steps: [], model: "swe-2", binding: { provider: "sprites", runtimeId: "pca-0123456789abcdef", version: 2 },
+  };
+
+  it("shows loading / empty state without a workspace", () => {
+    const { rerender } = render(<EnvironmentPane loading />);
     expect(screen.getByText("加载中…")).toBeInTheDocument();
-    rerender(<EnvironmentPane failed />);
-    expect(screen.getByText("执行环境信息不可用")).toBeInTheDocument();
+    rerender(<EnvironmentPane />);
+    expect(screen.getByText(/还没有工作区/)).toBeInTheDocument();
   });
 
-  it("renders sprites and e2b, cwd fallback and bot model", () => {
-    const { rerender } = render(<EnvironmentPane space={{ sandbox: "sprites", name: "pca" }} bot={bot()} />);
-    let card = screen.getByTestId("sprite-card");
+  it("renders the workspace: repo, base branch + commit, work branch, environment name, binding version, model", () => {
+    const vm = { agent: { modelId: "glm-5.3", thinkingLevel: "high" } };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("[]", { status: 200 }));
+    render(<EnvironmentPane workspace={ws} bot={bot()} vm={vm} />);
+    const card = screen.getByTestId("sprite-card");
     expect(card).toHaveAttribute("data-sandbox", "sprites");
-    expect(card).toHaveTextContent("Sprite");
-    expect(card).toHaveTextContent("pca");
-    expect(card).toHaveTextContent("/home/sprite/workspace");
-    expect(card).toHaveTextContent("swe-2");
-
-    const vm = { agent: { modelId: "glm-5.3", thinkingLevel: "high", cwd: "/work" } };
-    rerender(<EnvironmentPane space={{ sandbox: "e2b", name: "pca", cwd: "/home/user/workspace" }} bot={bot()} vm={vm} />);
-    card = screen.getByTestId("sprite-card");
-    expect(card).toHaveAttribute("data-sandbox", "e2b");
-    expect(card).toHaveTextContent("E2B");
-    expect(card).toHaveTextContent("/work");
+    expect(card).toHaveTextContent("hifizz/demo");
+    expect(card).toHaveTextContent("main");
+    expect(card).toHaveTextContent("abcdef1");
+    expect(card).not.toHaveTextContent("abcdef12");
+    expect(card).toHaveTextContent("tarsbot/fix-1a2b3c");
+    expect(card).toHaveTextContent("sprites · abcdef");
+    expect(card).toHaveTextContent("v2");
     expect(card).toHaveTextContent("glm-5.3");
     expect(card).toHaveTextContent("high");
+  });
 
-    rerender(<EnvironmentPane space={{ sandbox: "e2b", name: null, cwd: "/home/user/workspace" }} />);
-    expect(screen.getByTestId("sprite-card")).toHaveTextContent("/home/user/workspace");
+  it("never requests /api/space", () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("[]", { status: 200 }));
+    render(<EnvironmentPane workspace={ws} />);
+    for (const [url] of fetchMock.mock.calls) expect(String(url)).not.toContain("/api/space");
   });
 });

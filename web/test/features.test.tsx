@@ -152,7 +152,19 @@ describe("ApprovalsStream", () => {
 describe("BotList: approvals badge and fork lineage", () => {
   it("shows a badge for pending approvals and the parent name on forked bots", () => {
     const bots = [bot(), bot({ id: "b2", name: "reviewer", conversationId: 9, parent: { botId: "b1", entryId: 3 } })];
-    render(<BotList bots={bots} onSelect={vi.fn()} onCreate={vi.fn()} pendingApprovals={{ b2: 2 }} />);
+    const workspaces = [{ id: "w1", name: "ws", repo: "o/r", baseBranch: "main", branch: "tarsbot/x", status: "ready" as const, steps: [], botId: "b1" }];
+    render(
+      <BotList
+        workspaces={workspaces}
+        bots={bots}
+        selectedWorkspaceId="w1"
+        selectedBotId="b1"
+        onSelectWorkspace={vi.fn()}
+        onSelectBot={vi.fn()}
+        onNewWorkspace={vi.fn()}
+        pendingApprovals={{ b2: 2 }}
+      />,
+    );
     expect(screen.getByRole("status", { name: "2 pending approvals" })).toHaveTextContent("2");
     expect(screen.getByText("↳ tars")).toBeInTheDocument();
   });
@@ -174,12 +186,13 @@ describe("Fork", () => {
     expect(onFork).toHaveBeenCalledWith(1);
   });
 
-  it("dialog submits name, model and readOnly (default on)", async () => {
+  it("dialog submits name, model and readOnly: true, with no way to make it writable", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
     render(<ForkDialog parentName="tars" entryId={12} defaultModelId="glm-5.3" onSubmit={onSubmit} onClose={onClose} />);
-    expect(screen.getByRole("checkbox", { name: /read-only tools/i })).toBeChecked();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByText(/只读副本，用于查看和讨论，不会修改文件/)).toBeInTheDocument();
     await user.type(screen.getByLabelText("New bot name"), "  reviewer ");
     await user.selectOptions(screen.getByLabelText("Model"), "glm-5.3-flash");
     await user.click(screen.getByRole("button", { name: "Fork" }));
@@ -187,17 +200,19 @@ describe("Fork", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it("dialog honours unchecking read-only, keeps open and shows the error on failure", async () => {
+  it("dialog keeps open and shows the error on failure; the retry is still read-only", async () => {
     const user = userEvent.setup();
-    const onSubmit = vi.fn().mockRejectedValue(new Error("bot exists: dup"));
+    const onSubmit = vi.fn().mockRejectedValueOnce(new Error("bot exists: dup")).mockResolvedValue(undefined);
     const onClose = vi.fn();
     render(<ForkDialog parentName="tars" entryId={3} onSubmit={onSubmit} onClose={onClose} />);
     await user.type(screen.getByLabelText("New bot name"), "dup");
-    await user.click(screen.getByRole("checkbox", { name: /read-only tools/i }));
     await user.click(screen.getByRole("button", { name: "Fork" }));
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: "dup", readOnly: false }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ name: "dup", readOnly: true }));
     expect(await screen.findByRole("alert")).toHaveTextContent("bot exists: dup");
     expect(onClose).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Fork" }));
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onSubmit).toHaveBeenLastCalledWith(expect.objectContaining({ readOnly: true }));
   });
 
   it("Escape closes the dialog", async () => {

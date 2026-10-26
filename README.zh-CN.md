@@ -6,7 +6,7 @@
 
 自托管的云端编码 Agent，对标 [Cursor Cloud Agents](https://cursor.com/docs/cloud-agent)：在浏览器里给 Bot 布置任务，它在自己的远程 Linux 机器上工作——克隆仓库、修改代码、跑测试、推分支、开 PR——你在网页上观察、steer、审批。
 
-基于 [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable)（`@earendil-works/pi-durable`）：每个 Bot 是一条持久对话，崩溃、重启后自动恢复。执行环境是可插拔的云沙箱：[Fly.io Sprites](https://sprites.dev)（默认、线上使用）或 [E2B](https://e2b.dev)。
+基于 [Pi Durable](https://github.com/earendil-works/pi/tree/main/packages/durable)（`@earendil-works/pi-durable`）：每个 Bot 是一条持久对话，崩溃、重启后自动恢复。工作以工作区为单位：每个工作区对应一个 GitHub 仓库与分支，并拥有自己的 [Fly.io Sprite](https://sprites.dev)（云沙箱），通过浏览器工作台操作。
 
 线上地址：`https://pi.zilin.im`（仅白名单邮箱可登录，不开放注册）。
 
@@ -20,7 +20,7 @@
 - **人在回路**：危险操作（`rm -rf`、force push、删除远端分支、直接推 `main` / `dev`、合并或关闭 PR、GitHub API 写请求等）会停在审批条，审批结果持久保存。
 - **实时 Web UI**：流式消息与工具卡片（含耗时和 diff）；steer、排队或中止；从任意消息 fork 对话；compact / reset；token 用量。
 - **定时例程**：按 Bot 定时发送提示词，重启后照常运行。
-- **可插拔沙箱**：一个沙箱只需 `bash()` 和 `info()` 两个原语；Sprites 与 E2B 都通过了 pi-durable 的 `ExecutionEnv` 一致性测试。
+- **每个工作区一个 Sprite**：供应商（`src/providers/`）负责创建、初始化与释放 Sprite；命令经机器上的小型 runner（`src/runner/`）执行，页面关闭、服务重启后仍可接续。
 - **多模型**：经 OpenAI 兼容网关接入（默认 `swe-2`，另有 `glm-5.3-flash`、`glm-5.3`、`claude-sonnet-5-5`、`gpt-5.6-terra` 等）。
 
 ### 与 Cursor Cloud Agents 的对比
@@ -28,7 +28,7 @@
 思路相同——Agent 在远程机器里干活，交回一个 PR——取舍不同：
 
 - **Cursor**：每个 Agent 跑在隔离的云端 VM 里，环境（仓库、依赖、密钥、网络控制）可托管、可复用，通常由 Cursor 托管（[文档](https://cursor.com/docs/cloud-agent)）。
-- **pi-cloud-agents**：面向单用户的小型自托管方案：一台 Fly Machine + sqlite；所有 Bot 共用一个常驻沙箱（Sprite 或 E2B）；每个 Bot 一条崩溃后可恢复的持久对话；破坏性的 git / shell 操作需要显式审批。
+- **pi-cloud-agents**：面向单用户的小型自托管方案：一台 Fly Machine + sqlite；每个工作区一个 Sprite；每个 Bot 一条崩溃后可恢复的持久对话；破坏性的 git / shell 操作需要显式审批。
 
 ## 架构
 
@@ -40,13 +40,12 @@
         node src/server.mjs  0.0.0.0:8080
          ├─ 鉴权守卫（src/routes/auth.mjs + src/auth.mjs）→ /data/auth.sqlite
          ├─ Pi Durable harness → /data/alice.sqlite, /data/bots.json
-         └─ SandboxEnv ── bash() ──▶ TARSBOT_SANDBOX
-                                      ├─ sprites：Sprite `pi-cloud-agents`（/home/sprite/workspace）
-                                      └─ e2b：    E2B 沙箱 `pi-cloud-agents`（/home/user/workspace）
+         ├─ 控制库 → /data/control.sqlite，检查点 → /data/checkpoints
+         └─ 每个工作区：SandboxEnv + runner ──▶ Sprite `pca-<id>`
                                                     └─ git / gh ──▶ GitHub
 ```
 
-- 沙箱接口：`src/sandbox/<provider>.mjs`，由 `src/sandbox/index.mjs` 选择，见 [`docs/CONTRACTS.md`](docs/CONTRACTS.md)。
+- 工作区、控制库、供应商与 runner：见 [`docs/CONTRACTS.md`](docs/CONTRACTS.md) §7 与 [`docs/M1-PLAN.md`](docs/M1-PLAN.md)。
 - 全部状态存 sqlite / JSON，位于 Fly Volume `/data`；存储只允许单写进程，因此只跑 1 台 Machine。
 
 ## 本地开发
@@ -56,7 +55,6 @@
 ```bash
 npm install && (cd web && npm install && npm run build)
 npm start                      # http://127.0.0.1:8090
-TARSBOT_SANDBOX=e2b npm start  # 同上，改用 E2B 沙箱
 cd web && npm run dev          # Vite dev，http://127.0.0.1:5183
 ```
 
@@ -64,13 +62,10 @@ cd web && npm run dev          # Vite dev，http://127.0.0.1:5183
 
 - `TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`：OpenAI 兼容模型网关
 - `EXA_API_KEY`：web 搜索
-- `SPRITES_TOKEN`、`TARSBOT_SPRITE_NAME`：Sprites 沙箱
-- `E2B_API_KEY`（可选 `TARSBOT_E2B_NAME`、`TARSBOT_E2B_IDLE_MS`）：E2B 沙箱
+- `SPRITES_TOKEN`：Sprites（启动必需）
 - `GITHUB_TOKEN`（仅限测试仓库的 fine-grained PAT）、`TARSBOT_GIT_EMAIL`
 - `TARSBOT_ALLOWED_EMAILS`：登录白名单（逗号分隔）
-- 可选：`TARSBOT_SANDBOX`（`sprites` | `e2b`）、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`TARSBOT_PUBLIC_URL`、`TARSBOT_MODEL`
-
-沙箱初始化（幂等）：`scripts/sprite-setup.sh` 或 `scripts/e2b-setup.sh`。
+- 可选：`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`TARSBOT_PUBLIC_URL`、`TARSBOT_MODEL`
 
 本地登录：
 
@@ -79,7 +74,6 @@ cd web && npm run dev          # Vite dev，http://127.0.0.1:5183
 
 已有 Bot 换模型：停掉 server 后 `node scripts/set-model.mjs <bot> <modelId>`。
 
-命令行替代：`npm run repl`——与 server 共用 sqlite，**不能和 server 同时运行**。
 
 ## 测试
 
@@ -91,7 +85,7 @@ set -a; . ./.env; set +a; npm run test:env           # 在真实沙箱上跑 Exe
 
 ## 部署
 
-部署到 Fly.io（`fly deploy`、secrets、volume、域名、GitHub 自动部署）见 [`docs/DEPLOY.md`](docs/DEPLOY.md)。沙箱初始化记录：[`docs/sprite-cloud.md`](docs/sprite-cloud.md)、[`docs/e2b-cloud.md`](docs/e2b-cloud.md)。方案与决策：[`docs/CLOUD-PLAN.md`](docs/CLOUD-PLAN.md)、[`docs/E2B-PLAN.md`](docs/E2B-PLAN.md)。
+部署到 Fly.io（`fly deploy`、secrets、volume、域名、GitHub 自动部署）见 [`docs/DEPLOY.md`](docs/DEPLOY.md)。沙箱初始化记录：[`docs/sprite-cloud.md`](docs/sprite-cloud.md)。方案与决策：[`docs/CLOUD-PLAN.md`](docs/CLOUD-PLAN.md)、[`docs/M1-PLAN.md`](docs/M1-PLAN.md)。
 
 ## 安全
 
@@ -115,6 +109,5 @@ set -a; . ./.env; set +a; npm run test:env           # 在真实沙箱上跑 Exe
 ## 已知限制
 
 - pi-durable API 处于实验阶段（依赖收敛在 `env.mjs`、`ext/`、`server.mjs` 三处）。
-- 单写进程：server 与 repl 不能同时开；Fly 只能 1 台 Machine。
-- 沙箱按进程选择（`TARSBOT_SANDBOX`），不能按 Bot 选；所有 Bot 共用一个沙箱。
-- E2B `base` 模板规格小（2 vCPU / 约 470 MB，setup 加了 1 GB swap）；Hobby 账户沙箱单次存活上限 1 小时（之后自动暂停）。E2B 尚未做出站网络白名单。
+- 单写进程：只运行一个 server 进程、一台 Fly Machine。
+- 每个会话都属于一个工作区；同一工作区目前只有一个可写会话（写锁后续提供），fork 只读。
