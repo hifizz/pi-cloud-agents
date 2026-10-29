@@ -61,6 +61,12 @@ export function firstLine(s: string): string {
   return rest.length ? `${line} …` : line;
 }
 
+/** Last non-empty line (live progress), clipped. */
+export function lastLine(s: string, max = 160): string {
+  const lines = s.split("\n").filter((l) => l.trim());
+  return lines.length ? clip(lines[lines.length - 1], max) : "";
+}
+
 /** Keep the END of long strings (file names matter more than directories). */
 export function tailClip(s: string, max = 64): string {
   return s.length > max ? `…${s.slice(s.length - max + 1)}` : s;

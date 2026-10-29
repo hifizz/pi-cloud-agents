@@ -31,6 +31,8 @@ export interface ApprovalItem {
   args?: unknown;
   reason?: string;
   requestedAt?: string;
+  /** Set for a nested call: the tool call (e.g. a codemode script) this one was made inside. */
+  parent?: { callId: string; taskId: string };
 }
 
 /** One routine (GET /api/routines). Times are epoch milliseconds. */
@@ -73,6 +75,21 @@ export interface ImagePart {
 
 export type ToolStatus = "running" | "done" | "error" | "interrupted";
 
+/** One call a running tool made inside another (a codemode script's `tools.<name>(args)`). */
+export interface NestedToolCall {
+  /** Nested call id: `<parentCallId>/<key>`. */
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  status: ToolStatus;
+  /** Live output while running (nested calls report progress like top-level ones). */
+  output?: string;
+  /** Error text once failed. */
+  error?: string;
+  durationMs?: number;
+  diagnostics?: string[];
+}
+
 export interface ToolPart {
   type: "tool";
   id: string; // tool call id
@@ -87,6 +104,8 @@ export interface ToolPart {
   diagnostics?: string[];
   /** Structured tool result details (e.g. the edit tool's diff). Shape is tool-specific. */
   details?: unknown;
+  /** Nested calls this tool made (a codemode script's `tools.*` calls), in call order. */
+  nested?: NestedToolCall[];
   /** Server-measured execution time (approval wait excluded), from the result's details.tarsbotTiming. */
   durationMs?: number;
   /** Epoch ms when the result arrived. */
