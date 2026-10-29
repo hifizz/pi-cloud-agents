@@ -280,3 +280,131 @@ describe("reducer: snapshot reset and late join", () => {
     expect(toolsOf(vm)[0].status).toBe("interrupted");
   });
 });
+
+describe("reducer: nested tool calls (codemode)", () => {
+  // A running codemode call "cm1" whose script makes nested tool calls ("cm1/c1", ...).
+  const base = (): ConversationVM =>
+    replay([
+      { type: "snapshot", entries: [], tools: [], inbox: [], agent: {}, usage: { models: {}, tools: {} } },
+      {
+        type: "events",
+        events: [
+          { type: "run_start", inputs: [1] },
+          {
+            type: "message_end",
+            entry: {
+              id: 2,
+              kind: "pi.assistant",
+              model: [
+                {
+                  role: "assistant",
+                  stopReason: "toolUse",
+                  content: [{ type: "toolCall", id: "cm1", name: "codemode", arguments: { code: "await tools.bash({command:'ls'})" } }],
+                },
+              ],
+            },
+          },
+          { type: "tool_execution_start", toolCallId: "cm1", toolName: "codemode", taskId: "t1", args: { code: "await tools.bash({command:'ls'})" } },
+        ],
+      },
+    ]);
+
+  it("nested start/update/end attach to the parent's nested list", () => {
+    let vm = reduce(base(), {
+      type: "events",
+      events: [
+        { type: "tool_execution_start", toolCallId: "cm1/c1", toolName: "bash", taskId: "t2", parentToolCallId: "cm1", parentTaskId: "t1", args: { command: "ls" } },
+        { type: "tool_execution_update", toolCallId: "cm1/c1", toolName: "bash", parentToolCallId: "cm1", output: { append: "partial\n" } },
+      ],
+    });
+    const parent = toolsOf(vm)[0];
+    expect(parent.nested).toHaveLength(1);
+    expect(parent.nested![0]).toMatchObject({ id: "cm1/c1", name: "bash", status: "running", args: { command: "ls" }, output: "partial\n" });
+    // No stray top-level part for the nested call id.
+    expect(toolsOf(vm)).toHaveLength(1);
+
+    vm = reduce(vm, {
+      type: "events",
+      events: [
+        {
+          type: "tool_execution_end",
+          toolCallId: "cm1/c1",
+          toolName: "bash",
+          parentToolCallId: "cm1",
+          parentTaskId: "t1",
+          result: { taskId: "t2", isError: false, diagnostics: [], durationMs: 42, structuredOutput: { output: "a.txt\nb.txt\n", truncated: false, exitCode: 0 } },
+        },
+      ],
+    });
+    expect(toolsOf(vm)[0].nested![0]).toMatchObject({ status: "done", durationMs: 42, output: "a.txt\nb.txt\n" });
+  });
+
+  it("nested end with isError -> error status and message; without result -> interrupted", () => {
+    let vm = reduce(base(), {
+      type: "events",
+      events: [
+        { type: "tool_execution_start", toolCallId: "cm1/c1", toolName: "bash", taskId: "t2", parentToolCallId: "cm1", args: { command: "rm -rf /" } },
+        {
+          type: "tool_execution_end",
+          toolCallId: "cm1/c1",
+          toolName: "bash",
+          parentToolCallId: "cm1",
+          result: { taskId: "t2", isError: true, diagnostics: [{ severity: "error", message: "User denied: rm -rf" }] },
+        },
+        { type: "tool_execution_start", toolCallId: "cm1/c2", toolName: "read", taskId: "t3", parentToolCallId: "cm1", args: { path: "x" } },
+        { type: "tool_execution_end", toolCallId: "cm1/c2", toolName: "read", parentToolCallId: "cm1" },
+      ],
+    });
+    const [denied, gone] = toolsOf(vm)[0].nested!;
+    expect(denied).toMatchObject({ status: "error", error: "User denied: rm -rf" });
+    expect(gone.status).toBe("interrupted");
+  });
+
+  it("run_end interrupts still-running nested calls too", () => {
+    let vm = reduce(base(), {
+      type: "events",
+      events: [
+        { type: "tool_execution_start", toolCallId: "cm1/c1", toolName: "bash", taskId: "t2", parentToolCallId: "cm1", args: { command: "sleep 9" } },
+        { type: "run_end", inputs: [1] },
+      ],
+    });
+    const parent = toolsOf(vm)[0];
+    expect(parent.status).toBe("interrupted");
+    expect(parent.nested![0].status).toBe("interrupted");
+  });
+
+  it("snapshot nestedTools attach to the parent's part", () => {
+    const vm = reduce(emptyVM(), {
+      type: "snapshot",
+      entries: [
+        {
+          id: 2,
+          kind: "pi.assistant",
+          model: [{ role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", id: "cm1", name: "codemode", arguments: { code: "x" } }] }],
+        },
+      ],
+      run: { inputs: [1] },
+      tools: [{ callId: "cm1", name: "codemode", status: "running", taskId: "t1" }],
+      nestedTools: [
+        { callId: "cm1/c1", name: "bash", status: "running", taskId: "t2", parentCallId: "cm1", parentTaskId: "t1", arguments: { command: "ls" }, output: "half\n" },
+        {
+          callId: "cm1/c2",
+          name: "read",
+          status: "done",
+          taskId: "t3",
+          parentCallId: "cm1",
+          parentTaskId: "t1",
+          arguments: { path: "a" },
+          summary: { isError: false, durationMs: 7 },
+        },
+      ],
+      inbox: [],
+      agent: {},
+      usage: { models: {}, tools: {} },
+    });
+    const parent = toolsOf(vm)[0];
+    expect(parent.nested).toHaveLength(2);
+    expect(parent.nested![0]).toMatchObject({ id: "cm1/c1", name: "bash", status: "running", args: { command: "ls" }, output: "half\n" });
+    expect(parent.nested![1]).toMatchObject({ id: "cm1/c2", name: "read", status: "done", durationMs: 7 });
+  });
+});
