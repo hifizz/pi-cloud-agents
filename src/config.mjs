@@ -33,6 +33,10 @@ export const config = {
   },
   provider: "tokenrouter",
   defaultModelId: process.env.TARSBOT_MODEL ?? "swe-2",
+  /** Code mode (the `codemode` script tool): on by default; TARSBOT_CODEMODE=0/false/off/no disables it. */
+  get codemode() {
+    return !/^(0|false|off|no)$/i.test(process.env.TARSBOT_CODEMODE ?? "");
+  },
 };
 
 export const defaultModel = () => ({ provider: config.provider, modelId: config.defaultModelId });

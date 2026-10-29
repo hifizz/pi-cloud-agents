@@ -140,9 +140,10 @@ export class ApprovalCenter extends EventEmitter {
   /**
    * Park a call until it is resolved. Same `taskId` while pending returns the same promise.
    * `signal` aborts the wait: the item is removed and the promise rejects.
+   * `parent` (`{callId, taskId}`) marks a nested call — one a running tool (e.g. a codemode script) made.
    * @returns {Promise<boolean>}
    */
-  request({ taskId, conversationId, toolName, args, reason, signal }) {
+  request({ taskId, conversationId, toolName, args, reason, signal, parent }) {
     const key = String(taskId);
     const existing = this.#pending.get(key);
     if (existing) return existing.promise;
@@ -160,6 +161,7 @@ export class ApprovalCenter extends EventEmitter {
       args,
       reason,
       requestedAt: new Date().toISOString(),
+      ...(parent ? { parent: { callId: String(parent.callId), taskId: String(parent.taskId) } } : {}),
     };
     const entry = { item, promise, settle, fail, cleanup: () => {} };
     if (signal) {
@@ -231,6 +233,7 @@ export function createApproval({ center = approvals, rules } = {}) {
               toolName: call.name,
               args: call.arguments,
               reason,
+              parent: call.parent,
               signal: context?.abortSignal,
             });
             // First write wins (REQ-F10-2): a concurrent earlier verdict is returned instead of ours.
