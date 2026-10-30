@@ -229,6 +229,43 @@ export function register(app) {
     }
   }
 
+  /** The existing discussion session for an issue in this workspace: a Bot whose issueLoop metadata names the issue
+   * and carries no branch/sourceBotId (those are executions). Only same-workspace Bots count — either a direct
+   * workspaceId or an actual conversation link. Sequential clicks return it unchanged; no locking. */
+  function findDiscussion(wsId, issueNo) {
+    if (!bots) return undefined;
+    const linked = new Set(control.links.conversationsOf(wsId).map((l) => l.botId));
+    return bots
+      .list()
+      .find(
+        (b) =>
+          b.issueLoop &&
+          Number(b.issueLoop.issue) === issueNo &&
+          !b.issueLoop.branch &&
+          !b.issueLoop.sourceBotId &&
+          (b.workspaceId === wsId || linked.has(b.id)),
+      );
+  }
+
+  /** Workspace overview for the left-rail entry: open issues and open, unmerged PRs of the workspace's OWN bound repo
+   * (never a caller-supplied repo), plus the botId of an existing discussion per issue. Issues list is paginated and
+   * PRs are read from /pulls so they are never mixed in as issues. */
+  // GET /api/workspaces/:id/overview
+  app.get("/api/workspaces/:id/overview", async (_req, _res, { params }) => {
+    const ws = workspaceOr404(params.id);
+    let issues;
+    let pulls;
+    try {
+      [issues, pulls] = await Promise.all([github.listIssues(ws.repo), github.listPulls(ws.repo)]);
+    } catch (e) {
+      throw mapError(e);
+    }
+    return {
+      issues: issues.map((i) => ({ ...i, discussionBotId: findDiscussion(ws.id, i.number)?.id ?? null })),
+      pulls: pulls.filter((p) => p.state === "open" && !p.merged),
+    };
+  });
+
   /** Run one exec on the workspace's Sprite; returns trimmed stdout or throws with stderr. */
   async function sh(ws, command, timeoutMs = 120_000) {
     const bash = await spriteBash(ws);
@@ -356,6 +393,26 @@ export function register(app) {
     const issueNo = Number(b.issue);
     if (!Number.isInteger(issueNo) || issueNo <= 0) throw new HttpError(400, "issue must be a positive integer");
     const ws = assertIssueLoopWorkspace(params.id);
+
+    // Sequential repeat of the same click: the same workspace + issue discussion already exists. Return it without
+    // touching GitHub or the Sprite — no worktree command and no start message is sent again.
+    const existing = findDiscussion(ws.id, issueNo);
+    if (existing) {
+      const meta = existing.issueLoop;
+      return {
+        discussion: {
+          botId: existing.id,
+          name: existing.name,
+          conversationId: existing.conversationId,
+          workspaceId: ws.id,
+          issue: issueNo,
+          baseBranch: meta.baseBranch,
+          pinnedSha: meta.pinnedSha,
+          dir: meta.dir,
+          existing: true,
+        },
+      };
+    }
 
     // Every GitHub read here is required: a failure stops the request with the real error (no empty-list fallback).
     let issue;

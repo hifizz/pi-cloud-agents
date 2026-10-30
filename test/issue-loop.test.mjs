@@ -24,8 +24,8 @@ const MAIN_SHA = "3157db095cb9344e5b9cf0669657bf613d036b46";
 const OTHER_SHA = "b".repeat(40);
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
-/** GitHub REST double: repo meta, branches, the issue and its comments. */
-function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [] }) {
+/** GitHub REST double: repo meta, branches, the issue and its comments, plus optional /issues and /pulls lists. */
+function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [], issues, pulls } = {}) {
   const st = { calls: [] };
   const reply = (status, data) => ({ status, headers: { get: () => null }, text: async () => (data === undefined ? "" : JSON.stringify(data)) });
   const fetch = async (url, init) => {
@@ -48,8 +48,35 @@ function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [] 
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/issues\/(\d+)\/comments$/.exec(u.pathname))) {
       return reply(200, comments.map((c) => ({ user: { login: c.author }, body: c.body, html_url: `https://github.com/${REPO}/issues/${m[2]}#c` })));
     }
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/issues$/.exec(u.pathname))) {
+      // GitHub mixes PRs into /issues: the fake does the same so the filter is really exercised. It also honors
+      // per_page/page so real multi-page pagination is tested, not just query params.
+      const items = (issues ?? []).map((i) => ({
+        number: i.number,
+        title: i.title,
+        html_url: `https://github.com/${REPO}/issues/${i.number}`,
+        state: "open",
+        user: { login: i.author ?? "fizz" },
+        comments: i.comments ?? 0,
+        ...(i.pull_request ? { pull_request: { url: `https://api.github.com/repos/${REPO}/pulls/${i.number}` } } : {}),
+      }));
+      const perPage = Number(u.searchParams.get("per_page")) || 30;
+      const page = Number(u.searchParams.get("page")) || 1;
+      return reply(200, items.slice((page - 1) * perPage, page * perPage));
+    }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(u.pathname))) {
-      return reply(200, []); // no open PRs for the baseline
+      const items = (pulls ?? []).map((p) => ({
+        number: p.number,
+        title: p.title ?? "",
+        html_url: `https://github.com/${REPO}/pull/${p.number}`,
+        state: p.state ?? "open",
+        merged_at: p.merged ? "2026-01-01T00:00:00Z" : null,
+        head: { ref: p.headRef ?? "feat" },
+        base: { ref: p.baseRef ?? "main" },
+      }));
+      const perPage = Number(u.searchParams.get("per_page")) || 30;
+      const page = Number(u.searchParams.get("page")) || 1;
+      return reply(200, items.slice((page - 1) * perPage, page * perPage));
     }
     return reply(404, { message: "Not Found" });
   };
@@ -98,9 +125,9 @@ function fakeRuntimeBash() {
   return { calls, bash };
 }
 
-async function makeEnv({ branches, issue, comments, defaultBranch } = {}) {
+async function makeEnv({ branches, issue, comments, defaultBranch, issues, pulls } = {}) {
   const store = openControlStore({ path: null });
-  const gh = fakeGithubApi({ branches, issue, comments, defaultBranch });
+  const gh = fakeGithubApi({ branches, issue, comments, defaultBranch, issues, pulls });
   const github = createGithubClient({ token: TOKEN, fetch: gh.fetch });
   const bots = fakeBots();
   const rt = fakeRuntimeBash();
@@ -601,6 +628,162 @@ test("discussion message: safety rules are restated, approval stays installed, h
     const spec = env.bots.created[0];
     assert.deepEqual(spec.extensions.remove.map((e) => e.name), ["tarsbot.preamble"]);
     assert.match(spec.instructions, /Never print, echo, log or write any credential|token|credential/i, "rules restated in session instructions");
+  } finally {
+    await env.close();
+  }
+});
+
+// ---- workspace overview (SPIKE-workspace-overview) -------------------------------------------------------------------
+
+test("overview: open issues and open unmerged PRs come back separately; PRs in /issues are filtered out; a merged or closed PR is not shown", async () => {
+  const env = await makeEnv({
+    defaultBranch: "main",
+    branches: { main: MAIN_SHA },
+    issue: { title: "demo", body: "分析" },
+    issues: [
+      { number: 12, title: "open issue" },
+      { number: 9, title: "a PR leaked into /issues", pull_request: true },
+    ],
+    pulls: [
+      { number: 7, title: "open pr", headRef: "feat-a" },
+      { number: 6, title: "merged pr", merged: true },
+      { number: 5, title: "closed pr", state: "closed" },
+    ],
+  });
+  try {
+    const { status, json } = await env.call("GET", `/api/workspaces/${env.ws.id}/overview`);
+    assert.equal(status, 200, json?.error);
+    // open unresolved issues only; the PR entry returned by /issues is never listed as an issue
+    assert.deepEqual(
+      json.issues.map((i) => i.number),
+      [12],
+    );
+    assert.equal(json.issues[0].title, "open issue");
+    assert.equal(json.issues[0].discussionBotId, null, "no discussion session yet");
+    // only the open unmerged PR
+    assert.deepEqual(
+      json.pulls.map((p) => p.number),
+      [7],
+    );
+    assert.equal(json.pulls[0].title, "open pr");
+    // real paginated requests, not a bare first-page hit
+    assert.ok(env.gh.st.calls.some((c) => /\/issues\?.*per_page=100&page=1/.test(c)));
+    assert.ok(env.gh.st.calls.some((c) => /\/pulls\?.*per_page=100&page=1/.test(c)));
+  } finally {
+    await env.close();
+  }
+});
+
+test("overview: items on the second page are returned (real pagination, not just the query params)", async () => {
+  // 101 issues + 101 pulls: the first page (100) cannot contain number 150, so seeing it proves the second page ran.
+  const issues = Array.from({ length: 101 }, (_, i) => ({ number: 200 - i, title: `issue ${200 - i}` }));
+  const pulls = Array.from({ length: 101 }, (_, i) => ({ number: 300 - i, title: `pr ${300 - i}` }));
+  const env = await makeEnv({ defaultBranch: "main", branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, issues, pulls });
+  try {
+    const { status, json } = await env.call("GET", `/api/workspaces/${env.ws.id}/overview`);
+    assert.equal(status, 200, json?.error);
+    assert.equal(json.issues.length, 101);
+    assert.equal(json.pulls.length, 101);
+    assert.ok(
+      json.issues.some((i) => i.number === 100),
+      "the 101st issue only exists on page 2",
+    );
+    assert.ok(
+      json.pulls.some((p) => p.number === 200),
+      "the 101st PR only exists on page 2",
+    );
+    assert.ok(env.gh.st.calls.some((c) => /\/issues\?.*page=2/.test(c)), "a second /issues page was requested");
+    assert.ok(env.gh.st.calls.some((c) => /\/pulls\?.*page=2/.test(c)), "a second /pulls page was requested");
+  } finally {
+    await env.close();
+  }
+});
+
+test("overview: a discussion bot for the same issue in ANOTHER workspace is never reported (no cross-workspace match)", async () => {
+  const env = await makeEnv({
+    defaultBranch: "main",
+    branches: { main: MAIN_SHA },
+    issue: { title: "demo", body: "分析" },
+    issues: [{ number: 12, title: "issue with a foreign discussion" }],
+    pulls: [],
+  });
+  try {
+    // a discussion-shaped bot for issue 12 that belongs to a different workspace entirely: never a match
+    env.bots.records.push({
+      id: "foreign-disc",
+      name: "issue-12-discuss",
+      conversationId: 8012,
+      model: FAUX,
+      workspaceId: "ws-other000",
+      issueLoop: { issue: 12, baseBranch: "main", pinnedSha: MAIN_SHA, dir: "/elsewhere" },
+    });
+    const { status, json } = await env.call("GET", `/api/workspaces/${env.ws.id}/overview`);
+    assert.equal(status, 200, json?.error);
+    assert.equal(json.issues[0].discussionBotId, null, "a discussion in another workspace must not be reported here");
+
+    // same for the discuss flow: it must create a NEW session in THIS workspace, not reuse the foreign one
+    const created = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
+    assert.equal(created.status, 200, created.json?.error);
+    assert.notEqual(created.json.discussion.botId, "foreign-disc");
+    assert.equal(env.bots.created.length, 1, "a new discussion was created in this workspace");
+  } finally {
+    await env.close();
+  }
+});
+
+test("overview: an issue with an existing same-workspace discussion reports its botId; an execution is never reported as the discussion", async () => {
+  const env = await makeEnv({
+    defaultBranch: "main",
+    branches: { main: MAIN_SHA },
+    issue: { title: "demo", body: "分析" },
+    issues: [
+      { number: 12, title: "issue with discussion" },
+      { number: 11, title: "issue with only an execution" },
+    ],
+    pulls: [],
+  });
+  try {
+    const d = (await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 })).json.discussion;
+    // an execution bot (branch + sourceBotId) for issue 11 must not be mistaken for a discussion
+    env.bots.records.push({
+      id: "exec11",
+      name: "issue-11-exec",
+      conversationId: 8011,
+      model: FAUX,
+      workspaceId: env.ws.id,
+      issueLoop: { issue: 11, baseBranch: "main", pinnedSha: MAIN_SHA, dir: "/e", branch: "tarsbot/issue-11-x", sourceBotId: "somebody" },
+    });
+    env.store.links.link({ conversationId: "8011", workspaceId: env.ws.id, botId: "exec11" });
+
+    const { status, json } = await env.call("GET", `/api/workspaces/${env.ws.id}/overview`);
+    assert.equal(status, 200, json?.error);
+    assert.equal(json.issues.find((i) => i.number === 12)?.discussionBotId, d.botId, "the existing discussion botId");
+    assert.equal(json.issues.find((i) => i.number === 11)?.discussionBotId, null, "an execution is not a discussion");
+  } finally {
+    await env.close();
+  }
+});
+
+test("discuss: a sequential repeat returns the existing same-workspace discussion without any Sprite or GitHub call", async () => {
+  const env = await makeEnv({
+    defaultBranch: "main",
+    branches: { main: MAIN_SHA },
+    issue: { title: "demo", body: "分析" },
+  });
+  try {
+    const first = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
+    assert.equal(first.status, 200, first.json?.error);
+    const callsAfterFirst = env.gh.st.calls.length;
+    const shAfterFirst = env.rt.calls.length;
+
+    const again = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
+    assert.equal(again.status, 200, again.json?.error);
+    assert.equal(again.json.discussion.botId, first.json.discussion.botId, "the SAME discussion session is returned");
+    assert.equal(again.json.discussion.existing, true);
+    assert.equal(env.bots.created.length, 1, "no second session was created");
+    assert.equal(env.rt.calls.length, shAfterFirst, "no worktree / git command ran again");
+    assert.equal(env.gh.st.calls.length, callsAfterFirst, "no GitHub call ran again");
+    assert.equal(env.bots.submits.get(first.json.discussion.botId).length, 1, "the start message is not resubmitted");
   } finally {
     await env.close();
   }

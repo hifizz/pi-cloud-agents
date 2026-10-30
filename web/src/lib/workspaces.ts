@@ -93,11 +93,29 @@ export interface AddedSession {
 
 export interface PullInfo {
   number: number;
+  title?: string;
   url: string;
   state?: string;
   merged?: boolean;
   headRef?: string | null;
   baseRef?: string | null;
+}
+
+/** One open issue in the workspace overview; `discussionBotId` is the existing discussion session, when there is one. */
+export interface OverviewIssue {
+  number: number;
+  title: string;
+  url: string | null;
+  state?: string;
+  author?: string | null;
+  comments?: number;
+  discussionBotId?: string | null;
+}
+
+/** GET /api/workspaces/:id/overview: only open unresolved issues and open, unmerged PRs. */
+export interface WorkspaceOverview {
+  issues: OverviewIssue[];
+  pulls: PullInfo[];
 }
 
 export interface CheckpointManifest {
@@ -156,6 +174,9 @@ export const workspacesApi = {
   create: async (input: NewWorkspaceInput) => normalizeWorkspace(await request<Workspace>("POST", "/api/workspaces", input)),
   list: async () => (await request<Workspace[]>("GET", "/api/workspaces")).map(normalizeWorkspace),
   get: async (id: string) => normalizeWorkspace(await request<Workspace>("GET", `/api/workspaces/${enc(id)}`)),
+  /** Workspace overview: open issues (+ existing discussion botId) and open unmerged PRs of the bound repo. One fetch
+   * on workspace open / manual refresh; not part of the 3s bots poll. */
+  overview: (id: string) => request<WorkspaceOverview>("GET", `/api/workspaces/${enc(id)}/overview`),
   retry: async (id: string) => normalizeWorkspace(await request<Workspace>("POST", `/api/workspaces/${enc(id)}/retry`, {})),
   createPr: (id: string, input: { requestId: string; title?: string; body?: string; base?: string }) =>
     request<{ pull: PullInfo; created: boolean }>("POST", `/api/workspaces/${enc(id)}/pr`, input),

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { mapBotsToWorkspaces, type Workspace } from "../src/lib/workspaces";
 import { BotList } from "../src/components/BotList";
@@ -268,5 +268,171 @@ describe("add session (SPIKE-add-session): workspace menu", () => {
     // the discussion does show the publish action
     await user.click(screen.getByRole("button", { name: /^issue-12-discuss/ }));
     expect(await screen.findByTestId("open-publish-task")).toBeInTheDocument();
+  });
+});
+
+describe("workspace overview (SPIKE-workspace-overview)", () => {
+  class FakeWS {
+    onopen: (() => void) | null = null;
+    onmessage: ((ev: { data: string }) => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    constructor(public url: string) {}
+    close() {}
+  }
+
+  const overview = {
+    issues: [
+      { number: 12, title: "Fix upload", url: "https://github.com/hifizz/tars-sandbox-playground/issues/12", discussionBotId: "d1" },
+      { number: 10, title: "Fresh bug", url: "https://github.com/hifizz/tars-sandbox-playground/issues/10", discussionBotId: null },
+    ],
+    pulls: [{ number: 7, title: "WIP feature", url: "https://github.com/hifizz/tars-sandbox-playground/pull/7", headRef: "feat-a" }],
+  };
+
+  it("clicking the workspace row opens the overview (one GET, no chat/composer), issues with a discussion reuse it, new issues go through discuss, PRs link to GitHub only", async () => {
+    const user = userEvent.setup();
+    const { default: App } = await import("../src/App");
+    vi.stubGlobal("WebSocket", FakeWS);
+    const calls: { method: string; path: string; body?: unknown }[] = [];
+    const jsonRes = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
+    const discussion = bot({ id: "d1", name: "issue-12-discuss", workspaceId: "w1", issueLoop: { issue: 12, baseBranch: "main", pinnedSha: "3157db095cb9344e5b9cf0669657bf613d036b46", dir: "/d" } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = new URL(String(input), "http://localhost");
+      const path = url.pathname;
+      calls.push({ method: init?.method ?? "GET", path, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (path === "/api/bots") return jsonRes([bot(), discussion]);
+      if (path === "/api/workspaces") return jsonRes([ws()]);
+      if (path === "/api/routines") return jsonRes([]);
+      if (path === "/api/workspaces/w1/overview") return jsonRes(overview);
+      if (path === "/api/workspaces/w1/issue-loop/discuss") {
+        return jsonRes({ discussion: { botId: "new1", name: "issue-10-discuss", conversationId: 9010, workspaceId: "w1", issue: 10, baseBranch: "main", pinnedSha: "3157db095cb9344e5b9cf0669657bf613d036b46", dir: "/d10" } });
+      }
+      return jsonRes({});
+    });
+    localStorage.setItem("pca.workspace", "w1");
+    render(<App />);
+
+    // clicking the workspace row opens the overview
+    await user.click(await screen.findByRole("button", { name: /issue-loop ws/ }));
+    const ov = await screen.findByTestId("workspace-overview");
+    expect(ov).toHaveTextContent("#12");
+    expect(ov).toHaveTextContent("Fix upload");
+    expect(ov).toHaveTextContent("#7");
+    expect(ov).toHaveTextContent("WIP feature");
+    // no chat input or messages on the overview
+    expect(screen.queryByLabelText("Message")).toBeNull();
+    // the session chrome is hidden too: no SessionHeader (Compact/Reset), no usage, no approval bar
+    expect(screen.queryByRole("button", { name: "Compact" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+    expect(screen.queryByTestId("header-repo")).toBeNull();
+    // the overview GET fired once; it is not part of the poll
+    const overviewGets = () => calls.filter((c) => c.path === "/api/workspaces/w1/overview" && c.method === "GET");
+    expect(overviewGets()).toHaveLength(1);
+    // manual refresh fires it again
+    await user.click(screen.getByRole("button", { name: "刷新" }));
+    await screen.findByTestId("workspace-overview");
+    expect(overviewGets()).toHaveLength(2);
+
+    // PR rows are plain GitHub links — no Code Review button or stub
+    const prLink = screen.getByRole("link", { name: /WIP feature/ });
+    expect(prLink).toHaveAttribute("href", "https://github.com/hifizz/tars-sandbox-playground/pull/7");
+    expect(prLink).toHaveAttribute("target", "_blank");
+    expect(screen.queryByText(/Code Review/i)).toBeNull();
+
+    // issue #10 has no discussion: the click goes through the discuss flow, then opens the new session.
+    // While the request is in flight every issue button is disabled (no repeated creation clicks).
+    const freshBug = screen.getByRole("button", { name: /Fresh bug/ });
+    const fixUpload = screen.getByRole("button", { name: /Fix upload/ });
+    await user.click(freshBug);
+    await waitFor(() => expect(fixUpload).toBeDisabled());
+    expect(freshBug).toBeDisabled();
+    const discusses = () => calls.filter((c) => c.path === "/api/workspaces/w1/issue-loop/discuss");
+    await screen.findByLabelText("Message");
+    expect(discusses()).toHaveLength(1);
+    expect(discusses()[0].body).toEqual({ issue: 10 });
+  });
+
+  it("clicking a session row still opens its chat; the workspace row returns to the overview", async () => {
+    const user = userEvent.setup();
+    const { default: App } = await import("../src/App");
+    vi.stubGlobal("WebSocket", FakeWS);
+    const jsonRes = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if (path === "/api/bots") return jsonRes([bot()]);
+      if (path === "/api/workspaces") return jsonRes([ws()]);
+      if (path === "/api/routines") return jsonRes([]);
+      if (path === "/api/workspaces/w1/overview") return jsonRes({ issues: [], pulls: [] });
+      return jsonRes({});
+    });
+    localStorage.setItem("pca.workspace", "w1");
+    render(<App />);
+
+    // a session row opens the chat directly
+    await user.click(await screen.findByRole("button", { name: /^primary/ }));
+    await screen.findByLabelText("Message");
+    expect(screen.queryByTestId("workspace-overview")).toBeNull();
+    // back to the workspace row: the overview shows again (with the empty-state texts)
+    await user.click(screen.getByRole("button", { name: /issue-loop ws/ }));
+    const ov = await screen.findByTestId("workspace-overview");
+    expect(ov).toHaveTextContent("没有未解决的 issue。");
+    expect(ov).toHaveTextContent("没有开放的 PR。");
+    expect(screen.queryByLabelText("Message")).toBeNull();
+  });
+
+  it("switching workspaces remounts the overview: rows of the previous repo never linger while the new one loads", async () => {
+    const user = userEvent.setup();
+    const { default: App } = await import("../src/App");
+    vi.stubGlobal("WebSocket", FakeWS);
+    const jsonRes = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
+    const other = ws({ id: "w2", name: "second ws", repo: "hifizz/other-repo" });
+    // w2's overview hangs forever: without a remount the w1 rows would stay visible
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if (path === "/api/bots") return jsonRes([bot()]);
+      if (path === "/api/workspaces") return jsonRes([ws(), other]);
+      if (path === "/api/routines") return jsonRes([]);
+      if (path === "/api/workspaces/w1/overview") return jsonRes(overview);
+      if (path === "/api/workspaces/w2/overview") return new Promise<Response>(() => {});
+      return jsonRes({});
+    });
+    localStorage.setItem("pca.workspace", "w1");
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /issue-loop ws/ }));
+    expect(await screen.findByText("Fix upload")).toBeInTheDocument();
+    // switch to the second workspace: its own loading state shows, never w1's rows
+    await user.click(screen.getByRole("button", { name: /second ws/ }));
+    const ov = await screen.findByTestId("workspace-overview");
+    expect(ov).toHaveTextContent("second ws");
+    expect(ov).toHaveTextContent("hifizz/other-repo");
+    expect(screen.queryByText("Fix upload")).toBeNull();
+    expect(screen.queryByText("WIP feature")).toBeNull();
+  });
+
+  it("with the rail collapsed the overview offers the same Expand sidebar control", async () => {
+    const user = userEvent.setup();
+    const { default: App } = await import("../src/App");
+    vi.stubGlobal("WebSocket", FakeWS);
+    const jsonRes = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { "content-type": "application/json" } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if (path === "/api/bots") return jsonRes([bot()]);
+      if (path === "/api/workspaces") return jsonRes([ws()]);
+      if (path === "/api/routines") return jsonRes([]);
+      if (path === "/api/workspaces/w1/overview") return jsonRes(overview);
+      return jsonRes({});
+    });
+    localStorage.setItem("pca.workspace", "w1");
+    render(<App />);
+
+    // open the overview, then collapse the rail while on it
+    await user.click(await screen.findByRole("button", { name: /issue-loop ws/ }));
+    await screen.findByTestId("workspace-overview");
+    await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    // rail is collapsed: the workspace row is gone, the overview itself offers the expand control
+    expect(screen.queryByRole("button", { name: /issue-loop ws/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(await screen.findByRole("button", { name: /issue-loop ws/ })).toBeInTheDocument();
   });
 });

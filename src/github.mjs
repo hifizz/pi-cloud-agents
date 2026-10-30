@@ -324,6 +324,29 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
       return { fullName: data.full_name, defaultBranch: data.default_branch ?? null };
     },
 
+    /** Open issues only (PRs filtered out), up to `limit` items across paginated requests. The /issues endpoint mixes
+     * PRs in and is capped at one page by default, so this always paginates and always excludes pull_request entries.
+     * Not "all" issues: bounded by `limit` (and the shared MAX_PAGES ceiling), like every other list here. */
+    async listIssues(repo, { limit = 500 } = {}) {
+      assertRepo(repo);
+      return paginate(`/repos/${repo}/issues`, "state=open&sort=created&direction=desc&", limit, (i) => ({
+        number: i.number,
+        title: i.title ?? "",
+        url: i.html_url ?? null,
+        state: i.state,
+        author: i.user?.login ?? null,
+        comments: i.comments ?? 0,
+        isPull: Boolean(i.pull_request),
+      })).then((list) => list.filter((i) => !i.isPull).map(({ isPull: _isPull, ...rest }) => rest));
+    },
+
+    /** Open, unmerged pull requests, up to `limit` items across paginated requests (same MAX_PAGES ceiling).
+     * Includes the title (normalizePull is the older shape). */
+    async listPulls(repo, { limit = 200 } = {}) {
+      assertRepo(repo);
+      return paginate(`/repos/${repo}/pulls`, "state=open&sort=created&direction=desc&", limit, (p) => ({ ...normalizePull(p), title: p.title ?? "" }));
+    },
+
     /** Open PRs whose base is `base` branch (the pull request(s) tracking the selected baseline). */
     async listPullsByBase(repo, baseBranch, { limit = 50 } = {}) {
       assertRepo(repo);

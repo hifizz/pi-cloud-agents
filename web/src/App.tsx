@@ -8,6 +8,7 @@ import { ApprovalBar } from "./components/ApprovalBar";
 import { ForkDialog } from "./components/ForkDialog";
 import { useApprovals } from "./hooks/useApprovals";
 import { MessageList } from "./components/Chat/MessageList";
+import { Icon } from "./components/Chat/primitives/Icon";
 import { Composer, type SendMode } from "./components/Chat/Composer";
 import { WorkspaceShell } from "./shell/WorkspaceShell";
 import { PanelHost } from "./shell/PanelHost";
@@ -18,6 +19,7 @@ import { usePanelState } from "./shell/usePanelState";
 import { useRailState } from "./shell/useRailState";
 import { PANELS } from "./panels";
 import {
+  STATUS_LABEL,
   WorkspaceContext,
   describeError,
   mapBotsToWorkspaces,
@@ -28,6 +30,7 @@ import {
   type LocalWorkspace,
   type Workspace,
   type WorkspaceContextValue,
+  type WorkspaceOverview,
 } from "./lib/workspaces";
 import type { BotSummary, ForkInput } from "./types";
 
@@ -77,13 +80,150 @@ function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; 
   );
 }
 
+/** Central workspace overview (SPIKE-workspace-overview): open unresolved issues and open, unmerged PRs of the
+ * workspace's bound repo. Fetches once when the workspace is opened and on the manual 刷新 button — it is NOT part
+ * of the 3s bots poll. Clicking an issue reuses its existing discussion or creates one via the discuss flow; PRs
+ * only link out to GitHub (a future Code Review action is deliberately not stubbed). */
+function WorkspaceOverview({
+  workspace,
+  railOpen,
+  onExpandRail,
+  onOpenIssue,
+}: {
+  workspace: Workspace;
+  railOpen: boolean;
+  onExpandRail: () => void;
+  /** Returns a promise so the row can stay disabled until the discuss flow resolves (simplest repeated-click guard). */
+  onOpenIssue: (wsId: string, issue: number) => Promise<void>;
+}) {
+  const [data, setData] = useState<WorkspaceOverview>();
+  const [err, setErr] = useState<string>();
+  const [loading, setLoading] = useState(true);
+  /** Issue currently being opened via the discuss flow; disables every issue row until it resolves. */
+  const [opening, setOpening] = useState<number>();
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setData(await workspacesApi.overview(workspace.id));
+      setErr(undefined);
+    } catch (e) {
+      setErr(describeError(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [workspace.id]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const openIssue = async (issueNo: number) => {
+    if (opening !== undefined) return;
+    setOpening(issueNo);
+    try {
+      await onOpenIssue(workspace.id, issueNo);
+    } finally {
+      setOpening(undefined);
+    }
+  };
+
+  const row = "flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2 text-left text-[13px] text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent";
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="workspace-overview">
+      {!railOpen && (
+        <div className="flex h-14 shrink-0 items-center border-b border-line px-4">
+          <button
+            type="button"
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+            onClick={onExpandRail}
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <Icon name="sidebar" className="size-4" />
+          </button>
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="mx-auto max-w-2xl space-y-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-fg">{workspace.name}</h2>
+              <p className="mt-0.5 text-xs text-fg-muted">
+                {workspace.repo} · {STATUS_LABEL[workspace.status]}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void load()}
+              disabled={loading}
+              className="shrink-0 rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover disabled:opacity-40"
+            >
+              {loading ? "加载中…" : "刷新"}
+            </button>
+          </div>
+
+          {err && (
+            <p role="alert" className="text-sm text-bad">
+              {err}
+            </p>
+          )}
+          {loading && !data && !err && <p className="text-sm text-fg-muted">加载中…</p>}
+
+          {data && (
+            <>
+              <section aria-label="Issues">
+                <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">Issues</h3>
+                {data.issues.length === 0 ? (
+                  <p className="text-sm text-fg-muted">没有未解决的 issue。</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {data.issues.map((issue) => (
+                      <li key={issue.number}>
+                        <button type="button" onClick={() => void openIssue(issue.number)} disabled={opening !== undefined} className={`${row} disabled:opacity-50`}>
+                          <span className="shrink-0 font-mono text-xs text-fg-muted">#{issue.number}</span>
+                          <span className="min-w-0 flex-1 truncate">{issue.title}</span>
+                          {opening === issue.number && <span className="shrink-0 text-[11px] text-fg-muted">打开中…</span>}
+                          {issue.discussionBotId && opening !== issue.number && <span className="shrink-0 text-[11px] text-fg-faint">已有讨论</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section aria-label="Pull requests">
+                <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">Pull requests</h3>
+                {data.pulls.length === 0 ? (
+                  <p className="text-sm text-fg-muted">没有开放的 PR。</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {data.pulls.map((pr) => (
+                      <li key={pr.number}>
+                        <a href={pr.url} target="_blank" rel="noreferrer" className={row}>
+                          <span className="shrink-0 font-mono text-xs text-fg-muted">#{pr.number}</span>
+                          <span className="min-w-0 flex-1 truncate">{pr.title ?? ""}</span>
+                          {pr.headRef && <span className="shrink-0 truncate font-mono text-[11px] text-fg-faint">{pr.headRef}</span>}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App({ email, onLoggedOut }: { email?: string; onLoggedOut?: () => void } = {}) {
   const [bots, setBots] = useState<BotSummary[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | undefined>(() => globalThis.localStorage?.getItem("pca.workspace") ?? undefined);
-  /** Session picked inside the selected workspace; undefined = the workspace's primary session. */
-  const [pickedBotId, setPickedBotId] = useState<string>();
+  /** Session picked inside the selected workspace. undefined = the primary session; null = the workspace overview
+   * (explicit state, so picking the workspace entry is never overridden by the primary-session fallback). */
+  const [pickedBotId, setPickedBotId] = useState<string | null>();
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState<string>();
   // Issue-loop publish-task form: open only on a discussion session; the human writes the task explicitly.
@@ -128,8 +268,10 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const workspace = useMemo(() => workspaces.find((w) => w.id === selectedWorkspaceId), [workspaces, selectedWorkspaceId]);
   const botWorkspace = useMemo(() => mapBotsToWorkspaces(bots, workspaces), [bots, workspaces]);
+  /** True while the user is looking at the workspace overview instead of a session. */
+  const overviewOpen = Boolean(workspace) && pickedBotId === null;
   const bot = useMemo(() => {
-    if (!workspace) return undefined;
+    if (!workspace || pickedBotId === null) return undefined;
     const mine = bots.filter((b) => botWorkspace.get(b.id) === workspace.id);
     return mine.find((b) => b.id === pickedBotId) ?? mine.find((b) => b.id === workspace.botId) ?? mine[0];
   }, [bots, botWorkspace, workspace, pickedBotId]);
@@ -164,8 +306,25 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const selectWorkspace = (id: string) => {
     setSelectedWorkspaceId(id);
-    setPickedBotId(undefined);
+    // null = open the workspace overview, not the primary session.
+    setPickedBotId(null);
   };
+
+  /** Click an issue row: reuse the existing discussion session when there is one, else POST the discuss flow and
+   * open the session it created (same workspace, discussion only — executions never match server-side). */
+  const onOpenIssue = useCallback(
+    async (wsId: string, issueNo: number) => {
+      setError(undefined);
+      try {
+        const { discussion } = await workspacesApi.issueLoopDiscuss(wsId, { issue: issueNo });
+        await refresh();
+        setPickedBotId(discussion.botId);
+      } catch (e) {
+        setError(describeError(e));
+      }
+    },
+    [refresh],
+  );
 
   const onFork = async (input: ForkInput) => {
     const created = await api.forkBot(bot!.id, input);
@@ -251,23 +410,25 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const mainNode = (
     <>
-      <SessionHeader
-        bot={bot}
-        vm={vm}
-        status={status}
-        workspace={workspace}
-        bots={bots}
-        onSelectBot={setPickedBotId}
-        railOpen={rail.open}
-        panelOpen={panels.open}
-        onExpandRail={rail.show}
-        onTogglePanel={panels.toggle}
-        onCompact={onCompact}
-        onReset={onReset}
-      />
+      {!overviewOpen && (
+        <SessionHeader
+          bot={bot}
+          vm={vm}
+          status={status}
+          workspace={workspace}
+          bots={bots}
+          onSelectBot={setPickedBotId}
+          railOpen={rail.open}
+          panelOpen={panels.open}
+          onExpandRail={rail.show}
+          onTogglePanel={panels.toggle}
+          onCompact={onCompact}
+          onReset={onReset}
+        />
+      )}
 
-      <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />
-      {otherPending > 0 && (
+      {!overviewOpen && <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />}
+      {!overviewOpen && otherPending > 0 && (
         <p className="border-b border-warn/30 bg-warn/10 px-4 py-1 text-xs text-warn">
           {otherPending} approval{otherPending === 1 ? "" : "s"} pending on other bots
         </p>
@@ -282,7 +443,10 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         </div>
       )}
 
-      {bot ? (
+      {overviewOpen && workspace ? (
+        // Keyed by workspace.id: switching workspaces remounts it, so stale rows of the previous repo can't linger.
+        <WorkspaceOverview key={workspace.id} workspace={workspace} railOpen={rail.open} onExpandRail={rail.show} onOpenIssue={onOpenIssue} />
+      ) : bot ? (
         <>
           <MessageList
             messages={vm.messages}
@@ -322,6 +486,9 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
               {workspace.status === "ready" ? "工作区已就绪，会话正在加载。" : "工作区还没有可用的会话。准备完成后会自动出现，输入框此前保持禁用。"}
             </p>
             <WorkspaceStatus workspace={workspace} onUpdate={onUpdateWorkspace} />
+            <button type="button" onClick={() => setPickedBotId(null)} className="text-xs text-fg-muted underline focus-visible:outline-2 focus-visible:outline-accent">
+              打开工作区总览
+            </button>
           </div>
         </div>
       ) : (
@@ -345,18 +512,21 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     <WorkspaceContext.Provider value={workspaceCtx}>
       <WorkspaceShell
         railOpen={rail.open}
-        panelOpen={panels.open}
+        panelOpen={panels.open && !overviewOpen}
         rail={railNode}
         main={mainNode}
         panel={
-          <PanelHost
-            panels={PANELS}
-            active={panels.active}
-            onSelect={panels.select}
-            onClose={panels.close}
-            ctx={{ bot, bots, vm }}
-            focus={panels.focus}
-          />
+          // The right session panel belongs to a session; it stays closed while the workspace overview is open.
+          !overviewOpen && (
+            <PanelHost
+              panels={PANELS}
+              active={panels.active}
+              onSelect={panels.select}
+              onClose={panels.close}
+              ctx={{ bot, bots, vm }}
+              focus={panels.focus}
+            />
+          )
         }
       />
       {bot && forkAt !== undefined && (
