@@ -63,6 +63,11 @@ export function ApprovalBar({ items, onResolve }: ApprovalBarProps) {
               <div className="min-w-0 flex-1">
                 <p className="text-fg">
                   <span className="font-semibold">Approval needed:</span> <span className="font-mono">{item.toolName}</span>
+                  {item.parent && (
+                    <span className="ml-2 rounded border border-line px-1 py-0.5 text-[10px] text-fg-muted" title={`Nested call of ${item.parent.callId}`}>
+                      in script
+                    </span>
+                  )}
                 </p>
                 {summary && <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-fg-dim">{summary}</pre>}
                 {item.reason && <p className="mt-0.5 text-xs text-warn">Reason: {item.reason}</p>}

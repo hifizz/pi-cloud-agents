@@ -29,6 +29,9 @@ function normalize(raw: unknown): ApprovalItem | undefined {
     args: r.args,
     ...(typeof r.reason === "string" ? { reason: r.reason } : {}),
     ...(typeof r.requestedAt === "string" ? { requestedAt: r.requestedAt } : {}),
+    ...(r.parent && typeof r.parent === "object"
+      ? { parent: { callId: String((r.parent as Record<string, unknown>).callId ?? ""), taskId: String((r.parent as Record<string, unknown>).taskId ?? "") } }
+      : {}),
   };
 }
 

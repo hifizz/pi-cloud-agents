@@ -6,6 +6,7 @@ import type {
   ConversationVM,
   ImagePart,
   InboxItem,
+  NestedToolCall,
   Part,
   TextPart,
   ToolPart,
@@ -22,6 +23,7 @@ export interface SnapshotFrame {
   run?: { inputs: unknown[] };
   generation?: { attempt?: number; message?: Wire };
   tools?: Wire[];
+  nestedTools?: Wire[];
   compactions?: Wire[];
   inbox?: Wire[];
   agent?: Wire;
@@ -176,13 +178,41 @@ function mapToolOrStash(vm: ConversationVM, id: string, name: string, fn: (p: To
   return { ...vm, toolStash: { ...vm.toolStash, [id]: fn(base) } };
 }
 
+function upsertNested(list: NestedToolCall[] | undefined, call: NestedToolCall): NestedToolCall[] {
+  const l = list ?? [];
+  const i = l.findIndex((c) => c.id === call.id);
+  if (i < 0) return [...l, call];
+  return replaceAt(l, i, call);
+}
+
+/**
+ * Apply `fn` to the nested call `ev.toolCallId` of the tool part `ev.parentToolCallId` (events carry both for nested
+ * calls). The nested entry is created when absent; the parent part is stashed the same way `mapToolOrStash` does when
+ * its own events ran ahead of its assistant message.
+ */
+function mapNested(vm: ConversationVM, ev: Wire, fn: (n: NestedToolCall) => NestedToolCall): ConversationVM {
+  const parentId = String(ev.parentToolCallId);
+  const id = String(ev.toolCallId);
+  const apply = (p: ToolPart): ToolPart => {
+    const found = (p.nested ?? []).find((c) => c.id === id);
+    const call: NestedToolCall = found ?? { id, name: ev.toolName ?? "tool", args: {}, status: "running" };
+    return { ...p, nested: upsertNested(p.nested, fn(call)) };
+  };
+  const hit = mapTool(vm, parentId, apply);
+  if (hit) return hit;
+  const base = vm.toolStash[parentId] ?? newToolPart(parentId, "tool", {});
+  return { ...vm, toolStash: { ...vm.toolStash, [parentId]: apply(base) } };
+}
+
 function interrupt(p: ToolPart): ToolPart {
-  return p.status === "running" ? { ...p, status: "interrupted" } : p;
+  const out = p.status === "running" ? { ...p, status: "interrupted" as const } : p;
+  if (!out.nested?.some((n) => n.status === "running")) return out;
+  return { ...out, nested: out.nested.map((n) => (n.status === "running" ? { ...n, status: "interrupted" as const } : n)) };
 }
 
 function settleRun(vm: ConversationVM): ConversationVM {
   const messages = vm.messages.map((m) => {
-    const hasRunning = m.parts.some((p) => p.type === "tool" && p.status === "running");
+    const hasRunning = m.parts.some((p) => p.type === "tool" && (p.status === "running" || p.nested?.some((n) => n.status === "running")));
     if (!hasRunning && !m.pending) return m;
     const parts = m.parts.map((p) => (p.type === "tool" ? interrupt(p) : p));
     return { ...m, parts, ...(m.pending ? { pending: false } : {}) };
@@ -344,6 +374,30 @@ function applyOutput(current: string, output: Wire): string {
   return next;
 }
 
+/** End of a nested call: its `result` (NestedToolExecutionResult), or interrupted when absent. */
+function nestedEnd(call: NestedToolCall, ev: Wire): NestedToolCall {
+  const r = ev.result;
+  if (!r) return { ...call, status: "interrupted" };
+  const diagnostics = (Array.isArray(r.diagnostics) ? r.diagnostics : []).map((d: Wire) => String(d?.message ?? "")).filter(Boolean);
+  const errorText = (Array.isArray(r.diagnostics) ? r.diagnostics : [])
+    .filter((d: Wire) => d?.severity === "error")
+    .map((d: Wire) => String(d?.message ?? ""))
+    .filter(Boolean)
+    .join("\n");
+  const next: NestedToolCall = {
+    ...call,
+    status: r.isError ? "error" : "done",
+    ...(typeof r.durationMs === "number" ? { durationMs: r.durationMs } : {}),
+    ...(errorText ? { error: errorText } : {}),
+    ...(diagnostics.length ? { diagnostics } : {}),
+  };
+  // A finished call keeps its bounded output (schema-less tools) or a structured `output` field (bash's), for display.
+  const out = r.structuredOutput;
+  if (typeof out === "string" && out) next.output = out;
+  else if (out && typeof out === "object" && typeof out.output === "string" && out.output) next.output = out.output;
+  return next;
+}
+
 // ---- events ----
 function reduceEvent(vm: ConversationVM, ev: Wire): ConversationVM {
   switch (ev?.type) {
@@ -371,6 +425,15 @@ function reduceEvent(vm: ConversationVM, ev: Wire): ConversationVM {
       return applyEntry(vm, ev.entry);
     case "tool_execution_start": {
       const args = ev.args && Object.keys(ev.args).length ? ev.args : undefined;
+      if (ev.parentToolCallId !== undefined) {
+        return mapNested(vm, ev, (n) => ({
+          ...n,
+          name: ev.toolName ?? n.name,
+          ...(args ? { args } : {}),
+          status: "running",
+          output: "",
+        }));
+      }
       return mapToolOrStash(vm, ev.toolCallId, ev.toolName, (p) => ({
         ...p,
         name: ev.toolName ?? p.name,
@@ -380,8 +443,12 @@ function reduceEvent(vm: ConversationVM, ev: Wire): ConversationVM {
       }));
     }
     case "tool_execution_update":
+      if (ev.parentToolCallId !== undefined) {
+        return mapNested(vm, ev, (n) => ({ ...n, output: applyOutput(n.output ?? "", ev.output) }));
+      }
       return mapToolOrStash(vm, ev.toolCallId, ev.toolName, (p) => ({ ...p, output: applyOutput(p.output, ev.output) }));
     case "tool_execution_end":
+      if (ev.parentToolCallId !== undefined) return mapNested(vm, ev, (n) => nestedEnd(n, ev));
       return ev.entry
         ? applyToolResult(vm, ev.entry)
         : mapToolOrStash(vm, ev.toolCallId, ev.toolName, interrupt);
@@ -433,6 +500,20 @@ function fromSnapshot(frame: SnapshotFrame): ConversationVM {
         output: typeof slot.output === "string" ? slot.output : p.output,
       }));
     }
+  }
+  // Nested calls of running tools (pi.live.nestedTools), attached to their parent's part.
+  for (const slot of frame.nestedTools ?? []) {
+    const diags = (Array.isArray(slot.diagnostics) ? slot.diagnostics : []).map((d: Wire) => String(d?.message ?? "")).filter(Boolean);
+    vm = mapNested(vm, { parentToolCallId: slot.parentCallId, toolCallId: slot.callId, toolName: slot.name }, (n) => ({
+      ...n,
+      name: slot.name ?? n.name,
+      args: slot.arguments && typeof slot.arguments === "object" ? slot.arguments : n.args,
+      status: slot.status === "done" ? (slot.summary?.isError ? "error" : "done") : "running",
+      output: typeof slot.output === "string" ? slot.output : n.output,
+      ...(typeof slot.summary?.durationMs === "number" ? { durationMs: slot.summary.durationMs } : {}),
+      ...(slot.summary?.error ? { error: String(slot.summary.error) } : {}),
+      ...(diags.length ? { diagnostics: diags } : {}),
+    }));
   }
   // No active run: nothing can still be executing or streaming.
   if (frame.run == null) vm = settleRun(vm);
