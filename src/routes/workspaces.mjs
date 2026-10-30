@@ -29,6 +29,10 @@ const ISSUE_BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
 /** Most comments the discussion start message will carry; more is an explicit error, never a silent cut. */
 const COMMENT_LIMIT = 100;
+/** The diff text a review session carries is capped: an over-limit diff is an explicit error, never a silent cut. */
+const REVIEW_DIFF_LIMIT = 400_000;
+/** Session business statuses (human-set, never inferred from busy/idle). */
+const SESSION_STATUSES = ["discussing", "awaiting", "executing", "done"];
 
 /** Safety rules for the issue-loop sessions. The general preamble (GH_TOKEN handling, push / PR / force rules) is not
  * installed in these sessions, so the rules that still matter are restated here. Approval stays installed. */
@@ -483,6 +487,7 @@ export function register(app) {
       // (names are read from `.name`), so the real Preamble object is passed; a plain string would silently remove nothing.
       extensions: { remove: [Preamble] },
       workspaceId: ws.id,
+      status: "discussing",
       issueLoop: { issue: issueNo, baseBranch: baseline.branch, pinnedSha: baseline.sha, dir },
     });
     control.links.link({ conversationId: String(bot.conversationId), workspaceId: ws.id, botId: bot.id });
@@ -574,6 +579,7 @@ export function register(app) {
       instructions: `手动添加的 Session（detached @ ${sha}，仓库默认分支 ${baseBranch}）。工作目录 ${dir}。按用户的第一条消息执行。\n${SPIKE_RULES}`,
       extensions: { remove: [Preamble] },
       workspaceId: ws.id,
+      status: "discussing",
       worktree: { baseBranch, pinnedSha: sha, dir },
     });
     // Linked at once, same as the issue-loop routes: an unlinked Bot carrying workspaceId is adopted by the service.
@@ -624,6 +630,7 @@ export function register(app) {
       instructions: `Issue 执行 Session：分支 ${branch}，从 pinned commit ${pinnedSha} 检出。工作目录 ${dir}。按用户任务执行。\n${SPIKE_RULES}`,
       extensions: { remove: [Preamble] },
       workspaceId: ws.id,
+      status: "executing",
       issueLoop: { issue: issueNo, baseBranch: meta.baseBranch, pinnedSha, dir, branch, sourceBotId: src.id },
     });
     control.links.link({ conversationId: String(bot.conversationId), workspaceId: ws.id, botId: bot.id });
@@ -645,5 +652,204 @@ export function register(app) {
         dir,
       },
     };
+  });
+
+  // ---- PR review (SPIKE-review-loop) ---------------------------------------------------------------------------------
+  // One-click PR review inside ONE existing ready workspace and its ONE Sprite: fetch the real PR from the bound repo,
+  // pin its head SHA, check it out detached in a fresh worktree and start a fresh review-only session. No new Sprite,
+  // no branch, no comment/approval/merge on GitHub. Same workspaceId + PR number + head SHA reuses the session; a
+  // moved head creates a new review. Sequential repeat clicks only — no concurrency lock.
+
+  /** Build the review start message: PR metadata + the real diff, labelled and capped. */
+  function reviewMessage({ ws, pull, dir, diff }) {
+    return [
+      `PR Review Session（review-loop spike）。只审查，不改代码、不提交、不推送、不在 GitHub 上评论、不审批或合并这个 PR。`,
+      ``,
+      `== Pull Request ==`,
+      `#${pull.number} ${pull.url}`,
+      `标题: ${pull.title || "（无标题）"}`,
+      `作者: ${pull.author ?? "unknown"} · 状态: ${pull.state ?? "unknown"}`,
+      `base: ${pull.baseRef ?? "?"} @ ${pull.baseSha ?? "?"}`,
+      `head: ${pull.headRef ?? "?"} @ ${pull.headSha}`,
+      ``,
+      `== PR 正文 ==`,
+      String(pull.body ?? "").trim() || "（空）",
+      ``,
+      `== 工作目录 ==`,
+      `${dir}（detached HEAD @ ${pull.headSha}，PR head；不要切换或 reset 原仓库目录 ${ws.cwd}）`,
+      ``,
+      `== 真实 diff（${REVIEW_DIFF_LIMIT} 字符上限；超限则整体失败，不静默截断）==`,
+      diff.trim() || "（diff 为空）",
+      ``,
+      `== 安全规则 ==`,
+      SPIKE_RULES,
+      ``,
+      `== 审批 ==`,
+      `审批扩展仍然生效；被拒绝的操作不重试。`,
+      ``,
+      `请审查以上 diff 与当前目录中的相关代码，列出：具体问题（带证据与文件位置）、影响、以及建议的人工验证方式。不要修改任何文件。`,
+    ].join("\n");
+  }
+
+  /** A bot's review metadata matches when it reviews this PR at this head SHA in this workspace. */
+  const isSameReview = (bot, wsId, prNumber, headSha) =>
+    bot?.review && bot.workspaceId === wsId && bot.review.pr === prNumber && bot.review.headSha === headSha;
+
+  // POST /api/workspaces/:id/review {pr} -> {review:{botId,name,conversationId,workspaceId,pr,title,url,headSha,baseSha,dir,reused}}
+  app.post("/api/workspaces/:id/review", async (_req, _res, { params, body }) => {
+    const b = jsonObject(body);
+    const prNumber = Number(b.pr);
+    if (!Number.isInteger(prNumber) || prNumber <= 0) throw new HttpError(400, "pr must be a positive integer");
+    const ws = assertIssueLoopWorkspace(params.id);
+
+    // The PR number must be a real PR in this workspace's own repo — no arbitrary links, no guessed fields.
+    let pull;
+    try {
+      pull = await github.getPull(ws.repo, prNumber);
+    } catch (e) {
+      throw mapError(e);
+    }
+    if (!pull) throw new HttpError(404, `pull request #${prNumber} not found in ${ws.repo}`);
+    if (!pull.headSha || !SHA_RE.test(pull.headSha)) throw new HttpError(502, `无法取得 PR #${prNumber} 的 head SHA，停止`);
+
+    // Same workspace + PR + head SHA: reuse the existing review session (sequential repeat click).
+    const existing = bots.list().find((bot) => isSameReview(bot, ws.id, prNumber, pull.headSha));
+    if (existing) {
+      return {
+        review: {
+          botId: existing.id,
+          name: existing.name,
+          conversationId: existing.conversationId,
+          workspaceId: ws.id,
+          pr: prNumber,
+          title: pull.title,
+          url: pull.url,
+          headSha: pull.headSha,
+          baseSha: pull.baseSha,
+          dir: existing.review.dir,
+          reused: true,
+        },
+      };
+    }
+
+    // The real diff for the review message. No fallback: a failed or missing diff fails the request outright —
+    // a review session must never start without the diff it is supposed to review.
+    let diff;
+    try {
+      diff = await github.getPullDiff(ws.repo, prNumber);
+    } catch (e) {
+      throw mapError(e);
+    }
+    if (diff === null) throw new HttpError(502, `无法取得 PR #${prNumber} 的 diff，停止；不创建不带 diff 的 review`);
+    if (diff.length > REVIEW_DIFF_LIMIT) {
+      throw new HttpError(409, `PR #${prNumber} diff exceeds ${REVIEW_DIFF_LIMIT} characters; the spike does not truncate it silently`);
+    }
+
+    // Detached worktree at the pinned head SHA. refs/pull/<n>/head resolves the head object for same-repo and fork PRs.
+    const dirId = sha256(`${ws.id}:review:${prNumber}:${pull.headSha}`).slice(0, 8);
+    const dir = `${app.ctx.homeDir?.() ?? "/home/sprite"}/reviews/${ws.id}/pr-${prNumber}-${dirId}`;
+    const repoDir = shellQuote([ws.cwd]);
+    const addCmd =
+      `mkdir -p ${shellQuote([posixDir(dir)])} && ` +
+      `git -C ${repoDir} fetch origin ${shellQuote([`pull/${prNumber}/head`])} && ` +
+      `git -C ${repoDir} worktree add --detach ${shellQuote([dir])} ${shellQuote([pull.headSha])}`;
+    await sh(ws, addCmd);
+
+    const name = freeSessionName(`pr-${prNumber}-review`);
+    const message = reviewMessage({ ws, pull, dir, diff });
+    const bot = await bots.createBot({
+      name,
+      model: ws.model,
+      cwd: dir,
+      instructions:
+        `PR Review Session：${ws.repo} PR #${prNumber}（detached @ ${pull.headSha}）。只审查代码，不修改、不提交、不推送、不评论 GitHub、不审批不合并。\n${SPIKE_RULES}`,
+      extensions: { remove: [Preamble] },
+      workspaceId: ws.id,
+      status: "discussing",
+      review: { pr: prNumber, title: pull.title, baseBranch: pull.baseRef ?? undefined, headSha: pull.headSha, dir },
+    });
+    control.links.link({ conversationId: String(bot.conversationId), workspaceId: ws.id, botId: bot.id });
+    const conv = await bots.conversation(bot.id);
+    if (!conv) throw new HttpError(500, "conversation not found for new review session");
+    await conv.submit({ type: "input", content: message }, ctx);
+
+    return {
+      review: {
+        botId: bot.id,
+        name: bot.name,
+        conversationId: bot.conversationId,
+        workspaceId: ws.id,
+        pr: prNumber,
+        title: pull.title,
+        url: pull.url,
+        headSha: pull.headSha,
+        baseSha: pull.baseSha,
+        dir,
+        reused: false,
+      },
+    };
+  });
+
+  // ---- session status + execution result (SPIKE-review-loop) ----------------------------------------------------------
+  // Four business labels a human sets on a session: 讨论中 / 待确认 / 执行中 / 已完成. They are explicit human state,
+  // never inferred from busy/idle. Stored on the Bot record (bots.json); no schema migration — a session without a
+  // stored status shows its origin default on the client.
+
+  // POST /api/workspaces/:id/sessions/:botId/status {status} -> {botId,status}
+  app.post("/api/workspaces/:id/sessions/:botId/status", async (_req, _res, { params, body }) => {
+    const b = jsonObject(body);
+    const status = typeof b.status === "string" ? b.status : "";
+    if (!SESSION_STATUSES.includes(status)) throw new HttpError(400, `status must be one of: ${SESSION_STATUSES.join(", ")}`);
+    const ws = assertIssueLoopWorkspace(params.id);
+    const bot = bots.get(params.botId);
+    if (!bot) throw new HttpError(404, `session not found: ${params.botId}`);
+    const link = control.links.workspaceOf(String(bot.conversationId));
+    if (!link || link.id !== ws.id) throw new HttpError(409, `session ${params.botId} does not belong to workspace ${ws.id}`);
+    if (typeof bots.update !== "function") throw new HttpError(503, "bot registry cannot persist status");
+    bots.update(bot.id, { status });
+    return { botId: bot.id, status };
+  });
+
+  // POST /api/workspaces/:id/sessions/:botId/result {summary, tests?, pr?} -> {result:{...}}
+  // Human-reported execution result for an execution session. Tests are labelled human-entered text, never a
+  // passed/failed verdict. `pr` is verified against the workspace's own repo before it is stored — no arbitrary links.
+  app.post("/api/workspaces/:id/sessions/:botId/result", async (_req, _res, { params, body }) => {
+    const b = jsonObject(body);
+    const summary = typeof b.summary === "string" ? b.summary.trim() : "";
+    if (!summary) throw new HttpError(400, "summary is required");
+    if (summary.length > 20_000) throw new HttpError(400, "summary is too long (max 20000 characters)");
+    const tests = optString(b, "tests", 20_000);
+    const ws = assertIssueLoopWorkspace(params.id);
+    const bot = bots.get(params.botId);
+    if (!bot) throw new HttpError(404, `session not found: ${params.botId}`);
+    const link = control.links.workspaceOf(String(bot.conversationId));
+    if (!link || link.id !== ws.id) throw new HttpError(409, `session ${params.botId} does not belong to workspace ${ws.id}`);
+    if (!bot.issueLoop?.sourceBotId) throw new HttpError(409, `session ${params.botId} is not an execution session (no source issue)`);
+    if (typeof bots.update !== "function") throw new HttpError(503, "bot registry cannot persist the result");
+
+    let pull;
+    if (b.pr !== undefined && b.pr !== null && b.pr !== "") {
+      const prNumber = Number(b.pr);
+      if (!Number.isInteger(prNumber) || prNumber <= 0) throw new HttpError(400, "pr must be a positive integer");
+      try {
+        pull = await github.getPull(ws.repo, prNumber);
+      } catch (e) {
+        throw mapError(e);
+      }
+      if (!pull) throw new HttpError(404, `pull request #${prNumber} not found in ${ws.repo}`);
+      pull = { number: pull.number, title: pull.title, url: pull.url, state: pull.state, headSha: pull.headSha };
+    }
+
+    const result = {
+      summary,
+      // Explicitly human-entered text. Never rendered as an automated pass/fail badge; absent means 未记录.
+      testsReportedByHuman: tests ?? null,
+      pull: pull ?? null,
+      issue: bot.issueLoop.issue,
+      sourceBotId: bot.issueLoop.sourceBotId,
+      reportedAt: new Date().toISOString(),
+    };
+    bots.update(bot.id, { executionResult: result });
+    return { result: { botId: bot.id, ...result } };
   });
 }

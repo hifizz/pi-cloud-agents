@@ -32,7 +32,7 @@ import {
   type WorkspaceContextValue,
   type WorkspaceOverview,
 } from "./lib/workspaces";
-import type { BotSummary, ForkInput } from "./types";
+import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary, type ForkInput, type SessionStatus } from "./types";
 
 /** Small publish-task form for an issue-loop discussion session. Empty input; the human writes the task explicitly. */
 function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; error?: string; onPublish: (task: string) => void; onCancel: () => void }) {
@@ -82,25 +82,37 @@ function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; 
 
 /** Central workspace overview (SPIKE-workspace-overview): open unresolved issues and open, unmerged PRs of the
  * workspace's bound repo. Fetches once when the workspace is opened and on the manual 刷新 button — it is NOT part
- * of the 3s bots poll. Clicking an issue reuses its existing discussion or creates one via the discuss flow; PRs
- * only link out to GitHub (a future Code Review action is deliberately not stubbed). */
+ * of the 3s bots poll. Clicking an issue reuses its existing discussion or creates one via the discuss flow; a PR
+ * row's Review button starts a review session pinned at the PR head SHA. Execution sessions of this workspace are
+ * grouped under their issue (issueLoop.issue/sourceBotId) as result cards; clicking a name opens that session. */
 function WorkspaceOverview({
   workspace,
   railOpen,
+  bots,
   onExpandRail,
   onOpenIssue,
+  onOpenSession,
+  onReview,
 }: {
   workspace: Workspace;
   railOpen: boolean;
+  /** All sessions; execution bots of THIS workspace are grouped under their issue below. */
+  bots: BotSummary[];
   onExpandRail: () => void;
   /** Returns a promise so the row can stay disabled until the discuss flow resolves (simplest repeated-click guard). */
   onOpenIssue: (wsId: string, issue: number) => Promise<void>;
+  /** Open an existing session (e.g. an execution session named on a result card). */
+  onOpenSession: (botId: string) => void;
+  /** PR row Review action; resolves when the review session is created/reused and opened. */
+  onReview: (wsId: string, pr: number) => Promise<void>;
 }) {
   const [data, setData] = useState<WorkspaceOverview>();
   const [err, setErr] = useState<string>();
   const [loading, setLoading] = useState(true);
   /** Issue currently being opened via the discuss flow; disables every issue row until it resolves. */
   const [opening, setOpening] = useState<number>();
+  /** PR whose review request is in flight; disables every Review button until it resolves. */
+  const [reviewing, setReviewing] = useState<number>();
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -116,6 +128,19 @@ function WorkspaceOverview({
     void load();
   }, [load]);
 
+  // Execution sessions of this workspace, grouped by issue. A bot is an execution only when issueLoop carries a
+  // sourceBotId; discussions and review/manual sessions are never listed here.
+  const executionsByIssue = useMemo(() => {
+    const map = new Map<number, BotSummary[]>();
+    for (const b of bots) {
+      if (b.workspaceId !== workspace.id || !b.issueLoop?.sourceBotId || !b.issueLoop.issue) continue;
+      const list = map.get(b.issueLoop.issue) ?? [];
+      list.push(b);
+      map.set(b.issueLoop.issue, list);
+    }
+    return map;
+  }, [bots, workspace.id]);
+
   const openIssue = async (issueNo: number) => {
     if (opening !== undefined) return;
     setOpening(issueNo);
@@ -123,6 +148,16 @@ function WorkspaceOverview({
       await onOpenIssue(workspace.id, issueNo);
     } finally {
       setOpening(undefined);
+    }
+  };
+
+  const startReview = async (pr: number) => {
+    if (reviewing !== undefined) return;
+    setReviewing(pr);
+    try {
+      await onReview(workspace.id, pr);
+    } finally {
+      setReviewing(undefined);
     }
   };
 
@@ -176,16 +211,48 @@ function WorkspaceOverview({
                   <p className="text-sm text-fg-muted">没有未解决的 issue。</p>
                 ) : (
                   <ul className="space-y-1">
-                    {data.issues.map((issue) => (
-                      <li key={issue.number}>
-                        <button type="button" onClick={() => void openIssue(issue.number)} disabled={opening !== undefined} className={`${row} disabled:opacity-50`}>
-                          <span className="shrink-0 font-mono text-xs text-fg-muted">#{issue.number}</span>
-                          <span className="min-w-0 flex-1 truncate">{issue.title}</span>
-                          {opening === issue.number && <span className="shrink-0 text-[11px] text-fg-muted">打开中…</span>}
-                          {issue.discussionBotId && opening !== issue.number && <span className="shrink-0 text-[11px] text-fg-faint">已有讨论</span>}
-                        </button>
-                      </li>
-                    ))}
+                    {data.issues.map((issue) => {
+                      const executions = executionsByIssue.get(issue.number) ?? [];
+                      return (
+                        <li key={issue.number}>
+                          <button type="button" onClick={() => void openIssue(issue.number)} disabled={opening !== undefined} className={`${row} disabled:opacity-50`}>
+                            <span className="shrink-0 font-mono text-xs text-fg-muted">#{issue.number}</span>
+                            <span className="min-w-0 flex-1 truncate">{issue.title}</span>
+                            {opening === issue.number && <span className="shrink-0 text-[11px] text-fg-muted">打开中…</span>}
+                            {issue.discussionBotId && opening !== issue.number && <span className="shrink-0 text-[11px] text-fg-faint">已有讨论</span>}
+                          </button>
+                          {executions.length > 0 && (
+                            <ul className="ml-4 mt-1 space-y-1" aria-label={`issue #${issue.number} 执行结果`}>
+                              {executions.map((exec) => {
+                                const result = exec.executionResult;
+                                const st = defaultSessionStatus(exec);
+                                return (
+                                  <li key={exec.id} className="rounded-lg border border-line px-3 py-2 text-[13px]" data-testid={`exec-card-${exec.id}`}>
+                                    <div className="flex items-center gap-2">
+                                      <button type="button" onClick={() => onOpenSession(exec.id)} className="min-w-0 flex-1 truncate text-left font-medium text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                                        {exec.name}
+                                      </button>
+                                      {/* Business status; 待确认 is a pending human decision, not an approval state. */}
+                                      <span className="shrink-0 text-[11px] text-fg-muted">{SESSION_STATUS_LABEL[st]}</span>
+                                    </div>
+                                    <p className="mt-1 text-fg-dim">{result?.summary ?? "未记录"}</p>
+                                    <p className="mt-0.5 text-xs text-fg-muted">
+                                      {result?.testsReportedByHuman ? <>测试记录（人工填写）: {result.testsReportedByHuman}</> : "测试记录: 未记录"}
+                                    </p>
+                                    {result?.pull && (
+                                      <a href={result.pull.url} target="_blank" rel="noreferrer" className="mt-0.5 inline-block text-xs text-accent underline">
+                                        #{result.pull.number} {result.pull.title}
+                                        {result.pull.state && <span className="ml-1 text-fg-muted no-underline">{result.pull.state}</span>}
+                                      </a>
+                                    )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </section>
@@ -197,12 +264,20 @@ function WorkspaceOverview({
                 ) : (
                   <ul className="space-y-1">
                     {data.pulls.map((pr) => (
-                      <li key={pr.number}>
+                      <li key={pr.number} className="flex items-center gap-2">
                         <a href={pr.url} target="_blank" rel="noreferrer" className={row}>
                           <span className="shrink-0 font-mono text-xs text-fg-muted">#{pr.number}</span>
                           <span className="min-w-0 flex-1 truncate">{pr.title ?? ""}</span>
                           {pr.headRef && <span className="shrink-0 truncate font-mono text-[11px] text-fg-faint">{pr.headRef}</span>}
                         </a>
+                        <button
+                          type="button"
+                          onClick={() => void startReview(pr.number)}
+                          disabled={reviewing !== undefined}
+                          className="shrink-0 rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
+                        >
+                          {reviewing === pr.number ? "Review 中…" : "Review"}
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -326,6 +401,23 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     [refresh],
   );
 
+  /** PR row Review button: create/reuse the review session via the workspace route, refresh so it appears in the
+   * session list, then select this workspace and open the review session. */
+  const onReview = useCallback(
+    async (wsId: string, pr: number) => {
+      setError(undefined);
+      try {
+        const { review } = await workspacesApi.reviewPr(wsId, { pr });
+        await refresh();
+        setSelectedWorkspaceId(wsId);
+        setPickedBotId(review.botId);
+      } catch (e) {
+        setError(describeError(e));
+      }
+    },
+    [refresh],
+  );
+
   const onFork = async (input: ForkInput) => {
     const created = await api.forkBot(bot!.id, input);
     await refresh();
@@ -374,6 +466,17 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   };
 
   const model = vm.agent.modelId ? `${vm.agent.provider ?? ""}/${vm.agent.modelId}` : bot ? `${bot.model.provider}/${bot.model.modelId}` : "";
+
+  // SPIKE-review-loop: the session status is a human-set business label persisted on the Bot record.
+  const onSetStatus = async (status: SessionStatus) => {
+    if (!workspace || !bot) return;
+    try {
+      await workspacesApi.setSessionStatus(workspace.id, bot.id, status);
+      setBots((list) => list.map((b) => (b.id === bot.id ? { ...b, status } : b)));
+    } catch (e) {
+      setError(describeError(e));
+    }
+  };
 
   const onCompact = () => void guard(() => api.compact(bot!.id)).catch(() => {});
   const onReset = () => {
@@ -424,6 +527,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           onTogglePanel={panels.toggle}
           onCompact={onCompact}
           onReset={onReset}
+          onSetStatus={onSetStatus}
         />
       )}
 
@@ -445,7 +549,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
       {overviewOpen && workspace ? (
         // Keyed by workspace.id: switching workspaces remounts it, so stale rows of the previous repo can't linger.
-        <WorkspaceOverview key={workspace.id} workspace={workspace} railOpen={rail.open} onExpandRail={rail.show} onOpenIssue={onOpenIssue} />
+        <WorkspaceOverview key={workspace.id} workspace={workspace} railOpen={rail.open} bots={bots} onExpandRail={rail.show} onOpenIssue={onOpenIssue} onOpenSession={setPickedBotId} onReview={onReview} />
       ) : bot ? (
         <>
           <MessageList

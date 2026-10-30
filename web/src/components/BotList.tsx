@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { BotSummary } from "../types";
+import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary } from "../types";
 import { describeError, mapBotsToWorkspaces, repoName, workspacesApi, type Workspace } from "../lib/workspaces";
 import { Icon } from "./Chat/primitives/Icon";
 import { StatusDot } from "./WorkspaceStatus";
@@ -255,6 +255,8 @@ export function BotList({
                         {sessions.map((bot) => {
                           const botSelected = bot.id === selectedBotId;
                           const parentName = bot.parent ? (bots.find((b) => b.id === bot.parent?.botId)?.name ?? "unknown") : undefined;
+                          // Business status (human-set; defaults from origin). The busy/idle dot stays as run state.
+                          const sessionStatus = defaultSessionStatus(bot);
                           return (
                             <li key={bot.id}>
                               <button
@@ -266,7 +268,12 @@ export function BotList({
                                 }`}
                               >
                                 <span className="min-w-0 flex-1">
-                                  <span className="block truncate font-medium">{bot.name}</span>
+                                  <span className="block truncate font-medium">
+                                    {bot.name}
+                                    <span data-testid="session-status-label" className={`ml-1.5 text-[11px] font-normal ${sessionStatus === "done" ? "text-fg-faint" : "text-fg-muted"}`}>
+                                      {SESSION_STATUS_LABEL[sessionStatus]}
+                                    </span>
+                                  </span>
                                   {(parentName || bot.queued > 0 || bot.readOnly) && (
                                     <span className="block truncate text-[11px] text-fg-muted">
                                       {parentName && <span title={`Forked from ${parentName}`}>↳ {parentName}</span>}

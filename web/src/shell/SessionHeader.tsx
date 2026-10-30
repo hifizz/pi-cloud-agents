@@ -2,7 +2,9 @@
 import { UsageBadge } from "../components/UsageBadge";
 import { Icon } from "../components/Chat/primitives/Icon";
 import { envName, repoName, shortSha, type Workspace } from "../lib/workspaces";
-import type { BotSummary, ConversationVM, StreamStatus } from "../types";
+import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary, type ConversationVM, type SessionStatus, type StreamStatus } from "../types";
+
+const STATUS_ORDER: SessionStatus[] = ["discussing", "awaiting", "executing", "done"];
 
 export interface SessionHeaderProps {
   bot?: BotSummary;
@@ -20,6 +22,8 @@ export interface SessionHeaderProps {
   onTogglePanel: () => void;
   onCompact: () => void;
   onReset: () => void;
+  /** SPIKE-review-loop: human sets the session's business status. */
+  onSetStatus?: (status: SessionStatus) => void;
 }
 
 const hbtn =
@@ -38,23 +42,32 @@ export function SessionHeader({
   onTogglePanel,
   onCompact,
   onReset,
+  onSetStatus,
 }: SessionHeaderProps) {
-  // This session's own git state: a detached discussion pins a commit; an execution session has its own branch.
+  // This session's own git state: a detached discussion/review pins a commit; an execution session has its own branch.
   // The workspace's feature branch is never used to stand in for these sessions.
   const loop = bot?.issueLoop;
+  // A PR review session (SPIKE-review-loop) is a detached worktree pinned at the PR's head SHA — its own record,
+  // never issueLoop metadata, so it gets no publish-task button.
+  const review = !loop ? bot?.review : undefined;
   // A session added by hand (SPIKE-add-session) is a detached worktree too: its own pinned commit, not the feature branch.
-  const added = !loop && bot?.worktree ? bot.worktree : undefined;
+  const added = !loop && !review && bot?.worktree ? bot.worktree : undefined;
   const gitLabel = loop
     ? (loop.branch ? loop.branch : `detached @ ${shortSha(loop.pinnedSha) ?? loop.pinnedSha}`)
-    : added
-      ? `detached @ ${shortSha(added.pinnedSha) ?? added.pinnedSha}`
-      : workspace?.branch;
+    : review
+      ? `PR #${review.pr} @ ${shortSha(review.headSha) ?? review.headSha}`
+      : added
+        ? `detached @ ${shortSha(added.pinnedSha) ?? added.pinnedSha}`
+        : workspace?.branch;
   const gitTitle = loop
     ? `${loop.branch ? `branch ${loop.branch}` : `detached HEAD`} · pinned ${loop.pinnedSha}`
-    : added
-      ? `detached HEAD · pinned ${added.pinnedSha}`
-      : workspace?.branch;
+    : review
+      ? `reviewing PR #${review.pr} · detached HEAD · pinned ${review.headSha}`
+      : added
+        ? `detached HEAD · pinned ${added.pinnedSha}`
+        : workspace?.branch;
   const sourceName = loop?.sourceBotId ? (bots.find((b) => b.id === loop.sourceBotId)?.name ?? loop.sourceBotId) : undefined;
+  const sessionStatus = bot ? defaultSessionStatus(bot) : undefined;
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
@@ -104,6 +117,23 @@ export function SessionHeader({
             </button>
           )}
         </div>
+        {sessionStatus && (
+          <select
+            aria-label="会话状态"
+            data-testid="session-status"
+            title="会话业务状态（人工设置，不由运行状态推断）"
+            value={sessionStatus}
+            disabled={!onSetStatus}
+            onChange={(e) => onSetStatus?.(e.target.value as SessionStatus)}
+            className="shrink-0 rounded-md border border-line-strong bg-field px-1.5 py-0.5 text-[11px] text-fg-dim hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+          >
+            {STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {SESSION_STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       {status !== "open" && bot && (
         <span role="status" className="shrink-0 whitespace-nowrap text-xs text-warn">

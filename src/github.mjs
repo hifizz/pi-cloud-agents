@@ -73,14 +73,15 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
   const redact = makeRedactor(secret);
   const base = String(apiBase).replace(/\/+$/, "");
 
-  /** Perform one request; returns { status, data } for 2xx, throws GithubError otherwise. */
-  async function request(method, path, { query, body, allow404 = false } = {}) {
+  /** Perform one request; returns { status, data } for 2xx, throws GithubError otherwise.
+   * `accept` overrides the Accept header; `rawText` returns the body text as `data` without JSON parsing. */
+  async function request(method, path, { query, body, allow404 = false, accept, rawText = false } = {}) {
     if (!secret) throw new GithubError("unauthorized", "GITHUB_TOKEN is not configured");
     if (typeof fetchImpl !== "function") throw new GithubError("unknown", "no fetch implementation available");
     let url = `${base}${path}`;
     if (query) url += `?${query}`;
     const headers = {
-      Accept: "application/vnd.github+json",
+      Accept: accept ?? "application/vnd.github+json",
       Authorization: `Bearer ${secret}`,
       "User-Agent": USER_AGENT,
       "X-GitHub-Api-Version": API_VERSION,
@@ -118,6 +119,7 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
     }
 
     if (status >= 200 && status < 300) {
+      if (rawText) return { status, data: text, headers: res.headers };
       if (data === undefined && text) {
         throw new GithubError("unknown", `GitHub ${method} ${path}: unparseable response body (${status})`, { status });
       }
@@ -216,6 +218,33 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
       const { data } = await request("GET", `/repos/${repo}/branches/${encodeRef(name)}`, { allow404: true });
       if (!data) return null;
       return { name: data.name, sha: data.commit?.sha ?? null };
+    },
+
+    /** One pull request with title/body and head/base SHAs. Returns null when missing. */
+    async getPull(repo, number) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid pull number: ${String(number).slice(0, 40)}`);
+      const { data } = await request("GET", `/repos/${repo}/pulls/${n}`, { allow404: true });
+      if (!data) return null;
+      return {
+        ...normalizePull(data),
+        title: data.title ?? "",
+        body: data.body ?? "",
+        author: data.user?.login ?? null,
+        headSha: data.head?.sha ?? null,
+        baseSha: data.base?.sha ?? null,
+      };
+    },
+
+    /** The PR's real diff text (Accept: application/vnd.github.diff). Throws on failure; null when the PR is missing. */
+    async getPullDiff(repo, number) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid pull number: ${String(number).slice(0, 40)}`);
+      const { status, data } = await request("GET", `/repos/${repo}/pulls/${n}`, { allow404: true, accept: "application/vnd.github.diff", rawText: true });
+      if (status === 404) return null;
+      return data;
     },
 
     async findPullByHead(repo, headBranch) {

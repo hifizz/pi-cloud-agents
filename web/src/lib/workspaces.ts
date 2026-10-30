@@ -2,7 +2,7 @@
 // everything here only assumes the shapes documented in the plan.
 import { createContext, useEffect, useRef } from "react";
 import { ApiError, request } from "./api";
-import type { BotSummary } from "../types";
+import type { BotSummary, SessionStatus } from "../types";
 
 export type StepName = "runtime" | "init" | "code" | "deps" | "agent";
 export type StepState = "pending" | "running" | "done" | "failed" | "unknown";
@@ -118,6 +118,34 @@ export interface WorkspaceOverview {
   pulls: PullInfo[];
 }
 
+/** A PR review session created (or reused) by POST /api/workspaces/:id/review. */
+export interface ReviewSession {
+  botId: string;
+  name: string;
+  conversationId: number | string;
+  workspaceId: string;
+  pr: number;
+  title: string;
+  url: string;
+  headSha: string;
+  baseSha: string | null;
+  dir: string;
+  /** True when the same workspace + PR + head SHA already had a review session. */
+  reused: boolean;
+}
+
+/** Human-reported execution result stored on an execution session. */
+export interface ExecutionResult {
+  botId: string;
+  summary: string;
+  /** Human-entered test notes; never an automated pass/fail. null = 未记录. */
+  testsReportedByHuman: string | null;
+  pull: { number: number; title: string; url: string; state?: string; headSha?: string | null } | null;
+  issue: number;
+  sourceBotId: string;
+  reportedAt: string;
+}
+
 export interface CheckpointManifest {
   id: string | number;
   workspaceId?: string;
@@ -189,6 +217,15 @@ export const workspacesApi = {
   /** Issue-loop spike: publish an execution session from a discussion session's pinned baseline. */
   issueLoopPublish: (id: string, input: { botId: string; task: string }) =>
     request<{ execution: IssueLoopSession }>("POST", `/api/workspaces/${enc(id)}/issue-loop/publish`, input),
+  /** SPIKE-review-loop: one-click PR review — a fresh detached session pinned at the real PR head SHA. */
+  reviewPr: (id: string, input: { pr: number }) =>
+    request<{ review: ReviewSession }>("POST", `/api/workspaces/${enc(id)}/review`, input),
+  /** SPIKE-review-loop: set a session's business status (human-set, never inferred). */
+  setSessionStatus: (id: string, botId: string, status: SessionStatus) =>
+    request<{ botId: string; status: SessionStatus }>("POST", `/api/workspaces/${enc(id)}/sessions/${enc(botId)}/status`, { status }),
+  /** SPIKE-review-loop: report the human-written result of an execution session (feeds the issue's overview card). */
+  reportResult: (id: string, botId: string, input: { summary: string; tests?: string; pr?: number }) =>
+    request<{ result: ExecutionResult }>("POST", `/api/workspaces/${enc(id)}/sessions/${enc(botId)}/result`, input),
   saveCheckpoint: (id: string) => request<CheckpointManifest>("POST", `/api/workspaces/${enc(id)}/checkpoint`, {}),
   checkpoints: (id: string) => request<CheckpointManifest[]>("GET", `/api/workspaces/${enc(id)}/checkpoints`),
   rebuild: (id: string, input: { checkpointId: string | number; requestId?: string }) =>

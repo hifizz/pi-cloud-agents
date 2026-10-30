@@ -24,10 +24,11 @@ const MAIN_SHA = "3157db095cb9344e5b9cf0669657bf613d036b46";
 const OTHER_SHA = "b".repeat(40);
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
-/** GitHub REST double: repo meta, branches, the issue and its comments, plus optional /issues and /pulls lists. */
+/** GitHub REST double: repo meta, branches, the issue and its comments, /issues list, PR list and PR detail/diff. */
 function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [], issues, pulls } = {}) {
   const st = { calls: [] };
   const reply = (status, data) => ({ status, headers: { get: () => null }, text: async () => (data === undefined ? "" : JSON.stringify(data)) });
+  const rawReply = (status, text) => ({ status, headers: { get: () => null }, text: async () => text });
   const fetch = async (url, init) => {
     const u = new URL(url);
     st.calls.push(`${init.method} ${u.pathname}${u.search}`);
@@ -64,8 +65,23 @@ function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [],
       const page = Number(u.searchParams.get("page")) || 1;
       return reply(200, items.slice((page - 1) * perPage, page * perPage));
     }
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls\/(\d+)$/.exec(u.pathname))) {
+      const p = Array.isArray(pulls) ? pulls.find((x) => x.number === Number(m[2])) : pulls[Number(m[2])];
+      if (!p) return reply(404, { message: "Not Found" });
+      if (String(init.headers.Accept).includes("vnd.github.diff")) return rawReply(200, p.diff ?? "diff --git a/x b/x\n");
+      return reply(200, {
+        number: p.number,
+        title: p.title,
+        body: p.body ?? "",
+        html_url: `https://github.com/${REPO}/pull/${p.number}`,
+        state: p.state ?? "open",
+        user: { login: "fizz" },
+        head: { ref: p.headRef ?? "feature", sha: p.headSha },
+        base: { ref: p.baseRef ?? "main", sha: p.baseSha ?? MAIN_SHA },
+      });
+    }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(u.pathname))) {
-      const items = (pulls ?? []).map((p) => ({
+      const items = (Array.isArray(pulls) ? pulls : Object.values(pulls ?? {})).map((p) => ({
         number: p.number,
         title: p.title ?? "",
         html_url: `https://github.com/${REPO}/pull/${p.number}`,
@@ -94,6 +110,12 @@ function fakeBots() {
     records,
     list: () => [...records],
     get: (id) => records.find((b) => b.id === id || b.name === id),
+    update: (id, patch) => {
+      const bot = registry.get(id);
+      if (!bot) return undefined;
+      Object.assign(bot, patch);
+      return bot;
+    },
     async createBot(spec) {
       const bot = { id: `bot${records.length + 1}`, name: spec.name, conversationId: 5000 + records.length, model: spec.model, cwd: spec.cwd, ...spec };
       records.push(bot);
@@ -674,6 +696,48 @@ test("overview: open issues and open unmerged PRs come back separately; PRs in /
   }
 });
 
+// ---- PR review (SPIKE-review-loop) -----------------------------------------------------------------------------------
+
+const PR_SHA = "d".repeat(40);
+const PR = { number: 5, title: "Add feature", body: "pr body", headSha: PR_SHA, headRef: "feat", baseRef: "main", baseSha: MAIN_SHA, diff: "diff --git a/f b/f\n+new\n" };
+
+test("review: pins the real PR head SHA, same Sprite detached worktree, fresh review-only session", async () => {
+  const env = await makeEnv({ defaultBranch: "main", branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [], pulls: { 5: PR } });
+  try {
+    const { status, json } = await env.post(`/api/workspaces/${env.ws.id}/review`, { pr: 5 });
+    assert.equal(status, 200, json?.error);
+    const r = json.review;
+    assert.equal(r.reused, false);
+    assert.equal(r.pr, 5);
+    assert.equal(r.headSha, PR_SHA);
+    // detached worktree at the pinned head SHA, fetched via the PR head ref (same-repo and fork PRs)
+    const add = env.rt.calls.find((c) => c.includes("worktree add"));
+    assert.ok(add, `no worktree command: ${JSON.stringify(env.rt.calls)}`);
+    assert.ok(add.includes(`fetch origin 'pull/5/head'`), `fetches the PR head ref: ${add}`);
+    assert.ok(add.includes(`--detach '${r.dir}' '${PR_SHA}'`), `detached at the pinned head SHA: ${add}`);
+    assert.ok(!/\bcheckout\b|\breset\b| -b /.test(add), "no checkout/reset of the original dir, no new branch");
+    // fresh conversation, same workspace (same Sprite), preamble removed, review metadata — never issueLoop
+    const spec = env.bots.created[0];
+    assert.equal(spec.cwd, r.dir);
+    assert.equal(spec.workspaceId, env.ws.id);
+    assert.equal(spec.status, "discussing");
+    assert.deepEqual(spec.review, { pr: 5, title: "Add feature", baseBranch: "main", headSha: PR_SHA, dir: r.dir });
+    assert.equal(spec.issueLoop, undefined, "review metadata must not masquerade as issueLoop");
+    assert.deepEqual(spec.extensions.remove.map((e) => e.name), ["tarsbot.preamble"]);
+    assert.match(spec.instructions, /不审批不合并|不评论/, "review-only rules in instructions");
+    assert.equal(env.store.links.workspaceOf(String(env.bots.records[0].conversationId))?.id, env.ws.id);
+    // the first message carries the real PR facts and diff, plus review-only safety rules
+    const msg = env.bots.submits.get(r.botId)[0].content;
+    assert.ok(msg.includes(`#5`), "message names the PR");
+    assert.ok(msg.includes(PR_SHA), "message pins the head SHA");
+    assert.ok(msg.includes("diff --git a/f b/f"), "message carries the real diff");
+    assert.match(msg, /不改代码、不提交、不推送、不在 GitHub 上评论、不审批或合并/, "review-only instruction");
+    assert.match(msg, /== 安全规则 ==/, "safety rules restated");
+  } finally {
+    await env.close();
+  }
+});
+
 test("overview: items on the second page are returned (real pagination, not just the query params)", async () => {
   // 101 issues + 101 pulls: the first page (100) cannot contain number 150, so seeing it proves the second page ran.
   const issues = Array.from({ length: 101 }, (_, i) => ({ number: 200 - i, title: `issue ${200 - i}` }));
@@ -694,6 +758,32 @@ test("overview: items on the second page are returned (real pagination, not just
     );
     assert.ok(env.gh.st.calls.some((c) => /\/issues\?.*page=2/.test(c)), "a second /issues page was requested");
     assert.ok(env.gh.st.calls.some((c) => /\/pulls\?.*page=2/.test(c)), "a second /pulls page was requested");
+  } finally {
+    await env.close();
+  }
+});
+
+test("review: same workspace + PR + head SHA reuses the session; a moved head creates a new review", async () => {
+  const pr = { ...PR };
+  const pulls = { 5: pr };
+  const env = await makeEnv({ defaultBranch: "main", branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [], pulls });
+  try {
+    const a = await env.post(`/api/workspaces/${env.ws.id}/review`, { pr: 5 });
+    assert.equal(a.status, 200, a.json?.error);
+    const b = await env.post(`/api/workspaces/${env.ws.id}/review`, { pr: 5 });
+    assert.equal(b.status, 200, b.json?.error);
+    assert.equal(b.json.review.reused, true, "same head SHA reuses the review session");
+    assert.equal(b.json.review.botId, a.json.review.botId);
+    assert.equal(env.bots.created.length, 1, "no second session was created");
+
+    // The PR head moves: a new SHA gets a NEW review session (not the old one).
+    pr.headSha = "e".repeat(40);
+    const c = await env.post(`/api/workspaces/${env.ws.id}/review`, { pr: 5 });
+    assert.equal(c.status, 200, c.json?.error);
+    assert.equal(c.json.review.reused, false);
+    assert.notEqual(c.json.review.botId, a.json.review.botId);
+    assert.equal(c.json.review.headSha, "e".repeat(40));
+    assert.equal(env.bots.created.length, 2);
   } finally {
     await env.close();
   }
@@ -726,6 +816,20 @@ test("overview: a discussion bot for the same issue in ANOTHER workspace is neve
     assert.equal(created.status, 200, created.json?.error);
     assert.notEqual(created.json.discussion.botId, "foreign-disc");
     assert.equal(env.bots.created.length, 1, "a new discussion was created in this workspace");
+  } finally {
+    await env.close();
+  }
+});
+
+test("review: rejects an unknown / non-existent PR (no fake review)", async () => {
+  const env = await makeEnv({ defaultBranch: "main", branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [], pulls: {} });
+  try {
+    const r = await env.post(`/api/workspaces/${env.ws.id}/review`, { pr: 99 });
+    assert.equal(r.status, 404);
+    assert.equal(env.bots.created.length, 0, "nothing was created");
+    assert.equal(env.rt.calls.filter((c) => c.includes("worktree add")).length, 0, "no worktree was added");
+    const bad = await env.post(`/api/workspaces/${env.ws.id}/review`, { pr: -1 });
+    assert.equal(bad.status, 400);
   } finally {
     await env.close();
   }
@@ -764,6 +868,28 @@ test("overview: an issue with an existing same-workspace discussion reports its 
   }
 });
 
+// ---- session status + execution result (SPIKE-review-loop) -----------------------------------------------------------
+
+test("status: human sets a business status on a session in the workspace; invalid values rejected", async () => {
+  const env = await makeEnv({ defaultBranch: "main", branches: { main: MAIN_SHA }, issue: { title: "demo", body: "分析" }, comments: [] });
+  try {
+    const d = (await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 })).json.discussion;
+    let r = await env.post(`/api/workspaces/${env.ws.id}/sessions/${d.botId}/status`, { status: "awaiting" });
+    assert.equal(r.status, 200, r.json?.error);
+    assert.equal(r.json.status, "awaiting");
+    assert.equal(env.bots.get(d.botId).status, "awaiting", "persisted on the Bot record");
+    r = await env.post(`/api/workspaces/${env.ws.id}/sessions/${d.botId}/status`, { status: "done" });
+    assert.equal(r.status, 200);
+    assert.equal(env.bots.get(d.botId).status, "done", "status can be switched again");
+    r = await env.post(`/api/workspaces/${env.ws.id}/sessions/${d.botId}/status`, { status: "idle" });
+    assert.equal(r.status, 400, "busy/idle is not a business status");
+    r = await env.post(`/api/workspaces/${env.ws.id}/sessions/nope/status`, { status: "done" });
+    assert.equal(r.status, 404);
+  } finally {
+    await env.close();
+  }
+});
+
 test("discuss: a sequential repeat returns the existing same-workspace discussion without any Sprite or GitHub call", async () => {
   const env = await makeEnv({
     defaultBranch: "main",
@@ -784,6 +910,47 @@ test("discuss: a sequential repeat returns the existing same-workspace discussio
     assert.equal(env.rt.calls.length, shAfterFirst, "no worktree / git command ran again");
     assert.equal(env.gh.st.calls.length, callsAfterFirst, "no GitHub call ran again");
     assert.equal(env.bots.submits.get(first.json.discussion.botId).length, 1, "the start message is not resubmitted");
+  } finally {
+    await env.close();
+  }
+});
+
+test("result: an execution session reports a human result; the PR is verified against the bound repo", async () => {
+  const env = await makeEnv({ defaultBranch: "main", branches: { main: MAIN_SHA }, issue: { title: "demo", body: "分析" }, comments: [], pulls: { 7: { ...PR, number: 7, title: "Real PR" } } });
+  try {
+    const d = (await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 })).json.discussion;
+    const ex = (await env.post(`/api/workspaces/${env.ws.id}/issue-loop/publish`, { botId: d.botId, task: "实现 X" })).json.execution;
+
+    // a non-execution session cannot report a result
+    let r = await env.post(`/api/workspaces/${env.ws.id}/sessions/${d.botId}/result`, { summary: "x" });
+    assert.equal(r.status, 409);
+
+    // a PR number must exist in the bound repo — no arbitrary link
+    r = await env.post(`/api/workspaces/${env.ws.id}/sessions/${ex.botId}/result`, { summary: "done", pr: 99 });
+    assert.equal(r.status, 404);
+
+    r = await env.post(`/api/workspaces/${env.ws.id}/sessions/${ex.botId}/result`, { summary: "实现了 X", tests: "npm test 通过（人工记录）", pr: 7 });
+    assert.equal(r.status, 200, r.json?.error);
+    const result = r.json.result;
+    assert.equal(result.summary, "实现了 X");
+    assert.equal(result.testsReportedByHuman, "npm test 通过（人工记录）");
+    assert.equal(result.issue, 12, "result is associated to the source issue via issueLoop");
+    assert.equal(result.sourceBotId, d.botId);
+    assert.equal(result.pull.number, 7);
+    assert.equal(result.pull.title, "Real PR");
+    assert.equal(result.pull.url, `https://github.com/${REPO}/pull/7`);
+    assert.equal(result.pull.headSha, PR_SHA);
+    assert.equal(env.bots.get(ex.botId).executionResult.summary, "实现了 X", "persisted on the Bot record");
+
+    // no test record → stored as null (client shows 未记录), never faked
+    const ex2 = (await env.post(`/api/workspaces/${env.ws.id}/issue-loop/publish`, { botId: d.botId, task: "实现 Y" })).json.execution;
+    r = await env.post(`/api/workspaces/${env.ws.id}/sessions/${ex2.botId}/result`, { summary: "实现了 Y" });
+    assert.equal(r.status, 200, r.json?.error);
+    assert.equal(r.json.result.testsReportedByHuman, null);
+    assert.equal(r.json.result.pull, null);
+    // both results belong to the same issue, aggregated from the same workspace's registry
+    const issueResults = env.bots.records.filter((b) => b.executionResult?.issue === 12);
+    assert.equal(issueResults.length, 2, "multiple results per issue are kept");
   } finally {
     await env.close();
   }
