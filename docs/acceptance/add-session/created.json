@@ -1,0 +1,29 @@
+{
+  "session": {
+    "id": "2d5d5f01",
+    "name": "手动讨论 Demo",
+    "conversationId": 153,
+    "model": {
+      "provider": "tokenrouter",
+      "modelId": "swe-2"
+    },
+    "instructions": "手动添加的 Session（detached @ 3157db095cb9344e5b9cf0669657bf613d036b46，仓库默认分支 main）。工作目录 /home/sprite/sessions/ws_e168e5f97244a35b/session-dbd419d2。按用户的第一条消息执行。\nSpike safety rules (the general git/PR workflow is removed for this session; these rules apply instead):\n- Never print, echo, log or write any credential or token (GH_TOKEN, or any other secret in the environment). Do not run env, printenv, set, `git config --list`, `gh auth status` or `gh auth login`.\n- Never force-push (--force, -f, --force-with-lease, +refspec), never delete remote branches or tags, never merge or close a pull request, never change repository settings.\n- This spike does not push and does not open pull requests: do not run `git push`, `gh pr create` or `gh pr merge`.\n- If a command is denied by approval, stop that operation, report exactly what was denied, and do not retry it in another form.",
+    "workspaceId": "ws_e168e5f97244a35b",
+    "worktree": {
+      "baseBranch": "main",
+      "pinnedSha": "3157db095cb9344e5b9cf0669657bf613d036b46",
+      "dir": "/home/sprite/sessions/ws_e168e5f97244a35b/session-dbd419d2"
+    },
+    "createdAt": "2026-10-30T17:04:52.482Z",
+    "busy": false,
+    "queued": 0
+  },
+  "entries": [],
+  "binding": {
+    "provider": "sprites",
+    "runtimeId": "pca-eae56f671c",
+    "version": 1
+  },
+  "hasPublishButton": false,
+  "header": "detached @ 3157db0"
+}

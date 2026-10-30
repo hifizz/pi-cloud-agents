@@ -1,0 +1,11 @@
+{
+  "before": {
+    "bots": 8,
+    "entries": 23
+  },
+  "after": {
+    "bots": 8,
+    "entries": 23,
+    "heading": "issue-12-discuss"
+  }
+}

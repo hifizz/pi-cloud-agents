@@ -48,7 +48,19 @@ export class BotRegistry {
   /**
    * `workspaceId` is a stable marker for the workspace service: a Bot created but not yet linked (crash in between) is found
    * again by it, never by comparing instruction text.
-   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[] }} spec
+   * `issueLoop` (issue-loop spike) is small experiment metadata persisted on the Bot record: the pinned baseline
+   * commit, the worktree directory, the execution branch and the source discussion Bot id for the UI backlink. It is
+   * real runtime fact, not a fork relation: the UI uses it to show the session's own git state and the "来自讨论" link.
+   * `worktree` (SPIKE-add-session) is a small record for a session added by hand from the workspace menu: the detached
+   * worktree it runs in (`dir`), the repo default branch it was taken from (`baseBranch`) and the pinned commit
+   * (`pinnedSha`). It is not a fork, not an issue and not a PR.
+   * `status` (SPIKE-review-loop) is the session's human-visible business state: "discussing" | "awaiting" |
+   * "executing" | "done" — set explicitly by the human or at creation by the route; never inferred from busy/idle.
+   * `review` (SPIKE-review-loop) marks a one-click PR review session: the PR number it reviews, the pinned head SHA
+   * and the detached worktree dir. It is not issueLoop metadata: a review session never gets a publish-task button.
+   * `executionResult` (SPIKE-review-loop) is the human-reported result of an execution session: summary text, human
+   * test notes (never an auto pass/fail) and a verified PR reference.
+   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object }} spec
    */
   async createBot(spec) {
     if (!spec?.name) throw new Error("name is required");
@@ -69,9 +81,29 @@ export class BotRegistry {
       model: agent.model,
       instructions: spec.instructions ?? "",
       ...(spec.workspaceId ? { workspaceId: spec.workspaceId } : {}),
+      ...(spec.issueLoop ? { issueLoop: { ...spec.issueLoop } } : {}),
+      ...(spec.worktree ? { worktree: { ...spec.worktree } } : {}),
+      ...(spec.status ? { status: spec.status } : {}),
+      ...(spec.review ? { review: { ...spec.review } } : {}),
+      ...(spec.executionResult ? { executionResult: { ...spec.executionResult } } : {}),
       createdAt: new Date().toISOString(),
     };
     this.bots.push(bot);
+    this.#save();
+    return bot;
+  }
+
+  /** Persist small record fields (status / executionResult). Only these keys are writable; undefined removes nothing.
+   * Passing `null` deletes the key. Returns the updated record, or undefined when the Bot does not exist. */
+  update(id, patch) {
+    const bot = this.get(id);
+    if (!bot) return undefined;
+    for (const key of ["status", "executionResult"]) {
+      if (key in patch) {
+        if (patch[key] === null) delete bot[key];
+        else bot[key] = patch[key];
+      }
+    }
     this.#save();
     return bot;
   }

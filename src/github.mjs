@@ -73,14 +73,15 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
   const redact = makeRedactor(secret);
   const base = String(apiBase).replace(/\/+$/, "");
 
-  /** Perform one request; returns { status, data } for 2xx, throws GithubError otherwise. */
-  async function request(method, path, { query, body, allow404 = false } = {}) {
+  /** Perform one request; returns { status, data } for 2xx, throws GithubError otherwise.
+   * `accept` overrides the Accept header; `rawText` returns the body text as `data` without JSON parsing. */
+  async function request(method, path, { query, body, allow404 = false, accept, rawText = false } = {}) {
     if (!secret) throw new GithubError("unauthorized", "GITHUB_TOKEN is not configured");
     if (typeof fetchImpl !== "function") throw new GithubError("unknown", "no fetch implementation available");
     let url = `${base}${path}`;
     if (query) url += `?${query}`;
     const headers = {
-      Accept: "application/vnd.github+json",
+      Accept: accept ?? "application/vnd.github+json",
       Authorization: `Bearer ${secret}`,
       "User-Agent": USER_AGENT,
       "X-GitHub-Api-Version": API_VERSION,
@@ -118,6 +119,7 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
     }
 
     if (status >= 200 && status < 300) {
+      if (rawText) return { status, data: text, headers: res.headers };
       if (data === undefined && text) {
         throw new GithubError("unknown", `GitHub ${method} ${path}: unparseable response body (${status})`, { status });
       }
@@ -181,11 +183,68 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
       return paginate(`/repos/${repo}/branches`, "", limit, (b) => ({ name: b.name, sha: b.commit?.sha ?? null }));
     },
 
+    /** One issue (not a PR). Returns {number,title,body,url,state,author,comments} or null when missing. */
+    async getIssue(repo, number) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid issue number: ${String(number).slice(0, 40)}`);
+      const { data } = await request("GET", `/repos/${repo}/issues/${n}`, { allow404: true });
+      if (!data || data.pull_request) return null;
+      return {
+        number: data.number,
+        title: data.title ?? "",
+        body: data.body ?? "",
+        url: data.html_url ?? `https://github.com/${repo}/issues/${n}`,
+        state: data.state,
+        author: data.user?.login ?? null,
+        comments: data.comments ?? 0,
+      };
+    },
+
+    /** Comments of one issue, oldest first: [{author, body, url}]. */
+    async listIssueComments(repo, number, { limit = 100 } = {}) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid issue number: ${String(number).slice(0, 40)}`);
+      return paginate(`/repos/${repo}/issues/${n}/comments`, "", limit, (c) => ({
+        author: c.user?.login ?? null,
+        body: c.body ?? "",
+        url: c.html_url ?? null,
+      }));
+    },
+
     async getBranch(repo, name) {
       assertRepo(repo);
       const { data } = await request("GET", `/repos/${repo}/branches/${encodeRef(name)}`, { allow404: true });
       if (!data) return null;
       return { name: data.name, sha: data.commit?.sha ?? null };
+    },
+
+    /** One pull request with title/body and head/base SHAs. Returns null when missing. */
+    async getPull(repo, number) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid pull number: ${String(number).slice(0, 40)}`);
+      const { data } = await request("GET", `/repos/${repo}/pulls/${n}`, { allow404: true });
+      if (!data) return null;
+      return {
+        ...normalizePull(data),
+        title: data.title ?? "",
+        body: data.body ?? "",
+        author: data.user?.login ?? null,
+        headSha: data.head?.sha ?? null,
+        baseSha: data.base?.sha ?? null,
+      };
+    },
+
+    /** The PR's real diff text (Accept: application/vnd.github.diff). Throws on failure; null when the PR is missing. */
+    async getPullDiff(repo, number) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid pull number: ${String(number).slice(0, 40)}`);
+      const { status, data } = await request("GET", `/repos/${repo}/pulls/${n}`, { allow404: true, accept: "application/vnd.github.diff", rawText: true });
+      if (status === 404) return null;
+      return data;
     },
 
     async findPullByHead(repo, headBranch) {
@@ -284,6 +343,43 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
       if (found) return accept(found, createError.code !== "conflict");
       settle("unknown", { error: createError.message });
       throw createError;
+    },
+
+    /** A repo's default branch name, or null. */
+    async getRepo(repo) {
+      assertRepo(repo);
+      const { data } = await request("GET", `/repos/${repo}`, { allow404: true });
+      if (!data) return null;
+      return { fullName: data.full_name, defaultBranch: data.default_branch ?? null };
+    },
+
+    /** Open issues only (PRs filtered out), up to `limit` items across paginated requests. The /issues endpoint mixes
+     * PRs in and is capped at one page by default, so this always paginates and always excludes pull_request entries.
+     * Not "all" issues: bounded by `limit` (and the shared MAX_PAGES ceiling), like every other list here. */
+    async listIssues(repo, { limit = 500 } = {}) {
+      assertRepo(repo);
+      return paginate(`/repos/${repo}/issues`, "state=open&sort=created&direction=desc&", limit, (i) => ({
+        number: i.number,
+        title: i.title ?? "",
+        url: i.html_url ?? null,
+        state: i.state,
+        author: i.user?.login ?? null,
+        comments: i.comments ?? 0,
+        isPull: Boolean(i.pull_request),
+      })).then((list) => list.filter((i) => !i.isPull).map(({ isPull: _isPull, ...rest }) => rest));
+    },
+
+    /** Open, unmerged pull requests, up to `limit` items across paginated requests (same MAX_PAGES ceiling).
+     * Includes the title (normalizePull is the older shape). */
+    async listPulls(repo, { limit = 200 } = {}) {
+      assertRepo(repo);
+      return paginate(`/repos/${repo}/pulls`, "state=open&sort=created&direction=desc&", limit, (p) => ({ ...normalizePull(p), title: p.title ?? "" }));
+    },
+
+    /** Open PRs whose base is `base` branch (the pull request(s) tracking the selected baseline). */
+    async listPullsByBase(repo, baseBranch, { limit = 50 } = {}) {
+      assertRepo(repo);
+      return paginate(`/repos/${repo}/pulls`, `state=open&base=${encodeURIComponent(baseBranch)}&sort=created&direction=desc&`, limit, normalizePull);
     },
   };
   return gh;

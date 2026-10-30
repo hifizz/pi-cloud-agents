@@ -1,0 +1,6 @@
+{
+  "stdout": "/home/sprite/issue-loop/ws_e168e5f97244a35b/discussion-e77cc0f6\n## HEAD (no branch)\n3157db095cb9344e5b9cf0669657bf613d036b46\nrefs/heads/main 3157db095cb9344e5b9cf0669657bf613d036b46\nrefs/heads/tarsbot/pr-pwd-git-status-short-branch-g-eae56f 3157db095cb9344e5b9cf0669657bf613d036b46\n",
+  "stderr": "",
+  "exitCode": 0,
+  "timedOut": false
+}

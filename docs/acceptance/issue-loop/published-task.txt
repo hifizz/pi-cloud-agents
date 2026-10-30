@@ -1,0 +1,1 @@
+在当前目录执行 pwd、git status --short --branch、git branch --show-current 和 git rev-parse HEAD；然后新建 DEMO-EXECUTION.txt，内容只写 issue-loop execution demo。不要读取其他会话或其他工作目录，不提交、不推送、不开 PR。最后报告结果并停止。

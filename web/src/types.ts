@@ -1,6 +1,21 @@
 // ViewModel consumed by components. Nothing in here knows about the pi-durable wire protocol;
 // only lib/reducer.ts translates protocol frames into these shapes.
 
+export type SessionStatus = "discussing" | "awaiting" | "executing" | "done";
+
+export const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {
+  discussing: "讨论中",
+  awaiting: "待确认",
+  executing: "执行中",
+  done: "已完成",
+};
+
+/** Default business status shown when a session record carries none (no migration; derived from its origin). */
+export function defaultSessionStatus(bot: Pick<BotSummary, "status" | "issueLoop">): SessionStatus {
+  if (bot.status) return bot.status;
+  return bot.issueLoop?.sourceBotId ? "executing" : "discussing";
+}
+
 export interface BotSummary {
   id: string;
   name: string;
@@ -10,9 +25,50 @@ export interface BotSummary {
   createdAt?: string | number;
   busy: boolean;
   queued: number;
+  /** Business status set by the human or at creation; absent on old records (see defaultSessionStatus). */
+  status?: SessionStatus;
+  /** Workspace the Bot belongs to directly (set on issue-loop sessions, which are not forks). */
+  workspaceId?: string;
   /** Present on Bots created by forking another Bot. */
   parent?: { botId: string; entryId?: number | string };
   readOnly?: boolean;
+  /** SPIKE-add-session: a session added by hand from the workspace menu runs in its own detached worktree. */
+  worktree?: {
+    baseBranch: string;
+    pinnedSha: string;
+    dir: string;
+  };
+  /** Issue-loop spike metadata: this session's own git state + the source discussion backlink. */
+  issueLoop?: {
+    issue: number;
+    baseBranch: string;
+    /** Baseline commit pinned when the discussion was opened. */
+    pinnedSha: string;
+    /** The worktree directory the session runs in. */
+    dir: string;
+    /** Execution sessions only: their own branch (discussions are detached, no branch). */
+    branch?: string;
+    /** Execution sessions only: the discussion Bot this was published from (UI backlink only, not history). */
+    sourceBotId?: string;
+  };
+  /** SPIKE-review-loop: a one-click PR review session (detached at the pinned PR head SHA). */
+  review?: {
+    pr: number;
+    title?: string;
+    baseBranch?: string;
+    headSha: string;
+    dir: string;
+  };
+  /** SPIKE-review-loop: human-reported result of an execution session. */
+  executionResult?: {
+    summary: string;
+    /** Human-entered test notes; never an automated pass/fail. null = 未记录. */
+    testsReportedByHuman: string | null;
+    pull: { number: number; title: string; url: string; state?: string; headSha?: string | null } | null;
+    issue: number;
+    sourceBotId: string;
+    reportedAt: string;
+  };
 }
 
 export interface ForkInput {
