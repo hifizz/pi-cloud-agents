@@ -33,6 +33,8 @@ export const config = {
   },
   provider: "tokenrouter",
   defaultModelId: process.env.TARSBOT_MODEL ?? "swe-2",
+  /** Loops (Issue14): max concurrently running loop runs across the process (FIFO queue above this). */
+  loopsMaxConcurrent: Math.max(1, Number(process.env.TARSBOT_LOOPS_MAX_CONCURRENCY ?? 3) || 3),
 };
 
 export const defaultModel = () => ({ provider: config.provider, modelId: config.defaultModelId });

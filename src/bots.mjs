@@ -60,7 +60,11 @@ export class BotRegistry {
    * and the detached worktree dir. It is not issueLoop metadata: a review session never gets a publish-task button.
    * `executionResult` (SPIKE-review-loop) is the human-reported result of an execution session: summary text, human
    * test notes (never an auto pass/fail) and a verified PR reference.
-   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object }} spec
+   * `loopRun` (Issue14) marks a Session created by a Loop run: {loopId, runId, version} plus the run's own worktree
+   * metadata {dir, pinnedSha, branch} (Files/Git/Header show the session's real state, never the workspace cwd) and
+   * the capability level {capabilities:{code,web}} future scoped integrations must respect.
+   * `tools` narrows the model-callable tool whitelist (loop capability enforcement); omitted = the full toolset.
+   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object, loopRun?: {loopId:string, runId:string, version:number, dir?:string, pinnedSha?:string, branch?:string|null, capabilities?:object} }} spec
    */
   async createBot(spec) {
     if (!spec?.name) throw new Error("name is required");
@@ -86,6 +90,7 @@ export class BotRegistry {
       ...(spec.status ? { status: spec.status } : {}),
       ...(spec.review ? { review: { ...spec.review } } : {}),
       ...(spec.executionResult ? { executionResult: { ...spec.executionResult } } : {}),
+      ...(spec.loopRun ? { loopRun: { ...spec.loopRun } } : {}),
       createdAt: new Date().toISOString(),
     };
     this.bots.push(bot);

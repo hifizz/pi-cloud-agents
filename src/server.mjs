@@ -23,6 +23,7 @@ import { rebuildWorkspace, register as registerRebuildRoute } from "./workspace-
 import { createRunnerCache } from "./runner/attempt.mjs";
 import { createRunnerClient } from "./runner/client.mjs";
 import { setExecResolver } from "./ext/exec.mjs";
+import { createLoops } from "./loops/index.mjs";
 
 /** Dynamically import every src/routes/*.mjs (each exports register(app)). */
 export async function loadRoutes(dir = join(ROOT, "src", "routes")) {
@@ -147,7 +148,23 @@ export async function assemble({
   await hooks.beforeResume?.({ harness, store, workspaces, rebuild, checkpoints });
   harness.resume();
 
-  const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash };
+  // Loops (Issue14 Phase1): queue + runner + scheduler. Restore AFTER the harness resumes so the runner's
+  // restart probes read a live picture (sessions resuming under pi-durable look busy), and schedule ticks can fire.
+  const loops =
+    serviceOptions.loops === false
+      ? undefined
+      : createLoops({
+          store,
+          bots,
+          github,
+          runtimeBash,
+          harness,
+          maxConcurrent: config.loopsMaxConcurrent,
+          log: (m) => console.error(m),
+        });
+  if (loops) await loops.restore();
+
+  const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash, loops };
 
   let closed = false;
   async function close() {

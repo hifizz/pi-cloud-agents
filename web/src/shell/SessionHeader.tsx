@@ -16,6 +16,8 @@ export interface SessionHeaderProps {
   bots?: BotSummary[];
   /** Open another session (the backlink navigates back to the source discussion). */
   onSelectBot?: (botId: string) => void;
+  /** Issue14: open a Loop's run-history view (the "来自 Loop" backlink). */
+  onOpenLoop?: (loopId: string) => void;
   railOpen: boolean;
   panelOpen: boolean;
   onExpandRail: () => void;
@@ -36,6 +38,7 @@ export function SessionHeader({
   workspace,
   bots = [],
   onSelectBot,
+  onOpenLoop,
   railOpen,
   panelOpen,
   onExpandRail,
@@ -52,21 +55,30 @@ export function SessionHeader({
   const review = !loop ? bot?.review : undefined;
   // A session added by hand (SPIKE-add-session) is a detached worktree too: its own pinned commit, not the feature branch.
   const added = !loop && !review && bot?.worktree ? bot.worktree : undefined;
+  // A Loop-run session (Issue14): loopRun carries the run's own pinned commit and optional own branch — the header
+  // shows that state, never the workspace feature branch.
+  const loopRunGit = !loop && !review && !added && bot?.loopRun?.pinnedSha ? bot.loopRun : undefined;
   const gitLabel = loop
     ? (loop.branch ? loop.branch : `detached @ ${shortSha(loop.pinnedSha) ?? loop.pinnedSha}`)
     : review
       ? `PR #${review.pr} @ ${shortSha(review.headSha) ?? review.headSha}`
       : added
         ? `detached @ ${shortSha(added.pinnedSha) ?? added.pinnedSha}`
-        : workspace?.branch;
+        : loopRunGit
+          ? (loopRunGit.branch ? loopRunGit.branch : `detached @ ${shortSha(loopRunGit.pinnedSha) ?? loopRunGit.pinnedSha}`)
+          : workspace?.branch;
   const gitTitle = loop
     ? `${loop.branch ? `branch ${loop.branch}` : `detached HEAD`} · pinned ${loop.pinnedSha}`
     : review
       ? `reviewing PR #${review.pr} · detached HEAD · pinned ${review.headSha}`
       : added
         ? `detached HEAD · pinned ${added.pinnedSha}`
-        : workspace?.branch;
+        : loopRunGit
+          ? `loop run ${loopRunGit.runId} · ${loopRunGit.branch ? `branch ${loopRunGit.branch}` : "detached HEAD"} · pinned ${loopRunGit.pinnedSha}`
+          : workspace?.branch;
   const sourceName = loop?.sourceBotId ? (bots.find((b) => b.id === loop.sourceBotId)?.name ?? loop.sourceBotId) : undefined;
+  // Issue14: a session created by a Loop run carries loopRun{loopId,runId}; the header shows a "来自 Loop" backlink.
+  const loopRun = bot?.loopRun;
   const sessionStatus = bot ? defaultSessionStatus(bot) : undefined;
 
   return (
@@ -114,6 +126,17 @@ export function SessionHeader({
               className="block truncate text-left text-[11px] leading-tight text-fg-faint underline decoration-dotted underline-offset-2 hover:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent"
             >
               来自讨论：{sourceName}
+            </button>
+          )}
+          {loopRun && !sourceName && (
+            <button
+              type="button"
+              onClick={() => onOpenLoop?.(loopRun.loopId)}
+              data-testid="backlink-to-loop"
+              title={`Loop ${loopRun.loopId} · 运行 ${loopRun.runId}（v${loopRun.version}）`}
+              className="block truncate text-left text-[11px] leading-tight text-fg-faint underline decoration-dotted underline-offset-2 hover:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              来自 Loop：{loopRun.loopId} · 运行 #{String(loopRun.runId).slice(-6)}
             </button>
           )}
         </div>

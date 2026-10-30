@@ -10,6 +10,7 @@ import { Approval } from "./ext/approval.mjs";
 import { Timing } from "./ext/timing.mjs";
 import { Exec } from "./ext/exec.mjs";
 import { createWorkspaceEnv } from "./workspace-env.mjs";
+import { loopSched } from "./loops/index.mjs";
 
 /**
  * Extensions installed in production, in order. `Exec` comes after CodingTools so its `bash` replaces the built-in one
@@ -17,7 +18,8 @@ import { createWorkspaceEnv } from "./workspace-env.mjs";
  */
 export async function productionExtensions() {
   // Timing after Approval: its beforeTool runs once a verdict exists, so approval wait is not counted.
-  return [Preamble, CodingTools, Exec, Search, History, Routines, Approval, Timing];
+  // LoopsSched defines the loops.schedule.tick task type; the tasks themselves are created per-loop by the scheduler.
+  return [Preamble, CodingTools, Exec, Search, History, Routines, loopSched.Extension, Approval, Timing];
 }
 
 /** Production ExecutionEnv factory: read/write/edit run inside the conversation's workspace Sprite. */
