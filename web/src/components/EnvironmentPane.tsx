@@ -140,8 +140,10 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   // never the workspace feature branch. PR review sessions (SPIKE-review-loop) are detached at the PR head SHA.
   const loop = bot?.issueLoop;
   const review = !loop ? bot?.review : undefined;
-  // A worktree of its own: an issue-loop session, a review session, or a session added by hand.
-  const own = loop ?? (review ? { dir: review.dir, pinnedSha: review.headSha, branch: undefined } : undefined) ?? (bot?.worktree ? { dir: bot.worktree.dir, pinnedSha: bot.worktree.pinnedSha, branch: undefined } : undefined);
+  // A worktree of its own: an issue-loop session, a review session, a session added by hand, or a Loop-run session
+  // (Issue14: loopRun carries its own dir/pinnedSha/branch — never fall back to the workspace cwd for it).
+  const loopRun = !loop && !review && bot?.loopRun?.dir ? bot.loopRun : undefined;
+  const own = loop ?? (review ? { dir: review.dir, pinnedSha: review.headSha, branch: undefined } : undefined) ?? (bot?.worktree ? { dir: bot.worktree.dir, pinnedSha: bot.worktree.pinnedSha, branch: undefined } : undefined) ?? (loopRun ? { dir: loopRun.dir!, pinnedSha: loopRun.pinnedSha, branch: loopRun.branch ?? undefined } : undefined);
   // An execution session (has a source discussion Bot) can report its result back to the source issue.
   const isExecution = Boolean(loop?.sourceBotId);
   const result = bot?.executionResult;

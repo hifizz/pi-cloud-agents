@@ -1,0 +1,17 @@
+{
+  "status": 200,
+  "run": {
+    "id": "run_566d7d47505cb7d0",
+    "loopId": "loop_87bcf1978aa44e4b",
+    "loopVersion": 1,
+    "triggerKind": "manual",
+    "status": "succeeded",
+    "error": null,
+    "botId": "54310715",
+    "branch": "loops/queue-acceptance/run_566d7d47505cb7d0",
+    "prNumber": null,
+    "enqueuedAt": "2026-10-30T20:48:12.955Z",
+    "startedAt": "2026-10-30T20:48:55.697Z",
+    "endedAt": "2026-10-30T20:49:29.993Z"
+  }
+}

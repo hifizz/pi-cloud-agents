@@ -233,6 +233,8 @@ test("loadRoutes + ctxForApi register every M1 route (rebuild included)", async 
       guard() {},
       get: (p) => seen.push(`GET ${p}`),
       post: (p) => seen.push(`POST ${p}`),
+      patch: (p) => seen.push(`PATCH ${p}`),
+      delete: (p) => seen.push(`DELETE ${p}`),
       ws() {},
     };
     for (const register of await loadRoutes()) register(app);

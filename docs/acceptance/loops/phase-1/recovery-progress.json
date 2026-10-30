@@ -1,0 +1,71 @@
+{
+  "runs": [
+    {
+      "id": "run_566d7d47505cb7d0",
+      "status": "running",
+      "botId": "54310715",
+      "branch": "loops/queue-acceptance/run_566d7d47505cb7d0",
+      "error": null
+    },
+    {
+      "id": "run_cc6db396b200238a",
+      "status": "canceled",
+      "botId": null,
+      "branch": null,
+      "error": "canceled by user"
+    },
+    {
+      "id": "run_8b85d72b12ea277f",
+      "status": "succeeded",
+      "botId": "f49ef1f6",
+      "branch": "loops/queue-acceptance/run_8b85d72b12ea277f",
+      "error": null
+    },
+    {
+      "id": "run_dd497c04147e5829",
+      "status": "succeeded",
+      "botId": "79de9cee",
+      "branch": "loops/queue-acceptance/run_dd497c04147e5829",
+      "error": null
+    },
+    {
+      "id": "run_e5ee9b3bec4fdcf9",
+      "status": "succeeded",
+      "botId": "088f82eb",
+      "branch": "loops/queue-acceptance/run_e5ee9b3bec4fdcf9",
+      "error": null
+    }
+  ],
+  "bots": [
+    {
+      "id": "852f2755",
+      "busy": false,
+      "runId": "run_14737da24b6527a8"
+    },
+    {
+      "id": "e6be8189",
+      "busy": false,
+      "runId": "run_e8e9ac8d404bc164"
+    },
+    {
+      "id": "79de9cee",
+      "busy": false,
+      "runId": "run_dd497c04147e5829"
+    },
+    {
+      "id": "088f82eb",
+      "busy": false,
+      "runId": "run_e5ee9b3bec4fdcf9"
+    },
+    {
+      "id": "f49ef1f6",
+      "busy": false,
+      "runId": "run_8b85d72b12ea277f"
+    },
+    {
+      "id": "54310715",
+      "busy": true,
+      "runId": "run_566d7d47505cb7d0"
+    }
+  ]
+}
