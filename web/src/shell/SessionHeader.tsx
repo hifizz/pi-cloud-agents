@@ -1,7 +1,7 @@
 // Conversation header (reference `.c-head`): breadcrumb + connection state + actions + panel toggle.
 import { UsageBadge } from "../components/UsageBadge";
 import { Icon } from "../components/Chat/primitives/Icon";
-import { envName, repoName, type Workspace } from "../lib/workspaces";
+import { envName, repoName, shortSha, type Workspace } from "../lib/workspaces";
 import type { BotSummary, ConversationVM, StreamStatus } from "../types";
 
 export interface SessionHeaderProps {
@@ -10,6 +10,10 @@ export interface SessionHeaderProps {
   status: StreamStatus;
   /** Workspace the session belongs to: header shows repo, branch and environment name. */
   workspace?: Workspace;
+  /** All bots, to resolve the "来自讨论" backlink label. */
+  bots?: BotSummary[];
+  /** Open another session (the backlink navigates back to the source discussion). */
+  onSelectBot?: (botId: string) => void;
   railOpen: boolean;
   panelOpen: boolean;
   onExpandRail: () => void;
@@ -21,7 +25,37 @@ export interface SessionHeaderProps {
 const hbtn =
   "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line-strong px-2.5 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 disabled:hover:bg-transparent";
 
-export function SessionHeader({ bot, vm, status, workspace, railOpen, panelOpen, onExpandRail, onTogglePanel, onCompact, onReset }: SessionHeaderProps) {
+export function SessionHeader({
+  bot,
+  vm,
+  status,
+  workspace,
+  bots = [],
+  onSelectBot,
+  railOpen,
+  panelOpen,
+  onExpandRail,
+  onTogglePanel,
+  onCompact,
+  onReset,
+}: SessionHeaderProps) {
+  // This session's own git state: a detached discussion pins a commit; an execution session has its own branch.
+  // The workspace's feature branch is never used to stand in for these sessions.
+  const loop = bot?.issueLoop;
+  // A session added by hand (SPIKE-add-session) is a detached worktree too: its own pinned commit, not the feature branch.
+  const added = !loop && bot?.worktree ? bot.worktree : undefined;
+  const gitLabel = loop
+    ? (loop.branch ? loop.branch : `detached @ ${shortSha(loop.pinnedSha) ?? loop.pinnedSha}`)
+    : added
+      ? `detached @ ${shortSha(added.pinnedSha) ?? added.pinnedSha}`
+      : workspace?.branch;
+  const gitTitle = loop
+    ? `${loop.branch ? `branch ${loop.branch}` : `detached HEAD`} · pinned ${loop.pinnedSha}`
+    : added
+      ? `detached HEAD · pinned ${added.pinnedSha}`
+      : workspace?.branch;
+  const sourceName = loop?.sourceBotId ? (bots.find((b) => b.id === loop.sourceBotId)?.name ?? loop.sourceBotId) : undefined;
+
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
       {!railOpen && (
@@ -44,9 +78,9 @@ export function SessionHeader({ bot, vm, status, workspace, railOpen, panelOpen,
             <span className="min-w-0 max-w-40 shrink truncate text-fg-muted" title={workspace.repo} data-testid="header-repo">
               {repoName(workspace.repo)}
             </span>
-            <span className="flex min-w-0 max-w-44 shrink items-center gap-1 text-fg-muted" title={workspace.branch} data-testid="header-branch">
+            <span className="flex min-w-0 max-w-44 shrink items-center gap-1 text-fg-muted" title={gitTitle} data-testid="header-branch">
               <Icon name="branch" className="size-3" />
-              <span className="truncate font-mono text-xs">{workspace.branch}</span>
+              <span className="truncate font-mono text-xs">{gitLabel}</span>
             </span>
             <span className="hidden min-w-0 max-w-40 shrink truncate text-fg-faint md:inline" data-testid="header-env">
               {envName(workspace) ?? "环境未就绪"}
@@ -56,7 +90,20 @@ export function SessionHeader({ bot, vm, status, workspace, railOpen, panelOpen,
             </span>
           </>
         )}
-        <h1 className="truncate font-semibold text-white">{bot ? bot.name : "pi-cloud-agents"}</h1>
+        <div className="min-w-0">
+          <h1 className="truncate font-semibold leading-tight text-white">{bot ? bot.name : "pi-cloud-agents"}</h1>
+          {sourceName && (
+            <button
+              type="button"
+              onClick={() => loop?.sourceBotId && onSelectBot?.(loop.sourceBotId)}
+              data-testid="backlink-to-discussion"
+              title={`返回讨论会话 ${sourceName}`}
+              className="block truncate text-left text-[11px] leading-tight text-fg-faint underline decoration-dotted underline-offset-2 hover:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              来自讨论：{sourceName}
+            </button>
+          )}
+        </div>
       </div>
       {status !== "open" && bot && (
         <span role="status" className="shrink-0 whitespace-nowrap text-xs text-warn">

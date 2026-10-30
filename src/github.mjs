@@ -181,6 +181,36 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
       return paginate(`/repos/${repo}/branches`, "", limit, (b) => ({ name: b.name, sha: b.commit?.sha ?? null }));
     },
 
+    /** One issue (not a PR). Returns {number,title,body,url,state,author,comments} or null when missing. */
+    async getIssue(repo, number) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid issue number: ${String(number).slice(0, 40)}`);
+      const { data } = await request("GET", `/repos/${repo}/issues/${n}`, { allow404: true });
+      if (!data || data.pull_request) return null;
+      return {
+        number: data.number,
+        title: data.title ?? "",
+        body: data.body ?? "",
+        url: data.html_url ?? `https://github.com/${repo}/issues/${n}`,
+        state: data.state,
+        author: data.user?.login ?? null,
+        comments: data.comments ?? 0,
+      };
+    },
+
+    /** Comments of one issue, oldest first: [{author, body, url}]. */
+    async listIssueComments(repo, number, { limit = 100 } = {}) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid issue number: ${String(number).slice(0, 40)}`);
+      return paginate(`/repos/${repo}/issues/${n}/comments`, "", limit, (c) => ({
+        author: c.user?.login ?? null,
+        body: c.body ?? "",
+        url: c.html_url ?? null,
+      }));
+    },
+
     async getBranch(repo, name) {
       assertRepo(repo);
       const { data } = await request("GET", `/repos/${repo}/branches/${encodeRef(name)}`, { allow404: true });
@@ -284,6 +314,20 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
       if (found) return accept(found, createError.code !== "conflict");
       settle("unknown", { error: createError.message });
       throw createError;
+    },
+
+    /** A repo's default branch name, or null. */
+    async getRepo(repo) {
+      assertRepo(repo);
+      const { data } = await request("GET", `/repos/${repo}`, { allow404: true });
+      if (!data) return null;
+      return { fullName: data.full_name, defaultBranch: data.default_branch ?? null };
+    },
+
+    /** Open PRs whose base is `base` branch (the pull request(s) tracking the selected baseline). */
+    async listPullsByBase(repo, baseBranch, { limit = 50 } = {}) {
+      assertRepo(repo);
+      return paginate(`/repos/${repo}/pulls`, `state=open&base=${encodeURIComponent(baseBranch)}&sort=created&direction=desc&`, limit, normalizePull);
     },
   };
   return gh;

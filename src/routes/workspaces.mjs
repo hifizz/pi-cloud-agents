@@ -4,12 +4,64 @@
 //   GET  /api/workspaces/:id        -> Workspace
 //   POST /api/workspaces/:id/retry  -> Workspace
 //   POST /api/workspaces/:id/pr     {requestId, title?, body?, base?} -> {pull, created}
+//   POST /api/workspaces/:id/issue-loop/discuss  {issue}     -> {discussion:{botId,...}}   (issue-loop spike)
+//   POST /api/workspaces/:id/issue-loop/publish  {botId,task} -> {execution:{botId,...}}   (issue-loop spike)
 // Needs app.ctx.workspaces (M1-07 service), app.ctx.github and app.ctx.control (control store); when any is missing
-// nothing is registered (one console.warn), so old deployments behave as before.
+// nothing is registered (one console.warn), so old deployments behave as before. The issue-loop routes also use
+// app.ctx.runtimeBash (the active binding's Sprite) and app.ctx.bots.
 // A Workspace in a response is the control-store record plus `steps`, `botId` and `binding` {provider, runtimeId,
 // version}. `requestId` and `cwd` are left out (internal), and nothing here ever sees a token.
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { HttpError, toJson } from "../api.mjs";
+import { ROOT } from "../config.mjs";
+import { ctx } from "../harness.mjs";
+import { shellQuote } from "../env.mjs";
+import { Preamble } from "../ext/preamble.mjs";
 import { mapGithubError, REPO_RE } from "./github.mjs";
+
+const sha256 = (s) => createHash("sha256").update(s).digest("hex");
+
+/** Issue-loop spike only touches the test repository's bound workspaces (AGENTS.md 安全红线). */
+const ISSUE_LOOP_REPO = "hifizz/tars-sandbox-playground";
+const ISSUE_BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+const SHA_RE = /^[0-9a-f]{7,40}$/i;
+/** Most comments the discussion start message will carry; more is an explicit error, never a silent cut. */
+const COMMENT_LIMIT = 100;
+
+/** Safety rules for the issue-loop sessions. The general preamble (GH_TOKEN handling, push / PR / force rules) is not
+ * installed in these sessions, so the rules that still matter are restated here. Approval stays installed. */
+const SPIKE_RULES = [
+  "Spike safety rules (the general git/PR workflow is removed for this session; these rules apply instead):",
+  "- Never print, echo, log or write any credential or token (GH_TOKEN, or any other secret in the environment). Do not run env, printenv, set, `git config --list`, `gh auth status` or `gh auth login`.",
+  "- Never force-push (--force, -f, --force-with-lease, +refspec), never delete remote branches or tags, never merge or close a pull request, never change repository settings.",
+  "- This spike does not push and does not open pull requests: do not run `git push`, `gh pr create` or `gh pr merge`.",
+  "- If a command is denied by approval, stop that operation, report exactly what was denied, and do not retry it in another form.",
+].join("\n");
+
+/**
+ * A short excerpt of THIS host project's AGENTS.md security section, labelled as host-project context. It is not target
+ * repository content. A missing or unreadable file is stated as such (the production image may not ship docs/).
+ */
+function hostAgentsExcerpt() {
+  const label = "== 宿主项目（pi-cloud-agents）AGENTS.md「安全红线」摘录 —— 仅为宿主项目背景，不是目标仓库内容 ==";
+  const cloud = readFileSync(join(ROOT, "docs/CLOUD-PLAN.md"), "utf8");
+  const storageRule = cloud.split("\n").find((line) => line.startsWith("- 存储只允许单写进程"));
+  const skipped = `== 宿主项目 docs/CLOUD-PLAN.md「架构」短摘录（不是目标仓库内容）==\n${storageRule}\n共享 Sprite 与历史数据处置条款不适用于本实验。目标快照缺少 AGENTS.md 和 docs/CLOUD-PLAN.md，本次使用以上宿主项目约束。`;
+  let text;
+  try {
+    text = readFileSync(join(ROOT, "AGENTS.md"), "utf8");
+  } catch (e) {
+    return `${label}\n（未取得：无法读取宿主项目 AGENTS.md（${e?.code ?? "read error"}））\n${skipped}`;
+  }
+  const start = text.indexOf("## 安全红线");
+  if (start < 0) return `${label}\n（宿主项目 AGENTS.md 中没有「安全红线」段落）\n${skipped}`;
+  const next = text.indexOf("\n## ", start + 1);
+  const section = text.slice(start, next < 0 ? undefined : next).trim();
+  const body = section.length <= 1500 ? section : `${section.slice(0, 1500)}\n…（摘录截断到 1500 字符；完整内容见宿主项目 AGENTS.md）`;
+  return `${label}\n${body}\n${skipped}`;
+}
 
 let warned = false;
 
@@ -150,5 +202,391 @@ export function register(app) {
       // ensurePull's conflict (merged / closed PR) already says to use a new branch or new work
       throw mapError(e);
     }
+  });
+
+  // ---- issue-loop spike --------------------------------------------------------------------------------------------
+  // Two extra sessions inside ONE existing ready workspace and its ONE Sprite:
+  //   discuss : detached worktree at the issue-pinned baseline commit, fresh conversation, no feature branch
+  //   publish : a second worktree branched from the SAME pinned commit, fresh conversation, literal task only
+  // Everything runs through the existing authenticated guard, the same server process and the workspace's own
+  // binding (same runtimeId -> same Sprite; provider.ensure is never called, so no second Sprite).
+
+  function assertIssueLoopWorkspace(id) {
+    const ws = workspaceOr404(id);
+    if (ws.repo !== ISSUE_LOOP_REPO) throw new HttpError(409, `issue-loop only runs on the test repo ${ISSUE_LOOP_REPO} (this workspace uses ${ws.repo})`);
+    if (ws.status !== "ready") throw new HttpError(409, `workspace is not ready (status: ${ws.status})`);
+    if (!control.bindings.current(ws.id)) throw new HttpError(409, "workspace has no active runtime binding");
+    if (typeof app.ctx.runtimeBash !== "function") throw new HttpError(503, "runtime bash is not available");
+    if (!bots) throw new HttpError(503, "bot registry is not available");
+    return ws;
+  }
+
+  async function spriteBash(ws) {
+    try {
+      return await app.ctx.runtimeBash(ws.id);
+    } catch (e) {
+      throw new HttpError(409, `runtime unavailable: ${String(e?.message ?? e).slice(0, 200)}`);
+    }
+  }
+
+  /** Run one exec on the workspace's Sprite; returns trimmed stdout or throws with stderr. */
+  async function sh(ws, command, timeoutMs = 120_000) {
+    const bash = await spriteBash(ws);
+    const r = await bash(command, { timeoutMs });
+    if (r?.timedOut) throw new HttpError(500, "sprite command timed out");
+    if (r?.exitCode !== 0) throw new HttpError(500, `sprite command failed (${r?.exitCode}): ${String(r?.stderr ?? r?.stdout ?? "").trim().slice(0, 300)}`);
+    return String(r?.stdout ?? "").trim();
+  }
+
+  /** Unique conversation/bot display name for a new session. */
+  function freeSessionName(base) {
+    const clean = String(base).replace(/[^\x21-\x7e]/g, "-").slice(0, 60) || "session";
+    if (!bots.get(clean)) return clean;
+    for (let i = 2; ; i++) {
+      const c = `${clean}-${i}`;
+      if (!bots.get(c)) return c;
+    }
+  }
+
+  /** Name for a manually added session: kept as typed (Chinese included). A taken name gets the short dir id appended. */
+  function uniqueSessionName(name, shortId) {
+    if (!bots.get(name)) return name;
+    for (let i = 0; ; i++) {
+      const candidate = i === 0 ? `${name} ${shortId}` : `${name} ${shortId}-${i + 1}`;
+      if (!bots.get(candidate)) return candidate;
+    }
+  }
+
+  /** Pick the baseline branch: the first complete real branch name in the issue body, else the workspace's recorded
+   * default branch (the bound repo's real default — never a guessed main/master). */
+  async function pickBaseline(repo, body) {
+    const branches = await github.listBranches(repo);
+    const names = new Set(branches.map((b) => b.name));
+    const text = String(body ?? "");
+    // Candidates are whole tokens in the body that are real branch names; earliest wins, ties prefer the longer name.
+    const candidates = [];
+    const wordRe = /[A-Za-z0-9][A-Za-z0-9._/-]*/g;
+    let m;
+    while ((m = wordRe.exec(text))) {
+      const token = m[0].replace(/[._/-]+$/, "");
+      if (token && names.has(token) && ISSUE_BRANCH_RE.test(token)) candidates.push({ token, index: m.index });
+    }
+    let branch;
+    let reason;
+    if (candidates.length) {
+      candidates.sort((a, b) => a.index - b.index || b.token.length - a.token.length);
+      branch = candidates[0].token;
+      reason = `issue 正文中最先出现的真实分支名 “${branch}”`;
+    } else {
+      // The repository's real default branch, read directly. No fallback: a missing default is a visible error, never
+      // the workspace's own (possibly feature) baseBranch and never a guessed main/master.
+      const info = await github.getRepo(repo);
+      if (!info?.defaultBranch) throw new HttpError(502, `无法读取 ${repo} 的默认分支，停止`);
+      branch = info.defaultBranch;
+      reason = `使用仓库默认分支 ${branch}（正文未出现有效分支名）`;
+    }
+    return { branch, reason, all: [...names] };
+  }
+
+  /** Resolve a branch to its SHA or throw. */
+  async function pinnedSha(repo, branch) {
+    const b = await github.getBranch(repo, branch);
+    if (!b?.sha || !SHA_RE.test(b.sha)) throw new HttpError(502, `无法取得分支 ${branch} 的 commit SHA，停止`);
+    return b.sha;
+  }
+
+  /** Build the discussion start message: issue + baseline + related PRs + sibling sessions + host docs excerpt. */
+  async function discussionMessage({ ws, issue, comments, baseline, relatedPulls, siblings, docsNote }) {
+    // comments are the full list read from GitHub (a failed read never gets here); the body is never cut silently
+    const commentLines =
+      comments.length === 0
+        ? "（无评论）"
+        : comments.map((c, i) => `  ${i + 1}. ${c.author ?? "unknown"}: ${String(c.body).trim()}`).join("\n");
+    // Open PRs whose base is the selected baseline branch. This is NOT a search for PRs referencing the issue.
+    const prLines =
+      relatedPulls === null
+        ? "（未取得：读取所选基线的 open PR 失败）"
+        : relatedPulls.length === 0
+          ? "（所选基线没有 open PR；不代表 issue 没有关联 PR）"
+          : relatedPulls.map((p) => `  - #${p.number} ${p.url ?? ""} (head ${p.headRef} → base ${p.baseRef})`).join("\n");
+    const sibLines =
+      siblings.length === 0
+        ? "（同空间仅此会话）"
+        : siblings.map((s) => `  - ${s.name}：${s.busy === null ? "busy/queued 未取得" : `${s.busy ? "busy" : "not busy"}，queued ${s.queued}`}`).join("\n");
+    return [
+      `Issue 讨论（issue-loop spike）。不要开始实现：先分析问题、相关代码和待确认事项。`,
+      ``,
+      `== Issue 来源 ==`,
+      `${issue.url}`,
+      `标题: ${issue.title}`,
+      ``,
+      `== Issue 正文 ==`,
+      String(issue.body).trim() || "（空）",
+      ``,
+      `== 评论 ==`,
+      commentLines,
+      ``,
+      `== 基线 ==`,
+      `分支: ${baseline.branch}（${baseline.reason}）`,
+      `commit: ${baseline.sha}`,
+      `工作目录: ${baseline.dir}（detached HEAD，无新功能分支；不要切换或 reset 原仓库目录）`,
+      ``,
+      `== 所选基线的 open PR（不是关联搜索）==`,
+      prLines,
+      ``,
+      `== 同空间其他会话（不复制其聊天）==`,
+      sibLines,
+      ``,
+      `== 安全规则 ==`,
+      SPIKE_RULES,
+      ``,
+      `== 审批 ==`,
+      `审批扩展仍然生效；被拒绝的操作不重试。`,
+      ``,
+      `== 宿主项目摘录（不是目标仓库内容）==`,
+      docsNote,
+      ``,
+      `请先阅读当前目录（detached @ ${baseline.sha.slice(0, 12)}）的相关代码与本 issue，给出问题分析、可能涉及的代码位置和待确认事项；在你确认前不要写实现代码。`,
+    ].join("\n");
+  }
+
+  // POST /api/workspaces/:id/issue-loop/discuss {issue}
+  app.post("/api/workspaces/:id/issue-loop/discuss", async (_req, _res, { params, body }) => {
+    const b = jsonObject(body);
+    const issueNo = Number(b.issue);
+    if (!Number.isInteger(issueNo) || issueNo <= 0) throw new HttpError(400, "issue must be a positive integer");
+    const ws = assertIssueLoopWorkspace(params.id);
+
+    // Every GitHub read here is required: a failure stops the request with the real error (no empty-list fallback).
+    let issue;
+    let comments;
+    try {
+      issue = await github.getIssue(ws.repo, issueNo);
+      if (issue) comments = await github.listIssueComments(ws.repo, issueNo, { limit: COMMENT_LIMIT + 1 });
+    } catch (e) {
+      throw mapError(e);
+    }
+    // A list that reaches the limit is not the whole discussion: stop visibly instead of sending a silently cut list.
+    if (comments && comments.length > COMMENT_LIMIT) {
+      throw new HttpError(409, `issue #${issueNo} has more than ${COMMENT_LIMIT} comments; the spike does not truncate them silently`);
+    }
+    if (!issue) throw new HttpError(404, `issue #${issueNo} not found (or is a PR) in ${ws.repo}`);
+
+    let baseline;
+    try {
+      baseline = await pickBaseline(ws.repo, issue.body);
+      baseline.sha = await pinnedSha(ws.repo, baseline.branch);
+    } catch (e) {
+      throw mapError(e);
+    }
+
+    // Open PRs whose base is the selected baseline branch (context only). Not an issue-reference search.
+    let relatedPulls;
+    try {
+      relatedPulls = await github.listPullsByBase(ws.repo, baseline.branch);
+    } catch (e) {
+      relatedPulls = null; // stated as 未取得 in the start message, never as "none"
+    }
+
+    const dirId = sha256(`${ws.id}:${issueNo}:${baseline.sha}`).slice(0, 8);
+    const dir = `${app.ctx.homeDir?.() ?? "/home/sprite"}/issue-loop/${ws.id}/discussion-${dirId}`;
+    baseline.dir = dir;
+
+    // Detached worktree at the pinned commit, outside the original repo dir. Never touches ws.cwd, never makes a branch.
+    const repoDir = shellQuote([ws.cwd]);
+    // Fetch the baseline BRANCH (a refspec that always resolves), then detach the worktree at the pinned SHA object.
+    const addCmd =
+      `mkdir -p ${shellQuote([posixDir(dir)])} && ` +
+      `git -C ${repoDir} fetch origin ${shellQuote([baseline.branch])} && ` +
+      `git -C ${repoDir} worktree add --detach ${shellQuote([dir])} ${shellQuote([baseline.sha])}`;
+    try {
+      await sh(ws, addCmd);
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      throw e; // recorded: the worktree may or may not exist; nothing auto-deleted
+    }
+
+    const name = freeSessionName(`issue-${issueNo}-discuss`);
+    const message = await discussionMessage({
+      ws,
+      issue,
+      comments,
+      baseline,
+      relatedPulls,
+      siblings: await siblingSessions(ws.id),
+      docsNote: hostAgentsExcerpt(),
+    });
+
+    const bot = await bots.createBot({
+      name,
+      model: ws.model,
+      cwd: dir,
+      instructions: `Issue 讨论 Session（detached 基线 ${baseline.branch} @ ${baseline.sha}）。分析 issue 与代码，不开始实现。\n${SPIKE_RULES}`,
+      // Drop the generic cd/clone/pull/branch/PR workflow preamble. AgentChange.extensions.remove takes Extension objects
+      // (names are read from `.name`), so the real Preamble object is passed; a plain string would silently remove nothing.
+      extensions: { remove: [Preamble] },
+      workspaceId: ws.id,
+      issueLoop: { issue: issueNo, baseBranch: baseline.branch, pinnedSha: baseline.sha, dir },
+    });
+    control.links.link({ conversationId: String(bot.conversationId), workspaceId: ws.id, botId: bot.id });
+    const conv = await bots.conversation(bot.id);
+    if (!conv) throw new HttpError(500, "conversation not found for new discussion session");
+    await conv.submit({ type: "input", content: message }, ctx);
+
+    return {
+      discussion: {
+        botId: bot.id,
+        name: bot.name,
+        conversationId: bot.conversationId,
+        workspaceId: ws.id,
+        issue: issueNo,
+        baseBranch: baseline.branch,
+        baselineReason: baseline.reason,
+        pinnedSha: baseline.sha,
+        dir,
+      },
+    };
+  });
+
+  /** Other sessions in this workspace: name plus busy/queued read from the conversation view. Unreadable -> null (never
+   * reported as idle). Idle is not "finished": the system has no business completion state. */
+  async function siblingSessions(wsId, exceptBotId) {
+    const links = control.links.conversationsOf(wsId);
+    const byConv = new Map(links.map((l) => [l.conversationId, l]));
+    const out = [];
+    for (const bot of bots.list()) {
+      if (bot.id === exceptBotId || !byConv.has(String(bot.conversationId))) continue;
+      let busy = null;
+      let queued = null;
+      try {
+        const conv = await bots.conversation(bot.id);
+        const view = conv ? await conv.viewState(ctx) : undefined;
+        try {
+          busy = view?.value?.docs?.["pi.live"]?.run != null;
+          queued = view?.value?.docs?.["pi.inbox"]?.items?.length ?? 0;
+        } finally {
+          view?.dispose?.();
+        }
+      } catch {
+        // leave null: the start message says the status could not be read
+      }
+      out.push({ name: bot.name, busy, queued });
+    }
+    return out;
+  }
+
+  const posixDir = (p) => p.replace(/\/[^/]*$/, "") || "/";
+
+  // ---- add session (SPIKE-add-session) -----------------------------------------------------------------------------
+  // A blank, manually added session in an existing ready workspace: fresh conversation, no issue, no first message, no
+  // model call. It gets its own detached worktree at the repo default branch's current commit on the SAME Sprite, so it
+  // never touches the workspace's own directory or feature branch.
+
+  // POST /api/workspaces/:id/sessions {name}
+  app.post("/api/workspaces/:id/sessions", async (_req, _res, { params, body }) => {
+    const b = jsonObject(body);
+    const name = optString(b, "name", 60) ?? "新 Session";
+    const ws = assertIssueLoopWorkspace(params.id);
+
+    // The repo's real default branch and its current commit: the same two reads the discussion route uses.
+    let baseBranch;
+    let sha;
+    try {
+      const info = await github.getRepo(ws.repo);
+      if (!info?.defaultBranch) throw new HttpError(502, `无法读取 ${ws.repo} 的默认分支，停止`);
+      baseBranch = info.defaultBranch;
+      sha = await pinnedSha(ws.repo, baseBranch);
+    } catch (e) {
+      throw mapError(e);
+    }
+
+    // Random id: every add gets its own directory, so repeated adds never collide.
+    const dirId = randomUUID().slice(0, 8);
+    const dir = `${app.ctx.homeDir?.() ?? "/home/sprite"}/sessions/${ws.id}/session-${dirId}`;
+    // Detached at the pinned commit, outside the workspace directory. Never touches ws.cwd's branch or checkout.
+    const addCmd =
+      `mkdir -p ${shellQuote([posixDir(dir)])} && ` +
+      `git -C ${shellQuote([ws.cwd])} fetch origin ${shellQuote([baseBranch])} && ` +
+      `git -C ${shellQuote([ws.cwd])} worktree add --detach ${shellQuote([dir])} ${shellQuote([sha])}`;
+    await sh(ws, addCmd);
+
+    const bot = await bots.createBot({
+      name: uniqueSessionName(name, dirId),
+      model: ws.model,
+      cwd: dir,
+      instructions: `手动添加的 Session（detached @ ${sha}，仓库默认分支 ${baseBranch}）。工作目录 ${dir}。按用户的第一条消息执行。\n${SPIKE_RULES}`,
+      extensions: { remove: [Preamble] },
+      workspaceId: ws.id,
+      worktree: { baseBranch, pinnedSha: sha, dir },
+    });
+    // Linked at once, same as the issue-loop routes: an unlinked Bot carrying workspaceId is adopted by the service.
+    control.links.link({ conversationId: String(bot.conversationId), workspaceId: ws.id, botId: bot.id });
+
+    return {
+      session: { botId: bot.id, name: bot.name, conversationId: bot.conversationId, workspaceId: ws.id, baseBranch, pinnedSha: sha, dir },
+    };
+  });
+
+  // POST /api/workspaces/:id/issue-loop/publish {botId, task}
+  app.post("/api/workspaces/:id/issue-loop/publish", async (_req, _res, { params, body }) => {
+    const b = jsonObject(body);
+    const srcId = typeof b.botId === "string" ? b.botId.trim() : "";
+    const task = typeof b.task === "string" ? b.task : undefined;
+    if (!srcId) throw new HttpError(400, "botId is required");
+    if (task === undefined || task === null || typeof task !== "string") throw new HttpError(400, "task must be a string");
+    if (!task.trim()) throw new HttpError(400, "task is required");
+    const ws = assertIssueLoopWorkspace(params.id);
+
+    const src = bots.get(srcId);
+    if (!src) throw new HttpError(404, `discussion session not found: ${srcId}`);
+    const meta = src.issueLoop;
+    if (!meta || !SHA_RE.test(String(meta.pinnedSha ?? ""))) throw new HttpError(409, `session ${srcId} has no pinned baseline (not an issue-loop discussion)`);
+    const link = control.links.workspaceOf(String(src.conversationId));
+    if (!link || link.id !== ws.id) throw new HttpError(409, `session ${srcId} does not belong to workspace ${ws.id}`);
+
+    const issueNo = meta.issue;
+    const pinnedSha = String(meta.pinnedSha);
+    const dirId = sha256(`${ws.id}:${issueNo}:${src.id}:${task.slice(0, 200)}`).slice(0, 8);
+    const branch = `tarsbot/issue-${issueNo}-${src.id}`;
+    const dir = `${app.ctx.homeDir?.() ?? "/home/sprite"}/issue-loop/${ws.id}/execution-${dirId}`;
+
+    const repoDir = shellQuote([ws.cwd]);
+    const addCmd = `mkdir -p ${shellQuote([posixDir(dir)])} && git -C ${repoDir} worktree add -b ${shellQuote([branch])} ${shellQuote([dir])} ${shellQuote([pinnedSha])}`;
+    try {
+      await sh(ws, addCmd);
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      throw e;
+    }
+
+    const name = freeSessionName(`issue-${issueNo}-exec`);
+    const bot = await bots.createBot({
+      name,
+      model: ws.model,
+      cwd: dir,
+      instructions: `Issue 执行 Session：分支 ${branch}，从 pinned commit ${pinnedSha} 检出。工作目录 ${dir}。按用户任务执行。\n${SPIKE_RULES}`,
+      extensions: { remove: [Preamble] },
+      workspaceId: ws.id,
+      issueLoop: { issue: issueNo, baseBranch: meta.baseBranch, pinnedSha, dir, branch, sourceBotId: src.id },
+    });
+    control.links.link({ conversationId: String(bot.conversationId), workspaceId: ws.id, botId: bot.id });
+    const conv = await bots.conversation(bot.id);
+    if (!conv) throw new HttpError(500, "conversation not found for new execution session");
+    // The first user message is the human's task verbatim: no issue text, no discussion history, no hand-off.
+    await conv.submit({ type: "input", content: task }, ctx);
+
+    return {
+      execution: {
+        botId: bot.id,
+        name: bot.name,
+        conversationId: bot.conversationId,
+        workspaceId: ws.id,
+        sourceBotId: src.id,
+        issue: issueNo,
+        branch,
+        pinnedSha,
+        dir,
+      },
+    };
   });
 }

@@ -31,6 +31,52 @@ import {
 } from "./lib/workspaces";
 import type { BotSummary, ForkInput } from "./types";
 
+/** Small publish-task form for an issue-loop discussion session. Empty input; the human writes the task explicitly. */
+function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; error?: string; onPublish: (task: string) => void; onCancel: () => void }) {
+  const [task, setTask] = useState("");
+  return (
+    <form
+      aria-label="发布任务"
+      className="mx-auto w-full max-w-[720px] px-[18px] pb-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (task.trim() && !busy) onPublish(task);
+      }}
+    >
+      <div className="rounded-lg border border-line-strong bg-raised p-3">
+        <label className="block text-xs font-medium text-fg-muted" htmlFor="publish-task-input">
+          发布任务（逐字作为新执行会话的首条消息；不会带入本讨论的内容）
+        </label>
+        <textarea
+          id="publish-task-input"
+          value={task}
+          onChange={(e) => setTask(e.target.value)}
+          placeholder="写下要执行的任务…"
+          rows={3}
+          className="mt-2 w-full resize-y rounded-md border border-line bg-field px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+        {error && (
+          <p role="alert" className="mt-1 text-xs text-bad">
+            {error}
+          </p>
+        )}
+        <div className="mt-2 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} disabled={busy} className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover">
+            取消
+          </button>
+          <button
+            type="submit"
+            disabled={busy || !task.trim()}
+            className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
+          >
+            {busy ? "发布中…" : "确认发布"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
 export default function App({ email, onLoggedOut }: { email?: string; onLoggedOut?: () => void } = {}) {
   const [bots, setBots] = useState<BotSummary[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -40,6 +86,10 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const [pickedBotId, setPickedBotId] = useState<string>();
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState<string>();
+  // Issue-loop publish-task form: open only on a discussion session; the human writes the task explicitly.
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishBusy, setPublishBusy] = useState(false);
+  const [publishError, setPublishError] = useState<string>();
   const approvals = useApprovals();
   const [forkAt, setForkAt] = useState<number | string>();
   const rail = useRailState();
@@ -146,6 +196,24 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const onSend = (text: string, mode: SendMode) =>
     guard(() => api.sendInput(bot!.id, text, mode === "send" ? {} : { whenBusy: mode }));
 
+  // Discussion sessions (issueLoop metadata, no execution branch) expose an explicit 发布任务 action.
+  const isDiscussion = Boolean(bot?.issueLoop && !bot.issueLoop.branch && !bot.issueLoop.sourceBotId);
+  const onPublish = async (task: string) => {
+    if (!workspace || !bot) return;
+    setPublishBusy(true);
+    setPublishError(undefined);
+    try {
+      const { execution } = await workspacesApi.issueLoopPublish(workspace.id, { botId: bot.id, task });
+      setPublishOpen(false);
+      await refresh();
+      setPickedBotId(execution.botId); // open the new execution session
+    } catch (e) {
+      setPublishError(describeError(e));
+    } finally {
+      setPublishBusy(false);
+    }
+  };
+
   const model = vm.agent.modelId ? `${vm.agent.provider ?? ""}/${vm.agent.modelId}` : bot ? `${bot.model.provider}/${bot.model.modelId}` : "";
 
   const onCompact = () => void guard(() => api.compact(bot!.id)).catch(() => {});
@@ -169,6 +237,12 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           onNewWorkspace={() => setShowNew(true)}
           pendingApprovals={pendingByBot}
           loading={!workspacesLoaded}
+          onSessionAdded={(workspaceId, botId) => {
+            // SPIKE-add-session: select the workspace and the new blank session, then refresh the list so it shows
+            setSelectedWorkspaceId(workspaceId);
+            setPickedBotId(botId);
+            void refresh();
+          }}
         />
       </div>
       <RailFooter email={email} onLoggedOut={onLoggedOut} />
@@ -182,6 +256,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         vm={vm}
         status={status}
         workspace={workspace}
+        bots={bots}
+        onSelectBot={setPickedBotId}
         railOpen={rail.open}
         panelOpen={panels.open}
         onExpandRail={rail.show}
@@ -215,6 +291,19 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             onOpenDiff={(turnKey, path) => panels.openPanel("diff", { turnKey, path })}
           />
           {workspace && workspace.status !== "ready" && <WorkspaceStatus workspace={workspace} onUpdate={onUpdateWorkspace} variant="banner" />}
+          {isDiscussion && !publishOpen && (
+            <div className="mx-auto w-full max-w-[720px] px-[18px] pb-1.5">
+              <button
+                type="button"
+                onClick={() => setPublishOpen(true)}
+                data-testid="open-publish-task"
+                className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                发布任务
+              </button>
+            </div>
+          )}
+          {isDiscussion && publishOpen && <PublishTaskForm busy={publishBusy} error={publishError} onPublish={onPublish} onCancel={() => setPublishOpen(false)} />}
           <Composer
             busy={vm.busy}
             disabled={workspace?.status !== "ready"}

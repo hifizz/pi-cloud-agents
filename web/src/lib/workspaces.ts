@@ -63,6 +63,34 @@ export interface NewWorkspaceInput {
   name?: string;
 }
 
+/** A newly-created issue-loop session, returned by the discuss / publish routes. */
+export interface IssueLoopSession {
+  botId: string;
+  name: string;
+  conversationId: number | string;
+  workspaceId: string;
+  issue: number;
+  baseBranch: string;
+  baselineReason?: string;
+  pinnedSha: string;
+  dir: string;
+  /** Execution only. */
+  branch?: string;
+  /** Execution only: the discussion Bot it was published from. */
+  sourceBotId?: string;
+}
+
+/** A blank session added from the workspace menu (SPIKE-add-session): its own detached worktree, no issue, no branch. */
+export interface AddedSession {
+  botId: string;
+  name: string;
+  conversationId: number | string;
+  workspaceId: string;
+  baseBranch: string;
+  pinnedSha: string;
+  dir: string;
+}
+
 export interface PullInfo {
   number: number;
   url: string;
@@ -131,6 +159,15 @@ export const workspacesApi = {
   retry: async (id: string) => normalizeWorkspace(await request<Workspace>("POST", `/api/workspaces/${enc(id)}/retry`, {})),
   createPr: (id: string, input: { requestId: string; title?: string; body?: string; base?: string }) =>
     request<{ pull: PullInfo; created: boolean }>("POST", `/api/workspaces/${enc(id)}/pr`, input),
+  /** Issue-loop spike: open a detached-baseline discussion session for an issue in this workspace's repo. */
+  issueLoopDiscuss: (id: string, input: { issue: number }) =>
+    request<{ discussion: IssueLoopSession }>("POST", `/api/workspaces/${enc(id)}/issue-loop/discuss`, input),
+  /** SPIKE-add-session: add a blank session (own detached worktree, no first message) to a ready workspace. */
+  addSession: (id: string, input: { name: string }) =>
+    request<{ session: AddedSession }>("POST", `/api/workspaces/${enc(id)}/sessions`, input),
+  /** Issue-loop spike: publish an execution session from a discussion session's pinned baseline. */
+  issueLoopPublish: (id: string, input: { botId: string; task: string }) =>
+    request<{ execution: IssueLoopSession }>("POST", `/api/workspaces/${enc(id)}/issue-loop/publish`, input),
   saveCheckpoint: (id: string) => request<CheckpointManifest>("POST", `/api/workspaces/${enc(id)}/checkpoint`, {}),
   checkpoints: (id: string) => request<CheckpointManifest[]>("GET", `/api/workspaces/${enc(id)}/checkpoints`),
   rebuild: (id: string, input: { checkpointId: string | number; requestId?: string }) =>
@@ -202,12 +239,17 @@ export function formatTime(value: string | number | null | undefined): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** botId → workspaceId. A Bot belongs to a workspace directly (`workspace.botId`) or through the Bot it was forked from. */
+/** botId → workspaceId. A Bot belongs to a workspace directly (`bot.workspaceId`, e.g. an issue-loop session, or the
+ * workspace's primary `botId`) or through the Bot it was forked from. Direct association wins; fork ancestry is the
+ * fallback so existing workspaces/forks keep working. */
 export function mapBotsToWorkspaces(bots: BotSummary[], workspaces: Workspace[]): Map<string, string> {
+  const known = new Set(workspaces.map((w) => w.id));
   const direct = new Map<string, string>();
   for (const w of workspaces) if (w.botId) direct.set(String(w.botId), w.id);
   const byId = new Map(bots.map((b) => [b.id, b]));
   const resolve = (bot: BotSummary, seen: Set<string>): string | undefined => {
+    // Direct association: the Bot record carries its workspace (issue-loop sessions are not forks).
+    if (bot.workspaceId && known.has(bot.workspaceId)) return bot.workspaceId;
     const own = direct.get(bot.id);
     if (own) return own;
     const parent = bot.parent?.botId ? byId.get(bot.parent.botId) : undefined;

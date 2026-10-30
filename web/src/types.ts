@@ -10,9 +10,30 @@ export interface BotSummary {
   createdAt?: string | number;
   busy: boolean;
   queued: number;
+  /** Workspace the Bot belongs to directly (set on issue-loop sessions, which are not forks). */
+  workspaceId?: string;
   /** Present on Bots created by forking another Bot. */
   parent?: { botId: string; entryId?: number | string };
   readOnly?: boolean;
+  /** SPIKE-add-session: a session added by hand from the workspace menu runs in its own detached worktree. */
+  worktree?: {
+    baseBranch: string;
+    pinnedSha: string;
+    dir: string;
+  };
+  /** Issue-loop spike metadata: this session's own git state + the source discussion backlink. */
+  issueLoop?: {
+    issue: number;
+    baseBranch: string;
+    /** Baseline commit pinned when the discussion was opened. */
+    pinnedSha: string;
+    /** The worktree directory the session runs in. */
+    dir: string;
+    /** Execution sessions only: their own branch (discussions are detached, no branch). */
+    branch?: string;
+    /** Execution sessions only: the discussion Bot this was published from (UI backlink only, not history). */
+    sourceBotId?: string;
+  };
 }
 
 export interface ForkInput {

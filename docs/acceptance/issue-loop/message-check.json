@@ -1,0 +1,41 @@
+{
+  "firstMessageExact": true,
+  "userMessageCount": 1,
+  "noDiscussionMarker": true,
+  "hasRealComment": true,
+  "hasCloudExcerpt": true,
+  "hasAgentsExcerpt": true,
+  "sessions": [
+    {
+      "id": "14a4c184",
+      "conversationId": 79,
+      "workspaceId": "ws_e168e5f97244a35b",
+      "issueLoop": {
+        "issue": 12,
+        "baseBranch": "main",
+        "pinnedSha": "3157db095cb9344e5b9cf0669657bf613d036b46",
+        "dir": "/home/sprite/issue-loop/ws_e168e5f97244a35b/discussion-e77cc0f6"
+      },
+      "busy": false
+    },
+    {
+      "id": "b3b1d0d1",
+      "conversationId": 130,
+      "workspaceId": "ws_e168e5f97244a35b",
+      "issueLoop": {
+        "issue": 12,
+        "baseBranch": "main",
+        "pinnedSha": "3157db095cb9344e5b9cf0669657bf613d036b46",
+        "dir": "/home/sprite/issue-loop/ws_e168e5f97244a35b/execution-291b5107",
+        "branch": "tarsbot/issue-12-14a4c184",
+        "sourceBotId": "14a4c184"
+      },
+      "busy": false
+    }
+  ],
+  "binding": {
+    "provider": "sprites",
+    "runtimeId": "pca-eae56f671c",
+    "version": 1
+  }
+}

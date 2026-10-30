@@ -1,0 +1,16 @@
+{
+  "status": 200,
+  "body": {
+    "discussion": {
+      "botId": "14a4c184",
+      "name": "issue-12-discuss",
+      "conversationId": 79,
+      "workspaceId": "ws_e168e5f97244a35b",
+      "issue": 12,
+      "baseBranch": "main",
+      "baselineReason": "issue 正文中最先出现的真实分支名 “main”",
+      "pinnedSha": "3157db095cb9344e5b9cf0669657bf613d036b46",
+      "dir": "/home/sprite/issue-loop/ws_e168e5f97244a35b/discussion-e77cc0f6"
+    }
+  }
+}

@@ -40,6 +40,11 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   const model = agent?.modelId ?? bot?.model.modelId ?? modelLabel(workspace.model);
   const env = envName(workspace);
   const baseSha = shortSha(workspace.baseCommit);
+  // Issue-loop sessions and sessions added by hand (SPIKE-add-session) run in their own worktree: show THEIR git state,
+  // never the workspace feature branch.
+  const loop = bot?.issueLoop;
+  // A worktree of its own: an issue-loop session, or a session added by hand (its own record, no issue).
+  const own = loop ?? (bot?.worktree ? { dir: bot.worktree.dir, pinnedSha: bot.worktree.pinnedSha, branch: undefined } : undefined);
 
   return (
     <div className="space-y-4 p-4">
@@ -61,9 +66,27 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
             </>
           )}
         </Row>
-        <Row label="工作分支">
-          <code className={code}>{workspace.branch}</code>
-        </Row>
+        {own ? (
+          <>
+            <Row label="会话目录">
+              <code className={code}>{own.dir}</code>
+            </Row>
+            <Row label="Git 状态">
+              {own.branch ? (
+                <code className={code}>{own.branch}</code>
+              ) : (
+                <span>
+                  <code className={code}>detached @ {shortSha(own.pinnedSha) ?? own.pinnedSha}</code>
+                  <span className="ml-2 text-xs text-fg-muted">无功能分支</span>
+                </span>
+              )}
+            </Row>
+          </>
+        ) : (
+          <Row label="工作分支">
+            <code className={code}>{workspace.branch}</code>
+          </Row>
+        )}
         <Row label="执行环境">
           {env ? (
             <>
@@ -83,8 +106,10 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
       </dl>
 
       {workspace.status !== "ready" && <WorkspaceStatus workspace={workspace} onUpdate={onUpdate} />}
-      {/* keyed: PR result, checkpoint list, request ids and dialogs are per workspace and must not leak to the next one */}
-      <WorkspaceActions key={workspace.id} workspace={workspace} onChanged={onChanged} />
+      {/* keyed: PR result, checkpoint list, request ids and dialogs are per workspace and must not leak to the next one.
+          Issue-loop sessions are hidden: those workspace actions act on the old branch and main directory, not on this
+          session’s own worktree (issue-loop spike: not extended, not offered). */}
+      {!own && <WorkspaceActions key={workspace.id} workspace={workspace} onChanged={onChanged} />}
     </div>
   );
 }
