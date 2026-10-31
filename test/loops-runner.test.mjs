@@ -181,7 +181,7 @@ test("code=read: detached worktree at the repo default SHA; bash+write/edit remo
     assert.equal(spec.loopRun.dir, spec.cwd, "worktree dir persisted on loopRun");
     assert.equal(spec.loopRun.pinnedSha, MAIN_SHA, "pinned baseline persisted on loopRun");
     assert.equal(spec.loopRun.branch, null, "read run is detached (no own branch)");
-    assert.deepEqual(spec.loopRun.capabilities, { code: "read", web: false }, "capability level persisted for future integrations");
+    assert.deepEqual(spec.loopRun.capabilities, { code: "read", web: false, github: { comment: false, label: false, openIssue: false, openPr: false } }, "capability level persisted for scoped-tool gating");
     assert.equal(spec.workspaceId, env.ws.id);
     assert.deepEqual(spec.extensions.remove.map((e) => e.name), ["tarsbot.preamble"], "preamble removed");
     assert.match(spec.instructions, /never merge or close a pull request/i, "no-merge rule in instructions");
@@ -245,9 +245,10 @@ test("code=readwrite: own branch loops/<slug>/<runId> at the pinned SHA; full co
     assert.equal(done.branch, `loops/fixer/${run.id}`, "branch recorded on the run");
     const removed = env.bots.agents.get(done.botId)?.removed ?? [];
     assert.deepEqual(removed.filter((t) => t !== "web_search" && t !== "search_history"), [], "coding tools kept");
-    // instructions: push own branch allowed, merge forbidden
-    assert.match(env.bots.created[0].instructions, /push it with `git push -u origin <branch>`/);
+    // instructions: publish only via the controlled tool; no shell GitHub route
+    assert.match(env.bots.created[0].instructions, /send_git_push/);
     assert.match(env.bots.created[0].instructions, /never merge or close a pull request/i);
+    assert.match(env.bots.created[0].instructions, /no GitHub credentials|git remote commands are disabled/i);
   } finally {
     env.close();
   }

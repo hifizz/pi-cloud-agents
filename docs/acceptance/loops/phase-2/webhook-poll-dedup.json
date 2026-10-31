@@ -1,0 +1,22 @@
+{
+  "source": "Locally signed replay of real GitHub comment payload; not public GitHub App delivery",
+  "good": {
+    "status": 202,
+    "result": {
+      "status": "accepted",
+      "runs": 0
+    }
+  },
+  "repeat": {
+    "status": 202,
+    "result": {
+      "status": "duplicate_delivery"
+    }
+  },
+  "bad": {
+    "status": 401,
+    "result": {
+      "error": "invalid webhook signature"
+    }
+  }
+}

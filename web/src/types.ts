@@ -34,6 +34,7 @@ export interface BotSummary {
   readOnly?: boolean;
   /** SPIKE-add-session: a session added by hand from the workspace menu runs in its own detached worktree. */
   worktree?: {
+    branch?: string;
     baseBranch: string;
     pinnedSha: string;
     dir: string;

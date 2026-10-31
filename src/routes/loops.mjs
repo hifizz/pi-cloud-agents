@@ -18,7 +18,15 @@ import { randomUUID } from "node:crypto";
 import { HttpError } from "../api.mjs";
 import { createLoopStore, LoopValidationError } from "../loops/store.mjs";
 import { verifyWebhookCredentials, readRaw, createRateLimiter } from "../loops/webhook.mjs";
+import { verifyGithubWebhook } from "../loops/github-webhook.mjs";
+import { normalizeWebhookEvent } from "../loops/github-events.mjs";
 import { scheduleTriggerKey } from "../loops/schedule.mjs";
+import { Preamble } from "../ext/preamble.mjs";
+import { ctx } from "../harness.mjs";
+import { SHA_RE, SPIKE_RULES, sha256 } from "../loops/context.mjs";
+import { shellQuote } from "../env.mjs";
+
+const posixDir = (p) => String(p).replace(/\/[^/]*$/, "") || "/";
 
 const RUNS_LIMIT_MAX = 200;
 
@@ -109,6 +117,7 @@ export function register(app) {
     try {
       const { loop, webhookSecret } = await loopStore.create(params.id, b);
       if (scheduler) await scheduler.sync(loop);
+      await loops.githubPoller?.sync();
       return { loop: loopView(loop), ...(webhookSecret ? { webhookSecret } : {}) };
     } catch (e) {
       throw mapError(e);
@@ -131,6 +140,7 @@ export function register(app) {
       const out = await loopStore.update(current.id, b);
       if (!out) throw new HttpError(404, `loop not found: ${params.id}`);
       if (scheduler) await scheduler.sync(out.loop);
+      await loops.githubPoller?.sync();
       return { loop: loopView(out.loop), ...(out.webhookSecret ? { webhookSecret: out.webhookSecret } : {}) };
     } catch (e) {
       throw mapError(e);
@@ -141,6 +151,7 @@ export function register(app) {
     const loop = loopOr404(params.id);
     if (scheduler) await scheduler.stop(loop.id);
     const ok = control.loops.remove(loop.id);
+    await loops.githubPoller?.sync();
     return { ok, id: params.id };
   });
 
@@ -148,6 +159,7 @@ export function register(app) {
     loopOr404(params.id);
     const loop = await loopStore.setEnabled(params.id, true);
     if (scheduler) await scheduler.sync(loop);
+    await loops.githubPoller?.sync();
     return { loop: loopView(loop) };
   });
 
@@ -155,6 +167,7 @@ export function register(app) {
     loopOr404(params.id);
     const loop = await loopStore.setEnabled(params.id, false);
     if (scheduler) await scheduler.stop(loop.id);
+    await loops.githubPoller?.sync();
     return { loop: loopView(loop) };
   });
 
@@ -241,6 +254,110 @@ export function register(app) {
     });
     res.writeHead(202, { "content-type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ runId: run.id, status: run.status, deduplicated: !created }));
+  });
+
+  // ---- GitHub App webhook (machine auth inside the global guard) ----
+  // POST /api/github/webhook — X-Hub-Signature-256 HMAC-SHA256 over the raw body with
+  // TARSBOT_GITHUB_WEBHOOK_SECRET; the raw body is read once inside the guard, before any parsing. The
+  // X-GitHub-Delivery id dedups replays; the event's canonical key dedups across the poll channel.
+  const ghLimiter = createRateLimiter({ limit: 240, windowMs: 60_000 });
+  app.ctx.registerMachineAuth?.({
+    method: "POST",
+    pathRe: /^\/api\/github\/webhook$/,
+    verify: async (req) => {
+      const ip = String(req.socket?.remoteAddress ?? "unknown");
+      if (!ghLimiter(ip)) throw new HttpError(429, "too many github webhook requests");
+      req.githubWebhook = await verifyGithubWebhook(req); // throws 401/503 inside the guard
+    },
+  });
+
+  app.post("/api/github/webhook", async (req, res) => {
+    const { deliveryId, event } = req.githubWebhook ?? {};
+    const raw = req.machineBody ?? Buffer.alloc(0);
+    let payload;
+    try {
+      payload = JSON.parse(raw.toString("utf8") || "{}");
+    } catch {
+      throw new HttpError(400, "webhook body is not valid JSON");
+    }
+    // Delivery-level replay dedup: the same GitHub retry is dropped before any matching work.
+    if (control.githubDeliveries.seen(`delivery:${deliveryId}`)) {
+      res.writeHead(202, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ status: "duplicate_delivery" }));
+      return;
+    }
+    const ev = normalizeWebhookEvent(event, payload);
+    if (!ev) {
+      res.writeHead(202, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ status: "ignored", event }));
+      return;
+    }
+    ev.deliveryId = deliveryId;
+    const out = await loops.ingestGithub?.(payload.repository?.full_name ? (control.workspaces.list().find((w) => w.repo === payload.repository.full_name)?.id ?? "") : "", ev);
+    res.writeHead(202, { "content-type": "application/json; charset=utf-8" });
+    control.githubDeliveries.mark(`delivery:${deliveryId}`, "webhook");
+    res.end(JSON.stringify({ status: "accepted", runs: out?.runs?.length ?? 0 }));
+  });
+
+  // GET /api/loop-runs/:runId — the run record (the "clickable run link" target the PR body points at).
+  app.get("/api/loop-runs/:runId", async (_req, _res, { params }) => {
+    const run = control.loopRuns.get(params.runId);
+    if (!run) throw new HttpError(404, `run not found: ${params.runId}`);
+    return runSummary(run);
+  });
+
+  // ---- draft → publish confirmation (readwrite loop runs) ----
+  // POST /api/loop-runs/:runId/publish {task?} — creates a FRESH execution session in a NEW worktree on a
+  // NEW branch cut from the run's pinnedSha (never reuses the loop run's worktree/branch: the run's session
+  // may still be writing there, and the published session must not inherit the run's permission context).
+  // The first message is the human-confirmed task verbatim — non-empty, over-limit rejected (no truncation).
+  app.post("/api/loop-runs/:runId/publish", async (_req, _res, { params, body }) => {
+    const run = control.loopRuns.get(params.runId);
+    if (!run) throw new HttpError(404, `run not found: ${params.runId}`);
+    const b = jsonObject(body);
+    const draft = run.payload?.suggestedTask;
+    const task = typeof b.task === "string" ? b.task : draft?.task;
+    if (!task || !String(task).trim()) throw new HttpError(400, "task is required (no confirmed task and no saved draft)");
+    if (String(task).length > 4000) throw new HttpError(400, "task exceeds 4000 characters");
+    const srcBot = run.botId ? bots.get(run.botId) : undefined;
+    const meta = srcBot?.loopRun;
+    const pinnedSha = String(meta?.pinnedSha ?? run.payload?.pinnedSha ?? "");
+    if (!SHA_RE.test(pinnedSha)) throw new HttpError(409, `run ${run.id} has no pinned baseline`);
+    const ws = control.workspaces.get(run.workspaceId);
+    if (!ws) throw new HttpError(404, `workspace not found: ${run.workspaceId}`);
+    if (typeof app.ctx.runtimeBash !== "function") throw new HttpError(503, "runtime bash is not available");
+
+    // Fresh worktree + branch from the pinned commit — the publish never shares the run's dir or branch.
+    const dirId = sha256(`${ws.id}:${run.id}:${pinnedSha}:${String(task).slice(0, 80)}`).slice(0, 8);
+    const branch = `loops/publish/${run.id}-${dirId}`;
+    const dir = `${app.ctx.homeDir?.() ?? "/home/sprite"}/loops/${ws.id}/publish-${dirId}`;
+    const repoDir = shellQuote([ws.cwd]);
+    const bash = await app.ctx.runtimeBash(ws.id);
+    const addCmd = `mkdir -p ${shellQuote([posixDir(dir)])} && git -C ${repoDir} worktree add -b ${shellQuote([branch])} ${shellQuote([dir])} ${shellQuote([pinnedSha])}`;
+    const r = await bash(addCmd, { timeoutMs: 120_000 });
+    if (r?.timedOut || (r?.exitCode ?? 1) !== 0) {
+      throw new HttpError(409, `worktree setup failed: ${String(r?.stderr ?? r?.stdout ?? "timeout").slice(0, 200)}`);
+    }
+
+    const name = `loop-${String(run.id).slice(-6)}-pub`;
+    const pub = await bots.createBot({
+      name,
+      model: ws.model,
+      cwd: dir,
+      instructions: `Loop publish Session：分支 ${branch}，从 pinned commit ${pinnedSha} 新检出的独立工作区（${dir}）。按用户任务执行；不合并、不删分支。\n${SPIKE_RULES}`,
+      extensions: { remove: [Preamble] },
+      workspaceId: ws.id,
+      status: "executing",
+      // Provenance + own-worktree metadata for the compose panel (EnvironmentPane/Header show THIS dir and
+      // pinned commit — never the workspace cwd); no loopRun, so no inherited capability context.
+      publishedFrom: { runId: run.id, loopId: run.loopId, loopVersion: run.loopVersion, pinnedSha, branch, dir, entity: run.entityRef ?? null },
+      worktree: { baseBranch: run.payload?.baseBranch ?? ws.baseBranch, pinnedSha, dir, branch },
+    });
+    control.links.link({ conversationId: String(pub.conversationId), workspaceId: ws.id, botId: pub.id });
+    const conv = await bots.conversation(pub.id);
+    if (!conv) throw new HttpError(500, "conversation not found for publish session");
+    await conv.submit({ type: "input", content: String(task) }, ctx);
+    return { execution: { botId: pub.id, name: pub.name, conversationId: pub.conversationId, workspaceId: ws.id, runId: run.id, branch, dir } };
   });
 
   app.post("/api/loops/:id/webhook/rotate", async (_req, _res, { params }) => {

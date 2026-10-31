@@ -1,0 +1,19 @@
+{
+  "bot": "bb999a2e",
+  "worktree": {
+    "baseBranch": "main",
+    "pinnedSha": "3157db095cb9344e5b9cf0669657bf613d036b46",
+    "dir": "/home/sprite/loops/ws_e168e5f97244a35b/publish-9f40e71c"
+  },
+  "loopRun": null,
+  "source": {
+    "runId": "run_98a2887835409edd",
+    "loopId": "loop_32eec4ad7814b7c1",
+    "loopVersion": 1,
+    "pinnedSha": "3157db095cb9344e5b9cf0669657bf613d036b46",
+    "branch": "loops/publish/run_98a2887835409edd-9f40e71c",
+    "dir": "/home/sprite/loops/ws_e168e5f97244a35b/publish-9f40e71c",
+    "entity": null
+  },
+  "first": "只回复\"发布任务验收完成\"，不调用工具，不改文件。"
+}

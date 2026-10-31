@@ -63,7 +63,7 @@ export function SessionHeader({
     : review
       ? `PR #${review.pr} @ ${shortSha(review.headSha) ?? review.headSha}`
       : added
-        ? `detached @ ${shortSha(added.pinnedSha) ?? added.pinnedSha}`
+        ? (added.branch ?? `detached @ ${shortSha(added.pinnedSha) ?? added.pinnedSha}`)
         : loopRunGit
           ? (loopRunGit.branch ? loopRunGit.branch : `detached @ ${shortSha(loopRunGit.pinnedSha) ?? loopRunGit.pinnedSha}`)
           : workspace?.branch;
@@ -72,7 +72,7 @@ export function SessionHeader({
     : review
       ? `reviewing PR #${review.pr} · detached HEAD · pinned ${review.headSha}`
       : added
-        ? `detached HEAD · pinned ${added.pinnedSha}`
+        ? `${added.branch ? `branch ${added.branch}` : "detached HEAD"} · pinned ${added.pinnedSha}`
         : loopRunGit
           ? `loop run ${loopRunGit.runId} · ${loopRunGit.branch ? `branch ${loopRunGit.branch}` : "detached HEAD"} · pinned ${loopRunGit.pinnedSha}`
           : workspace?.branch;
