@@ -9,6 +9,19 @@ export const STEP_STATES = ["pending", "running", "done", "failed", "unknown"];
 export const WORKSPACE_STATUSES = ["preparing", "ready", "failed", "archived"];
 export const INTENT_STATES = ["planned", "sent", "confirmed", "failed", "unknown"];
 export const EXECUTION_STATES = ["claimed", "started", "exited", "lost", "unknown"];
+export const LOOP_RUN_STATUSES = [
+  "queued",
+  "starting",
+  "running",
+  "needs_approval",
+  "succeeded",
+  "failed",
+  "canceled",
+  "skipped",
+];
+/** Statuses that occupy a queue slot (anything else is terminal). */
+export const LOOP_RUN_ACTIVE = ["queued", "starting", "running", "needs_approval"];
+export const LOOP_TRIGGER_KINDS = ["manual", "schedule", "webhook", "github_issue", "github_pr"];
 
 const list = (xs) => xs.map((x) => `'${x}'`).join(", ");
 
@@ -129,6 +142,92 @@ export const MIGRATIONS = [
     created_at      TEXT NOT NULL
   );
   CREATE INDEX checkpoints_workspace ON checkpoints(workspace_id);
+  `,
+  // v2：Loops（Issue14 Phase1）：loop 定义/版本/运行队列 + Phase2 预留表
+  `
+  CREATE TABLE loops (
+    id                  TEXT PRIMARY KEY,
+    workspace_id        TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name                TEXT NOT NULL,
+    description         TEXT,
+    instructions        TEXT NOT NULL,
+    trigger             TEXT NOT NULL,
+    conditions          TEXT,
+    capabilities        TEXT NOT NULL,
+    reasoning           TEXT NOT NULL DEFAULT 'auto',
+    enabled             INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+    owner               TEXT,
+    edit_policy         TEXT NOT NULL DEFAULT 'members',
+    version             INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+    webhook_secret_hash TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+  );
+  CREATE INDEX loops_workspace ON loops(workspace_id);
+
+  CREATE TABLE loop_versions (
+    loop_id      TEXT NOT NULL REFERENCES loops(id) ON DELETE CASCADE,
+    version      INTEGER NOT NULL CHECK (version >= 1),
+    snapshot     TEXT NOT NULL,
+    published_at TEXT NOT NULL,
+    published_by TEXT,
+    PRIMARY KEY (loop_id, version)
+  );
+
+  CREATE TABLE loop_runs (
+    id            TEXT PRIMARY KEY,
+    loop_id       TEXT,
+    loop_version  INTEGER,
+    workspace_id  TEXT NOT NULL,
+    trigger_kind  TEXT NOT NULL,
+    trigger_key   TEXT NOT NULL,
+    payload       TEXT,
+    entity_ref    TEXT,
+    bot_id        TEXT,
+    branch        TEXT,
+    pr_number     INTEGER,
+    status        TEXT NOT NULL CHECK (status IN (${list(LOOP_RUN_STATUSES)})),
+    error         TEXT,
+    enqueued_at   TEXT NOT NULL,
+    started_at    TEXT,
+    ended_at      TEXT,
+    usage         TEXT
+  );
+  CREATE UNIQUE INDEX loop_runs_dedup ON loop_runs(loop_id, trigger_key) WHERE loop_id IS NOT NULL;
+  CREATE INDEX loop_runs_status ON loop_runs(status);
+  CREATE INDEX loop_runs_loop ON loop_runs(loop_id, enqueued_at);
+
+  CREATE TABLE loop_match_state (
+    loop_id    TEXT NOT NULL REFERENCES loops(id) ON DELETE CASCADE,
+    entity_ref TEXT NOT NULL,
+    matched    INTEGER NOT NULL CHECK (matched IN (0,1)),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (loop_id, entity_ref)
+  );
+
+  CREATE TABLE github_event_cursor (
+    workspace_id  TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+    last_event_id TEXT,
+    polled_at     TEXT
+  );
+
+  CREATE TABLE github_deliveries (
+    event_key   TEXT PRIMARY KEY,
+    source      TEXT NOT NULL CHECK (source IN ('webhook','poll')),
+    received_at TEXT NOT NULL
+  );
+  `,
+  // v3: produced-comment markers join deliveries with source 'tool' (self-feedback guard); recreate the
+  // table without the 2-value CHECK — existing rows carry over verbatim.
+  `
+  CREATE TABLE github_deliveries_new (
+    event_key   TEXT PRIMARY KEY,
+    source      TEXT NOT NULL,
+    received_at TEXT NOT NULL
+  );
+  INSERT INTO github_deliveries_new SELECT * FROM github_deliveries;
+  DROP TABLE github_deliveries;
+  ALTER TABLE github_deliveries_new RENAME TO github_deliveries;
   `,
 ];
 

@@ -3,7 +3,7 @@
 //
 // Security contract (docs/tasks/AMP13-files.md):
 //  - cwd is decided HERE from stored state: the Bot's own session dir (issueLoop.dir / review.dir /
-//    worktree.dir) when present, else the workspace's bound cwd. A client-supplied root is never trusted.
+//    worktree.dir / loopRun.dir) when present, else the workspace's bound cwd. A client-supplied root is never trusted.
 //  - The Bot must exist, be linked to a `ready` workspace with an active binding; every op goes through
 //    `runtimeBash(workspaceId)` — no host bash, no default Sprite fallback.
 //  - Paths are user-controlled but confined to the session root: `cd -P`/`pwd -P` (POSIX, GNU and BSD
@@ -42,8 +42,8 @@ function isProtectedPath(relPath) {
 
 /**
  * Resolve the session root for a Bot. The Bot's own recorded session dir wins (issue-loop discussions and
- * executions, PR reviews and hand-added sessions all run in detached worktrees); the workspace's bound
- * cwd is the fallback for the primary session. Returns { workspace, root } or throws FileError.
+ * executions, PR reviews, hand-added sessions and Loop-run sessions all run in their own directories); the
+ * workspace's bound cwd is the fallback for the primary session. Returns { workspace, root } or throws FileError.
  */
 export function sessionRootOf(app, botId) {
   const { bots, control } = app.ctx;
@@ -55,7 +55,7 @@ export function sessionRootOf(app, botId) {
   if (!workspace) throw bad(`session ${botId} has no linked workspace`, undefined, "conflict");
   if (workspace.status !== "ready") throw bad(`workspace ${workspace.id} is not ready (status: ${workspace.status})`, undefined, "conflict");
   if (!control.bindings.current(workspace.id)) throw bad(`workspace ${workspace.id} has no active runtime binding`, undefined, "conflict");
-  const root = bot.issueLoop?.dir ?? bot.review?.dir ?? bot.worktree?.dir ?? workspace.cwd;
+  const root = bot.issueLoop?.dir ?? bot.review?.dir ?? bot.worktree?.dir ?? bot.loopRun?.dir ?? workspace.cwd;
   if (typeof root !== "string" || !root.startsWith("/")) throw bad(`session ${botId} has no usable working directory`, undefined, "conflict");
   return { workspace, root };
 }

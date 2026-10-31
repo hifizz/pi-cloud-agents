@@ -22,7 +22,7 @@ export function onUnauthorized(fn: () => void): () => void {
   };
 }
 
-export async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body === undefined ? undefined : { "content-type": "application/json" },

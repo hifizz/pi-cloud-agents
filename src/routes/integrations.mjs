@@ -76,7 +76,7 @@ export function register(app) {
     if (!bot) throw new HttpError(404, `bot not found: ${botId}`);
     const link = control.links.workspaceOf(String(bot.conversationId));
     if (!link || link.id !== ws.id) throw new HttpError(409, `session ${botId} does not belong to workspace ${ws.id}`);
-    const dir = bot.issueLoop?.dir ?? bot.review?.dir ?? bot.worktree?.dir ?? ws.cwd;
+    const dir = bot.issueLoop?.dir ?? bot.review?.dir ?? bot.worktree?.dir ?? bot.loopRun?.dir ?? ws.cwd;
     if (typeof dir !== "string" || !dir) throw new HttpError(409, "session directory could not be determined");
     let bash;
     try {

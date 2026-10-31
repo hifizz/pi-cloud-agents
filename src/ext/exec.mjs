@@ -14,8 +14,10 @@
 //   5. follow the log from byte 0 (a safe re-entry starts with empty progress, so the whole log is re-emitted).
 //   6. timeout / user abort -> runner.kill; "stop unconfirmed" is reported as such, never as "stopped".
 //
-// Nothing here reads or forwards environment values: GH_TOKEN etc. travel in the provider's bash exec environment and are
-// inherited by the runner-started process. `prepare` is never given `env` (the Sprites bash primitive has no supportsEnv).
+// Nothing here reads or forwards environment values directly: GH_TOKEN etc. travel in the provider's bash exec
+// environment and are inherited by the runner-started process. Loop sessions pass `execEnv` through the resolver
+// (currently {GH_TOKEN: ""}) — `prepare` stages only the NAMES; values are injected at `start` via the
+// supportsEnv-capable bash primitive, never written to a file.
 import { withoutAbortSignal } from "@earendil-works/chord/context";
 import { Type } from "@earendil-works/pi-ai";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
@@ -146,7 +148,7 @@ export function createExec(opts = {}) {
       }
       const resolved = await resolve({ conversationId });
       if (!resolved) return cannotRun(`会话 ${conversationId} 没有关联工作区（no workspace for this conversation）`);
-      const { store, runner, workspace, binding } = resolved;
+      const { store, runner, workspace, binding, execEnv } = resolved;
       if (!store || !workspace || !runner || !binding) {
         return cannotRun(`工作区 ${workspace?.id ?? "(未知)"} 没有可用的运行环境绑定（no active runtime binding）`);
       }
@@ -250,7 +252,7 @@ export function createExec(opts = {}) {
         }
       } else {
         try {
-          const p = await runner.prepare({ id: runId, cwd: pinned.cwd, command });
+          const p = await runner.prepare({ id: runId, cwd: pinned.cwd, command, ...(execEnv ? { env: execEnv } : {}) });
           if (p.prepared !== "new") {
             return unconfirmed("runner 上已存在同编号的执行（控制库记录与 runner 不一致）", { state: "unknown" });
           }

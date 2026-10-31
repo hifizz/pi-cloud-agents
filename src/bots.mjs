@@ -72,7 +72,14 @@ export class BotRegistry {
    * on a PARENT session `{ tasks: [{id, task, state, childBotId?, branch?, dir?, error?, result?}], results: [...], depth }`,
    * on a CHILD session `{ role: "child", parentBotId, taskId, depth }`. It records only relations and human-read
    * results — never a business "done" state inferred from idle.
-   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object, delegation?: object }} spec
+   * `loopRun` (Issue14) marks a Session created by a Loop run: {loopId, runId, version} plus the run's own worktree
+   * metadata {dir, pinnedSha, branch} (Files/Git/Header show the session's real state, never the workspace cwd) and
+   * the capability level {capabilities:{code,web,github}} integrations and scoped tools must respect.
+   * `tools` narrows the model-callable tool whitelist (loop capability enforcement); omitted = the full toolset.
+   * `publishedFrom` (Issue14 Phase2) marks a Session created by the loop draft→publish route: {runId, loopId,
+   * loopVersion, pinnedSha, branch, dir, entity} — provenance for the compose panel, NOT a permission context
+   * (no loopRun, so the session never carries the run's capability snapshot or scoped tools).
+   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object, delegation?: object, loopRun?: {loopId:string, runId:string, version:number, dir?:string, pinnedSha?:string, branch?:string|null, capabilities?:object}, publishedFrom?: object }} spec
    */
   async createBot(spec) {
     if (!spec?.name) throw new Error("name is required");
@@ -99,6 +106,8 @@ export class BotRegistry {
       ...(spec.review ? { review: { ...spec.review } } : {}),
       ...(spec.executionResult ? { executionResult: { ...spec.executionResult } } : {}),
       ...(spec.delegation ? { delegation: { ...spec.delegation } } : {}),
+      ...(spec.loopRun ? { loopRun: { ...spec.loopRun } } : {}),
+      ...(spec.publishedFrom ? { publishedFrom: { ...spec.publishedFrom } } : {}),
       createdAt: new Date().toISOString(),
     };
     this.bots.push(bot);

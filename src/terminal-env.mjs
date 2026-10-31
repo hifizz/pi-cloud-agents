@@ -68,6 +68,12 @@ export async function attachTerminal(app, socket, botId, deps = {}) {
   };
   const fail = (id, message) => send({ type: "error", ...(id ? { id } : {}), message: String(message).slice(0, 500) });
 
+  const target = app.ctx.bots?.get(botId);
+  if (target?.readOnly || target?.loopRun?.runId) {
+    fail(undefined, "Manual shells are disabled for restricted Sessions; use a separate normal Session.");
+    socket.close(4403, "restricted session");
+    return;
+  }
   let root;
   let workspace;
   try {
@@ -294,6 +300,14 @@ export async function attachPtyTerminal(app, socket, botId, deps = {}) {
 
   // The session is fully validated BEFORE any client frame is read: bot -> linked workspace (ready) ->
   // active binding -> per-workspace spawn factory (app.ctx.ptySession mirrors ctx.runtimeBash).
+  // Issue14: a PTY is an unmediated FULL shell — no per-command approval is possible on a raw byte stream, so it
+  // must never attach to a capability-restricted loop-run session. Only a normal session (no loopRun) may open one.
+  const botRec = app.ctx.bots.get(botId);
+  if (botRec?.readOnly || botRec?.loopRun?.runId) {
+    fail("interactive PTY is disabled for restricted Sessions; use a separate normal Session");
+    socket.close(4403, "pty not allowed for loop-run sessions");
+    return;
+  }
   let workspace;
   let root;
   try {
