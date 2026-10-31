@@ -391,30 +391,24 @@ export function register(app) {
     ].join("\n");
   }
 
-  // POST /api/workspaces/:id/issue-loop/discuss {issue}
-  app.post("/api/workspaces/:id/issue-loop/discuss", async (_req, _res, { params, body }) => {
-    const b = jsonObject(body);
-    const issueNo = Number(b.issue);
-    if (!Number.isInteger(issueNo) || issueNo <= 0) throw new HttpError(400, "issue must be a positive integer");
-    const ws = assertIssueLoopWorkspace(params.id);
-
+  /** Create (or reuse) the detached-baseline discussion session of one issue. Returns the `discussion` object the
+   * route response carries. Shared with the github-events sync (auto-create on new issues); not a generic service. */
+  async function startDiscussion(ws, issueNo) {
     // Sequential repeat of the same click: the same workspace + issue discussion already exists. Return it without
     // touching GitHub or the Sprite — no worktree command and no start message is sent again.
     const existing = findDiscussion(ws.id, issueNo);
     if (existing) {
       const meta = existing.issueLoop;
       return {
-        discussion: {
-          botId: existing.id,
-          name: existing.name,
-          conversationId: existing.conversationId,
-          workspaceId: ws.id,
-          issue: issueNo,
-          baseBranch: meta.baseBranch,
-          pinnedSha: meta.pinnedSha,
-          dir: meta.dir,
-          existing: true,
-        },
+        botId: existing.id,
+        name: existing.name,
+        conversationId: existing.conversationId,
+        workspaceId: ws.id,
+        issue: issueNo,
+        baseBranch: meta.baseBranch,
+        pinnedSha: meta.pinnedSha,
+        dir: meta.dir,
+        existing: true,
       };
     }
 
@@ -496,18 +490,25 @@ export function register(app) {
     await conv.submit({ type: "input", content: message }, ctx);
 
     return {
-      discussion: {
-        botId: bot.id,
-        name: bot.name,
-        conversationId: bot.conversationId,
-        workspaceId: ws.id,
-        issue: issueNo,
-        baseBranch: baseline.branch,
-        baselineReason: baseline.reason,
-        pinnedSha: baseline.sha,
-        dir,
-      },
+      botId: bot.id,
+      name: bot.name,
+      conversationId: bot.conversationId,
+      workspaceId: ws.id,
+      issue: issueNo,
+      baseBranch: baseline.branch,
+      baselineReason: baseline.reason,
+      pinnedSha: baseline.sha,
+      dir,
     };
+  }
+
+  // POST /api/workspaces/:id/issue-loop/discuss {issue}
+  app.post("/api/workspaces/:id/issue-loop/discuss", async (_req, _res, { params, body }) => {
+    const b = jsonObject(body);
+    const issueNo = Number(b.issue);
+    if (!Number.isInteger(issueNo) || issueNo <= 0) throw new HttpError(400, "issue must be a positive integer");
+    const ws = assertIssueLoopWorkspace(params.id);
+    return { discussion: await startDiscussion(ws, issueNo) };
   });
 
   /** Other sessions in this workspace: name plus busy/queued read from the conversation view. Unreadable -> null (never
@@ -691,17 +692,16 @@ export function register(app) {
     ].join("\n");
   }
 
-  /** A bot's review metadata matches when it reviews this PR at this head SHA in this workspace. */
-  const isSameReview = (bot, wsId, prNumber, headSha) =>
-    bot?.review && bot.workspaceId === wsId && bot.review.pr === prNumber && bot.review.headSha === headSha;
+  /** A bot's review metadata matches when it reviews this PR at this head SHA in this workspace. Same-workspace
+   * membership mirrors findDiscussion: a direct workspaceId OR an actual conversation link — a record that lost its
+   * workspaceId (crash between createBot and link, or an older link-adopted record) must still be reused, never
+   * duplicated into a second review session. */
+  const isSameReview = (bot, wsId, prNumber, headSha, linked) =>
+    bot?.review && bot.review.pr === prNumber && bot.review.headSha === headSha && (bot.workspaceId === wsId || linked.has(bot.id));
 
-  // POST /api/workspaces/:id/review {pr} -> {review:{botId,name,conversationId,workspaceId,pr,title,url,headSha,baseSha,dir,reused}}
-  app.post("/api/workspaces/:id/review", async (_req, _res, { params, body }) => {
-    const b = jsonObject(body);
-    const prNumber = Number(b.pr);
-    if (!Number.isInteger(prNumber) || prNumber <= 0) throw new HttpError(400, "pr must be a positive integer");
-    const ws = assertIssueLoopWorkspace(params.id);
-
+  /** Create (or reuse) the detached review session of one PR at its current head SHA. Returns the `review` object the
+   * route response carries. Shared with the github-events sync (auto-create on new PRs); not a generic service. */
+  async function startReview(ws, prNumber) {
     // The PR number must be a real PR in this workspace's own repo — no arbitrary links, no guessed fields.
     let pull;
     try {
@@ -713,22 +713,21 @@ export function register(app) {
     if (!pull.headSha || !SHA_RE.test(pull.headSha)) throw new HttpError(502, `无法取得 PR #${prNumber} 的 head SHA，停止`);
 
     // Same workspace + PR + head SHA: reuse the existing review session (sequential repeat click).
-    const existing = bots.list().find((bot) => isSameReview(bot, ws.id, prNumber, pull.headSha));
+    const linked = new Set(control.links.conversationsOf(ws.id).map((l) => l.botId));
+    const existing = bots.list().find((bot) => isSameReview(bot, ws.id, prNumber, pull.headSha, linked));
     if (existing) {
       return {
-        review: {
-          botId: existing.id,
-          name: existing.name,
-          conversationId: existing.conversationId,
-          workspaceId: ws.id,
-          pr: prNumber,
-          title: pull.title,
-          url: pull.url,
-          headSha: pull.headSha,
-          baseSha: pull.baseSha,
-          dir: existing.review.dir,
-          reused: true,
-        },
+        botId: existing.id,
+        name: existing.name,
+        conversationId: existing.conversationId,
+        workspaceId: ws.id,
+        pr: prNumber,
+        title: pull.title,
+        url: pull.url,
+        headSha: pull.headSha,
+        baseSha: pull.baseSha,
+        dir: existing.review.dir,
+        reused: true,
       };
     }
 
@@ -774,20 +773,27 @@ export function register(app) {
     await conv.submit({ type: "input", content: message }, ctx);
 
     return {
-      review: {
-        botId: bot.id,
-        name: bot.name,
-        conversationId: bot.conversationId,
-        workspaceId: ws.id,
-        pr: prNumber,
-        title: pull.title,
-        url: pull.url,
-        headSha: pull.headSha,
-        baseSha: pull.baseSha,
-        dir,
-        reused: false,
-      },
+      botId: bot.id,
+      name: bot.name,
+      conversationId: bot.conversationId,
+      workspaceId: ws.id,
+      pr: prNumber,
+      title: pull.title,
+      url: pull.url,
+      headSha: pull.headSha,
+      baseSha: pull.baseSha,
+      dir,
+      reused: false,
     };
+  }
+
+  // POST /api/workspaces/:id/review {pr} -> {review:{botId,name,conversationId,workspaceId,pr,title,url,headSha,baseSha,dir,reused}}
+  app.post("/api/workspaces/:id/review", async (_req, _res, { params, body }) => {
+    const b = jsonObject(body);
+    const prNumber = Number(b.pr);
+    if (!Number.isInteger(prNumber) || prNumber <= 0) throw new HttpError(400, "pr must be a positive integer");
+    const ws = assertIssueLoopWorkspace(params.id);
+    return { review: await startReview(ws, prNumber) };
   });
 
   // ---- session status + execution result (SPIKE-review-loop) ----------------------------------------------------------
@@ -852,4 +858,8 @@ export function register(app) {
     bots.update(bot.id, { executionResult: result });
     return { result: { botId: bot.id, ...result } };
   });
+
+  // Narrow reuse surface for the github-events route (AMP13-events): it may start the same discussion / review
+  // sessions the buttons above start. Only these two functions are exposed — the workspace service itself is not.
+  app.ctx.workspaceSessions = { startDiscussion, startReview };
 }

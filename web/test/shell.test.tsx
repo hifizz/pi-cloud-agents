@@ -56,8 +56,8 @@ describe("PanelHost", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("registers diff, environment and routines panels", () => {
-    expect(PANELS.map((p) => p.id)).toEqual(["diff", "environment", "routines"]);
+  it("registers the integrated session panels", () => {
+    expect(PANELS.map((p) => p.id)).toEqual(["diff", "git", "files", "preview", "terminal", "environment", "search", "delegation", "events", "integrations", "routines"]);
   });
 });
 

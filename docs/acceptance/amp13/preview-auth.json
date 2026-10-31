@@ -1,0 +1,7 @@
+{
+  "validCapabilityStatus": 200,
+  "csp": "sandbox allow-scripts",
+  "nosniff": "nosniff",
+  "invalidCapabilityStatus": 401,
+  "missingCredentialsStatus": 401
+}

@@ -1,0 +1,7 @@
+ts	phase	decision	why	evidence	result
+2026-10-30T19:02:06.931Z	frame	9 separate SWE2 high feature workers; parent integration and EGO acceptance	Separate writers and verify real user outcomes	docs/tasks/AMP13-PLAN.md	open
+2026-10-30T19:06:39.785144+00:00	publication	Integrate on feat/amp13-local-workflow; PR base spike/issue-loop	User requests separate PR without prior branch changes; authorizes local testing	docs/tasks/AMP13-PLAN.md	branch created at 774f73d; publish after acceptance
+2026-10-30T20:23:31.641633+00:00	acceptance	Actual UI verified files, console output, git commits, references, child task/result, manual event delivery, mobile navigation	Verify observed behavior not worker PASS	docs/tasks/LOCAL-ACCEPTANCE-CHECKLIST.md	partial PASS
+2026-10-30T20:23:31.642148+00:00	correction	MCP/Skills scope changed to installation and actual Pi tool use	User corrected mistaken manual-panel interpretation	docs/tasks/AMP13-integrations.md	worker active
+2026-10-30T20:23:31.642151+00:00	integration	Blocked preview opaque-origin navigation and child cwd mismatch; added PTY and event polling completion	Combined UI revealed cross-feature gaps absent in isolated tests	docs/tasks/LOCAL-ACCEPTANCE-CHECKLIST.md	fix workers active
+2026-10-30T20:23:31.642152+00:00	tests	Current integrated snapshot backend435 pass1skip frontend206 pass typecheck/build	Regression gate before remaining merges	/tmp/amp13-backend-current.log	pass; rerun after merges

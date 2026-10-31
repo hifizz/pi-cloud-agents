@@ -9,6 +9,14 @@ import { ctx } from "./harness.mjs";
 /** Tools a read-only fork (REQ-F07) may keep, by name. */
 export const READ_ONLY_TOOLS = ["read", "web_search", "search_history"];
 
+/** Installed by the integrations service (src/integrations.mjs via setIntegrationsApplier): after a Bot's
+ * conversation is created for a workspace, the workspace's enabled integrations are applied to it. */
+let integrationsApplier;
+export function setIntegrationsApplier(fn) {
+  if (fn !== undefined && fn !== null && typeof fn !== "function") throw new TypeError("setIntegrationsApplier requires a function");
+  integrationsApplier = fn ?? undefined;
+}
+
 export class BotRegistry {
   /** @param {any} harness @param {{ path?: string|null }} [opts] path=null keeps the registry in memory */
   constructor(harness, opts = {}) {
@@ -60,7 +68,11 @@ export class BotRegistry {
    * and the detached worktree dir. It is not issueLoop metadata: a review session never gets a publish-task button.
    * `executionResult` (SPIKE-review-loop) is the human-reported result of an execution session: summary text, human
    * test notes (never an auto pass/fail) and a verified PR reference.
-   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object }} spec
+   * `delegation` (AMP13-delegation) is small metadata persisted on the Bot record for the delegation panel:
+   * on a PARENT session `{ tasks: [{id, task, state, childBotId?, branch?, dir?, error?, result?}], results: [...], depth }`,
+   * on a CHILD session `{ role: "child", parentBotId, taskId, depth }`. It records only relations and human-read
+   * results — never a business "done" state inferred from idle.
+   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object, delegation?: object }} spec
    */
   async createBot(spec) {
     if (!spec?.name) throw new Error("name is required");
@@ -86,19 +98,30 @@ export class BotRegistry {
       ...(spec.status ? { status: spec.status } : {}),
       ...(spec.review ? { review: { ...spec.review } } : {}),
       ...(spec.executionResult ? { executionResult: { ...spec.executionResult } } : {}),
+      ...(spec.delegation ? { delegation: { ...spec.delegation } } : {}),
       createdAt: new Date().toISOString(),
     };
     this.bots.push(bot);
     this.#save();
+    // New sessions inherit the workspace's enabled integrations (MCP tool extensions). Failure never
+    // blocks bot creation: the install records stay and a later enable/retry applies them.
+    if (spec.workspaceId && integrationsApplier) {
+      try {
+        await integrationsApplier({ bot, conversation: conv, workspaceId: spec.workspaceId });
+      } catch {
+        bot.integrationError = "Workspace integrations could not be applied to this Session. Re-enable the integration to retry.";
+        this.#save();
+      }
+    }
     return bot;
   }
 
-  /** Persist small record fields (status / executionResult). Only these keys are writable; undefined removes nothing.
+  /** Persist small record fields (status / executionResult / delegation). Only these keys are writable; undefined removes nothing.
    * Passing `null` deletes the key. Returns the updated record, or undefined when the Bot does not exist. */
   update(id, patch) {
     const bot = this.get(id);
     if (!bot) return undefined;
-    for (const key of ["status", "executionResult"]) {
+    for (const key of ["status", "executionResult", "delegation"]) {
       if (key in patch) {
         if (patch[key] === null) delete bot[key];
         else bot[key] = patch[key];

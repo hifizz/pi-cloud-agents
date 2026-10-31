@@ -9,6 +9,7 @@ import { Routines } from "./ext/routines.mjs";
 import { Approval } from "./ext/approval.mjs";
 import { Timing } from "./ext/timing.mjs";
 import { Exec } from "./ext/exec.mjs";
+import { Integrations } from "./ext/integrations.mjs";
 import { createWorkspaceEnv } from "./workspace-env.mjs";
 
 /**
@@ -17,7 +18,8 @@ import { createWorkspaceEnv } from "./workspace-env.mjs";
  */
 export async function productionExtensions() {
   // Timing after Approval: its beforeTool runs once a verdict exists, so approval wait is not counted.
-  return [Preamble, CodingTools, Exec, Search, History, Routines, Approval, Timing];
+  // Integrations before Approval: load_skill + workspace MCP tools all pass through approval review.
+  return [Preamble, CodingTools, Exec, Search, History, Routines, Integrations, Approval, Timing];
 }
 
 /** Production ExecutionEnv factory: read/write/edit run inside the conversation's workspace Sprite. */
@@ -33,5 +35,10 @@ export async function bootstrap(overrides = {}) {
   const { store, providers, ...rest } = overrides;
   const extensions = rest.extensions ?? (await productionExtensions());
   const env = rest.env ?? productionEnv({ store, providers });
-  return openHarness({ ...rest, extensions, env });
+  // settings.extensions is the base agent selection. Passing it explicitly matters for integrations:
+  // dynamically installed MCP extensions (registry.install after bootstrap) are then OPT-IN per
+  // conversation — the service adds them to the workspace's sessions via conv.configure — instead of
+  // silently applying to every conversation on the host.
+  const settings = { extensions, ...(rest.settings ?? {}) };
+  return openHarness({ ...rest, extensions, env, settings });
 }

@@ -83,8 +83,10 @@ export const DEFAULT_BASH_RULES = [
   { pattern: />\s*\/dev\/(?:sd|hd|vd|nvme)\w*/, reason: "write to a raw block device" },
 ];
 
-/** Tool names that need approval regardless of arguments. Strings may contain `*` wildcards. */
-export const DEFAULT_TOOL_NAMES = ["send_*", "deploy*", "git_push"];
+/** Tool names that need approval regardless of arguments. Strings may contain `*` wildcards.
+ * `mcp__*` covers every tool of every installed MCP integration: an external side effect is never
+ * auto-approved by matching on a tool-name danger regex (AMP13-integrations). */
+export const DEFAULT_TOOL_NAMES = ["send_*", "deploy*", "git_push", "mcp__*"];
 
 export const DEFAULT_RULES = { bash: DEFAULT_BASH_RULES, toolNames: DEFAULT_TOOL_NAMES };
 
