@@ -114,7 +114,9 @@ export function createLoopQueue({ store, runOne, abortRun, isRunSessionLive, res
         workspaceId: loop.workspaceId,
         triggerKind,
         triggerKey,
-        payload,
+        // Snapshot the loop's capabilities into the run payload at enqueue: the scoped tools and runner read
+        // THIS copy, so a later loop edit can never widen the permissions of an already-queued/running run.
+        payload: { ...(payload ?? {}), capabilities: loop.capabilities, repo: payload?.repo ?? undefined },
         entityRef,
       });
       if (created) pump();

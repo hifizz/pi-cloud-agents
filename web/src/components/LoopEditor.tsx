@@ -40,9 +40,13 @@ export function LoopEditor({ workspaceId, loopId, onSaved, onCancel }: LoopEdito
   const [tz, setTz] = useState("UTC");
   const [startAt, setStartAt] = useState("");
   const [days, setDays] = useState<number[]>([1]);
+  const [ghEvents, setGhEvents] = useState<string[]>(["opened"]);
+  const [ghFilterLabel, setGhFilterLabel] = useState("");
+  const [ghFilterBranch, setGhFilterBranch] = useState("");
   const [code, setCode] = useState<LoopCodeLevel>("read");
   const [web, setWeb] = useState(false);
   const [scopeToTrigger, setScopeToTrigger] = useState(true);
+  const [github, setGithub] = useState<LoopCapabilities["github"]>({ comment: false, label: false, openIssue: false, openPr: false });
   const [reasoning, setReasoning] = useState<LoopReasoning>("auto");
   const [saving, setSaving] = useState(false);
   const [rotating, setRotating] = useState(false);
@@ -77,6 +81,13 @@ export function LoopEditor({ workspaceId, loopId, onSaved, onCancel }: LoopEdito
         setCode(loop.capabilities.code);
         setWeb(loop.capabilities.web);
         setScopeToTrigger(loop.capabilities.scopeToTrigger);
+        setGithub(loop.capabilities.github);
+        const t = loop.trigger as { kind: LoopTriggerKind; events?: string[]; filters?: { label?: string; branch?: string } };
+        if (t.kind === "github_issue" || t.kind === "github_pr") {
+          setGhEvents(t.events?.length ? t.events : ["opened"]);
+          setGhFilterLabel(t.filters?.label ?? "");
+          setGhFilterBranch(t.filters?.branch ?? "");
+        }
         setReasoning(loop.reasoning);
       })
       .catch((e) => !dead && setError(describeError(e)));
@@ -95,8 +106,14 @@ export function LoopEditor({ workspaceId, loopId, onSaved, onCancel }: LoopEdito
         ? original : startAt ? Date.parse(startAt) : Date.now() + 60_000;
       return t as LoopInput["trigger"];
     }
+    if (kind === "github_issue" || kind === "github_pr") {
+      const filters: Record<string, string> = {};
+      if (ghFilterLabel.trim()) filters.label = ghFilterLabel.trim();
+      if (ghFilterBranch.trim()) filters.branch = ghFilterBranch.trim();
+      return { kind, events: ghEvents, ...(Object.keys(filters).length ? { filters } : {}) } as LoopInput["trigger"];
+    }
     return { kind };
-  }, [kind, freq, interval, tz, at, days, startAt, loaded]);
+  }, [kind, freq, interval, tz, at, days, startAt, loaded, ghEvents, ghFilterLabel, ghFilterBranch]);
 
   const ackSecret = () => {
     if (!pendingSave) return;
@@ -140,7 +157,7 @@ export function LoopEditor({ workspaceId, loopId, onSaved, onCancel }: LoopEdito
     if (saving) return;
     setSaving(true);
     setError(undefined);
-    const capabilities: Partial<LoopCapabilities> = { code, web, scopeToTrigger };
+    const capabilities: Partial<LoopCapabilities> = { code, web, scopeToTrigger, github };
     const input: LoopInput = { name, description: description || undefined, instructions, trigger: buildTrigger(), capabilities, reasoning };
     try {
       const out = loopId ? await loopsApi.update(loopId, input) : await loopsApi.create(workspaceId, input);
@@ -197,8 +214,50 @@ export function LoopEditor({ workspaceId, loopId, onSaved, onCancel }: LoopEdito
             <option value="manual">手动 Run now</option>
             <option value="schedule">定时</option>
             <option value="webhook">Webhook</option>
+            <option value="github_issue">GitHub Issue</option>
+            <option value="github_pr">GitHub PR</option>
           </select>
         </div>
+        {(kind === "github_issue" || kind === "github_pr") && (
+          <div className="space-y-2" data-testid="github-trigger">
+            <div>
+              <span className={labelCls}>事件（至少一个）</span>
+              <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="GitHub 事件">
+                {(kind === "github_issue"
+                  ? ["opened", "labeled", "closed", "assigned", "commented"]
+                  : ["opened", "ready_for_review", "labeled", "merged", "checks_failed", "checks_passed", "review_submitted", "push", "commented"]
+                ).map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    aria-pressed={ghEvents.includes(e)}
+                    onClick={() => setGhEvents((cur) => (cur.includes(e) ? cur.filter((x) => x !== e) : [...cur, e]))}
+                    className={`rounded-md border px-2 py-0.5 text-xs ${ghEvents.includes(e) ? "border-accent bg-accent/20 text-fg" : "border-line text-fg-muted hover:bg-hover"}`}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="loop-gh-label" className={labelCls}>
+                  Label 过滤（可选）
+                </label>
+                <input id="loop-gh-label" value={ghFilterLabel} onChange={(e) => setGhFilterLabel(e.target.value)} placeholder="bug" className={`mt-1 ${inputCls}`} />
+              </div>
+              <div>
+                <label htmlFor="loop-gh-branch" className={labelCls}>
+                  分支过滤（PR base，可选）
+                </label>
+                <input id="loop-gh-branch" value={ghFilterBranch} onChange={(e) => setGhFilterBranch(e.target.value)} placeholder="main" className={`mt-1 ${inputCls}`} />
+              </div>
+            </div>
+            <p className="text-xs text-fg-muted">
+              GitHub 事件经 Webhook（TARSBOT_GITHUB_WEBHOOK_SECRET）或轮询补齐；同一事件跨通道去重，条件类事件按“开始匹配”语义只触发一次。
+            </p>
+          </div>
+        )}
         {kind === "schedule" && (
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -320,6 +379,14 @@ export function LoopEditor({ workspaceId, loopId, onSaved, onCancel }: LoopEdito
           <input type="checkbox" checked={scopeToTrigger} onChange={(e) => setScopeToTrigger(e.target.checked)} className="size-3.5" />
           只允许修改触发它的对象（scopeToTrigger）
         </label>
+        <fieldset className="space-y-1" aria-label="GitHub 写权限">
+          <legend className={labelCls}>GitHub 写权限（每次调用仍需审批）</legend>
+          {([ ["comment", "评论"], ["label", "添加 label"], ["openIssue", "创建 Issue"], ["openPr", "推送本次分支并创建 PR"] ] as const).map(([key, label]) => (
+            <label key={key} className="flex gap-2 text-xs text-fg-dim">
+              <input type="checkbox" checked={github[key]} onChange={e => setGithub({ ...github, [key]: e.target.checked })} />{label}
+            </label>
+          ))}
+        </fieldset>
         <div>
           <label htmlFor="loop-reasoning" className={labelCls}>
             Reasoning level

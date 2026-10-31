@@ -217,3 +217,48 @@ describe("loops: delete with confirm", () => {
     expect(loopsApi.list).toHaveBeenCalledTimes(2); // reloaded
   });
 });
+
+describe("loops: github trigger editor", () => {
+  it("github_issue trigger builds events[] + filters", async () => {
+    const create = vi.spyOn(loopsApi, "create").mockResolvedValue({ loop: loop({ id: "Lg" }) });
+    render(<LoopEditor workspaceId="w1" onSaved={vi.fn()} onCancel={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText(/名称/), "issue-bot");
+    await userEvent.selectOptions(screen.getByTestId("trigger-kind"), "github_issue");
+    expect(screen.getByTestId("github-trigger")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "labeled" }));
+    await userEvent.type(screen.getByLabelText(/Label 过滤/), "bug");
+    await userEvent.type(screen.getByTestId("loop-instructions"), "triage it");
+    await userEvent.click(screen.getByTestId("loop-save"));
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    const input = create.mock.calls[0][1];
+    expect(input.trigger).toEqual({ kind: "github_issue", events: ["opened", "labeled"], filters: { label: "bug" } });
+  });
+});
+
+// Closeout: a loop run's executionResult renders REAL artifact content in EnvironmentPane (not a string check).
+describe("loop run artifact render", () => {
+  it("EnvironmentPane renders a loop-produced PR link from executionResult", async () => {
+    const { EnvironmentPane } = await import("../src/components/EnvironmentPane");
+    const ws = {
+      id: "w1", name: "w", repo: "o/r", baseBranch: "main", branch: "b", cwd: "/w",
+      status: "ready", binding: { provider: "sprites", runtimeId: "s", version: 1 },
+      installCommand: null, testCommand: null, createdAt: "", updatedAt: "",
+    } as unknown as import("../src/lib/workspaces").Workspace;
+    const bot = {
+      id: "b1", name: "run", status: "idle", conversationId: "c1", workspaceId: "w1",
+      model: { modelId: "m" },
+      loopRun: { loopId: "l", runId: "run_x", version: 1, dir: "/w/run", pinnedSha: "abc" },
+      executionResult: {
+        summary: "Loop run run_x opened PR #15",
+        testsReportedByHuman: null,
+        pull: { number: 15, title: "Loop PR #15", url: "https://github.com/o/r/pull/15" },
+        issue: 5, sourceBotId: "b1", reportedAt: "2026-10-30T00:00:00Z",
+      },
+    } as unknown as BotSummary;
+    render(<EnvironmentPane workspace={ws} bot={bot} vm={{ agent: { modelId: "m" } }} />);
+    const pr = screen.getByRole("link", { name: /#15/ });
+    expect(pr.getAttribute("href")).toBe("https://github.com/o/r/pull/15");
+    expect(screen.getByText(/Loop run run_x opened PR #15/)).toBeTruthy();
+    expect(screen.getByText("未记录")).toBeTruthy(); // automated artifact shows 未记录, never a fake human-test pass
+  });
+});

@@ -52,6 +52,21 @@ export function LoopRuns({ loop, onOpenSession, onBack }: LoopRunsProps) {
   };
 
   const positionOf = (run: LoopRun) => queue?.queued.find((q) => q.id === run.id)?.position;
+  const [publishing, setPublishing] = useState<string>();
+
+  const publish = async (run: LoopRun) => {
+    if (publishing) return;
+    setPublishing(run.id);
+    setError(undefined);
+    try {
+      const { execution } = await loopsApi.publishRun(run.id);
+      onOpenSession(execution.botId);
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setPublishing(undefined);
+    }
+  };
 
   const statusLabel = (run: LoopRun) => {
     if (run.status === "queued") return `排队中 #${positionOf(run) ?? "?"}`;
@@ -108,6 +123,27 @@ export function LoopRuns({ loop, onOpenSession, onBack }: LoopRunsProps) {
             </div>
             {run.error && <p className="mt-1 text-[11px] text-bad">{run.error}</p>}
             {run.branch && <p className="mt-0.5 font-mono text-[11px] text-fg-muted">{run.branch}</p>}
+            {(run.payload?.pr?.url || run.prNumber) && (
+              <p className="mt-0.5 text-[11px]">
+                <a href={run.payload?.pr?.url ?? "#"} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                  PR #{run.payload?.pr?.number ?? run.prNumber}
+                </a>
+              </p>
+            )}
+            {run.payload?.suggestedTask?.task && run.status === "succeeded" && (
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-[11px] text-fg-muted">建议任务：{run.payload.suggestedTask.task.slice(0, 80)}</span>
+                <button
+                  type="button"
+                  onClick={() => void publish(run)}
+                  disabled={publishing === run.id}
+                  className="rounded border border-accent px-1.5 py-0.5 text-[11px] text-accent hover:bg-accent/10 disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
+                  data-testid={`run-publish-${run.id}`}
+                >
+                  {publishing === run.id ? "发布中…" : "发布任务"}
+                </button>
+              </div>
+            )}
           </li>
         ))}
       </ul>

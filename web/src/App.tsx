@@ -140,10 +140,12 @@ function WorkspaceOverview({
   const executionsByIssue = useMemo(() => {
     const map = new Map<number, BotSummary[]>();
     for (const b of bots) {
-      if (b.workspaceId !== workspace.id || !b.issueLoop?.sourceBotId || !b.issueLoop.issue) continue;
-      const list = map.get(b.issueLoop.issue) ?? [];
+      if (b.workspaceId !== workspace.id) continue;
+      const issue = b.issueLoop?.sourceBotId ? b.issueLoop.issue : b.loopRun ? b.executionResult?.issue : undefined;
+      if (!issue) continue;
+      const list = map.get(issue) ?? [];
       list.push(b);
-      map.set(b.issueLoop.issue, list);
+      map.set(issue, list);
     }
     return map;
   }, [bots, workspace.id]);
@@ -318,6 +320,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   /** Session picked inside the selected workspace. undefined = the primary session; null = the workspace overview
    * (explicit state, so picking the workspace entry is never overridden by the primary-session fallback). */
   const [pickedBotId, setPickedBotId] = useState<string | null>();
+  // Deep link: ?loopRun=<botId-or-runId> picks the session that owns the run (PR bodies link here).
+  const [deepLinked, setDeepLinked] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState<string>();
   // Issue-loop publish-task form: open only on a discussion session; the human writes the task explicitly.
@@ -364,6 +368,15 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   }, [selectedWorkspaceId]);
 
   const workspace = useMemo(() => workspaces.find((w) => w.id === selectedWorkspaceId), [workspaces, selectedWorkspaceId]);
+  // Deep link ?loopRun=<id>: the run's session may be keyed by bot id OR loop_run id — resolve to a bot.
+  useEffect(() => {
+    if (deepLinked || !workspace || bots.length === 0) return;
+    const target = new URLSearchParams(globalThis.location.search).get("loopRun");
+    if (!target) { setDeepLinked(true); return; }
+    const hit = bots.find((b) => b.id === target || b.loopRun?.runId === target);
+    if (hit) setPickedBotId(hit.id);
+    setDeepLinked(true);
+  }, [deepLinked, workspace, bots]);
   // Opening the loops surface keeps the picked session but replaces the main pane.
   const loopsOpen = Boolean(workspace) && loopsView !== undefined;
   const botWorkspace = useMemo(() => mapBotsToWorkspaces(bots, workspaces), [bots, workspaces]);

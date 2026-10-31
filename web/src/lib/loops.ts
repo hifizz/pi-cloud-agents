@@ -65,7 +65,14 @@ export interface LoopRun {
   workspaceId: string;
   triggerKind: LoopTriggerKind;
   triggerKey: string;
-  payload?: unknown;
+  payload?: {
+    entity?: { kind?: string; number?: number; url?: string | null; title?: string } | null;
+    github?: { kind?: string; action?: string; state?: string | null; actor?: string | null; supplemented?: boolean } | null;
+    pr?: { number?: number; url?: string | null } | null;
+    suggestedTask?: { task: string; summary?: string } | null;
+    baseBranch?: string;
+    [k: string]: unknown;
+  } | null;
   entityRef?: string | null;
   botId?: string | null;
   branch?: string | null;
@@ -120,9 +127,9 @@ export function triggerLabel(trigger: LoopTrigger): string {
     case "webhook":
       return "Webhook";
     case "github_issue":
-      return `GitHub issue · ${String(trigger.event ?? "?")}`;
+      return `GitHub issue · ${(trigger.events as string[] | undefined)?.join("/") ?? String(trigger.event ?? "?")}`;
     case "github_pr":
-      return `GitHub PR · ${String(trigger.event ?? "?")}`;
+      return `GitHub PR · ${(trigger.events as string[] | undefined)?.join("/") ?? String(trigger.event ?? "?")}`;
     case "schedule": {
       const s = trigger as unknown as LoopScheduleSpec;
       const freq =
@@ -157,6 +164,13 @@ export const loopsApi = {
   runs: (id: string, limit = 50) => request<LoopRun[]>("GET", `/api/loops/${enc(id)}/runs?limit=${limit}`),
   versions: (id: string) => request<unknown[]>("GET", `/api/loops/${enc(id)}/versions`),
   cancelRun: (runId: string) => request<LoopRun>("POST", `/api/loop-runs/${enc(runId)}/cancel`, {}),
+  /** Draft → publish: confirm the run's suggested task (or a verbatim one) and start an execution session. */
+  publishRun: (runId: string, task?: string) =>
+    request<{ execution: { botId: string; name: string; conversationId: string; workspaceId: string; runId: string; branch: string; dir: string } }>(
+      "POST",
+      `/api/loop-runs/${enc(runId)}/publish`,
+      task ? { task } : {},
+    ),
   queue: () => request<LoopQueueView>("GET", "/api/loops/queue"),
   rotateSecret: (id: string) => request<{ webhookSecret: string }>("POST", `/api/loops/${enc(id)}/webhook/rotate`, {}),
 };

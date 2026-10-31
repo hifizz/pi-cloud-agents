@@ -95,6 +95,10 @@ export function createSpritesBash({
 
   let sprite;
 
+  /** Per-call environment: merged over the constructor's base env ({} values strip an injected key).
+   * `attempt` reads it via the outer `callEnv` captured before spawn — retries inherit the same override. */
+  let callEnv;
+
   /** One exec attempt. Resolves {kind: "done"|"timeout"|"early-error"|"late-error", ...}; never rejects. */
   function attempt(command, timeoutMs) {
     return new Promise((resolve) => {
@@ -129,7 +133,7 @@ export function createSpritesBash({
 
       try {
         sprite ??= client.sprite(name);
-        cmd = sprite.spawn("/bin/sh", argv(command), { env: execEnv, cwd });
+        cmd = sprite.spawn("/bin/sh", argv(command), { env: callEnv ?? execEnv, cwd });
       } catch (e) {
         finish({ kind: "early-error", error: e });
         return;
@@ -179,9 +183,23 @@ export function createSpritesBash({
     });
   }
 
-  return async function spritesBashRun(command, { timeoutMs } = {}) {
+  const spritesBashRun = async function spritesBashRun(command, { timeoutMs, env: perCallEnv } = {}) {
     if (typeof command !== "string") throw new TypeError("command must be a string");
-    const queryChars = execQueryLength(argv(command), execEnv, cwd);
+    // Per-call env overrides the constructor env key-by-key — an empty string value strips the injected key
+    // (loop sessions strip GH_TOKEN this way). Values are redacted from error text like the base env's.
+    const baseEnv = execEnv ?? {};
+    callEnv = undefined;
+    if (perCallEnv && typeof perCallEnv === "object") {
+      for (const [k, v] of Object.entries(perCallEnv)) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new TypeError(`invalid env name: ${k}`);
+        if (typeof v !== "string") throw new TypeError(`env ${k} must be a string`);
+      }
+      const merged = { ...baseEnv, ...perCallEnv };
+      callEnv = Object.keys(merged).length ? merged : undefined;
+      for (const v of Object.values(perCallEnv)) if (v) redactList.push(v);
+    }
+    const effectiveEnv = callEnv ?? execEnv;
+    const queryChars = execQueryLength(argv(command), effectiveEnv, cwd);
     if (queryChars > MAX_EXEC_QUERY_CHARS) {
       throw codedError(
         "SPRITES_COMMAND_TOO_LARGE",
@@ -235,4 +253,6 @@ export function createSpritesBash({
       }
     }
   };
+  spritesBashRun.supportsEnv = true; // per-call env override (runner client stages env via prepare/start)
+  return spritesBashRun;
 }

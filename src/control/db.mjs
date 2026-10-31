@@ -217,6 +217,18 @@ export const MIGRATIONS = [
     received_at TEXT NOT NULL
   );
   `,
+  // v3: produced-comment markers join deliveries with source 'tool' (self-feedback guard); recreate the
+  // table without the 2-value CHECK — existing rows carry over verbatim.
+  `
+  CREATE TABLE github_deliveries_new (
+    event_key   TEXT PRIMARY KEY,
+    source      TEXT NOT NULL,
+    received_at TEXT NOT NULL
+  );
+  INSERT INTO github_deliveries_new SELECT * FROM github_deliveries;
+  DROP TABLE github_deliveries;
+  ALTER TABLE github_deliveries_new RENAME TO github_deliveries;
+  `,
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

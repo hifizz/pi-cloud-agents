@@ -290,6 +290,9 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     /** 返回该工作区的关联记录数组 [{conversationId, workspaceId, botId, createdAt}]。 */
     conversationsOf: (workspaceId) =>
       q("SELECT * FROM conversation_links WHERE workspace_id = ? ORDER BY created_at, rowid").all(workspaceId).map(linkRow),
+    /** The link record of one conversation ({conversationId, workspaceId, botId}) — undefined when unlinked. */
+    ofConversation: (conversationId) =>
+      linkRow(q("SELECT * FROM conversation_links WHERE conversation_id = ?").get(String(conversationId))),
   };
 
   // ----------------------------------------------------------------- intents
@@ -577,6 +580,13 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     get: (id) => loopRow(q("SELECT * FROM loops WHERE id = ?").get(id)),
     listByWorkspace: (workspaceId) =>
       q("SELECT * FROM loops WHERE workspace_id = ? ORDER BY created_at, rowid").all(workspaceId).map(loopRow),
+    /** Every enabled loop whose trigger is a github_* kind — the ingestion fan-out candidate set. */
+    listEnabledGithub() {
+      return q("SELECT * FROM loops WHERE enabled = 1").all().map(loopRow).filter((l) => {
+        const k = l.trigger?.kind;
+        return k === "github_issue" || k === "github_pr";
+      });
+    },
     /** patch keys: name, description, instructions, trigger, conditions, capabilities, reasoning, enabled,
      *  owner, editPolicy, version, webhookSecretHash. undefined keys are ignored; null clears nullable fields. */
     update(id, patch = {}) {
@@ -715,6 +725,9 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
           if (key === "usage") {
             sets.push("usage = ?");
             values.push(toJson(value));
+          } else if (key === "payload") {
+            sets.push("payload = ?");
+            values.push(toJson(value));
           } else if (RUN_PATCH[key]) {
             sets.push(`${RUN_PATCH[key]} = ?`);
             values.push(value ?? null);
@@ -766,6 +779,54 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     },
   };
 
+  // ------------------------------------------------------------- loops phase 2
+  // Condition-match state: one row per (loop, entity); `matched` flips on the transition into/out of the
+  // condition set — the "starts matching" semantics. Deliveries table is the ingestion-level cross-channel
+  // dedup for GitHub events; per-loop dedup is loop_runs' UNIQUE(loop_id,trigger_key). The poll cursor
+  // persists the newest seen event id per workspace.
+  const loopMatchState = {
+    get(loopId, entityRef) {
+      const r = q("SELECT matched FROM loop_match_state WHERE loop_id = ? AND entity_ref = ?")
+        .get(loopId, entityRef);
+      return r ? r.matched === 1 : false;
+    },
+    set(loopId, entityRef, matched) {
+      q(
+        `INSERT INTO loop_match_state (loop_id, entity_ref, matched, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (loop_id, entity_ref) DO UPDATE SET matched = excluded.matched, updated_at = excluded.updated_at`,
+      ).run(loopId, entityRef, matched ? 1 : 0, iso());
+    },
+    clearLoop(loopId) {
+      q("DELETE FROM loop_match_state WHERE loop_id = ?").run(loopId);
+    },
+  };
+
+  const githubCursor = {
+    get(workspaceId) {
+      const r = q("SELECT last_event_id, polled_at FROM github_event_cursor WHERE workspace_id = ?").get(workspaceId);
+      return r ? { lastEventId: r.last_event_id, polledAt: r.polled_at } : undefined;
+    },
+    set(workspaceId, lastEventId) {
+      q(
+        `INSERT INTO github_event_cursor (workspace_id, last_event_id, polled_at) VALUES (?, ?, ?)
+         ON CONFLICT (workspace_id) DO UPDATE SET last_event_id = excluded.last_event_id, polled_at = excluded.polled_at`,
+      ).run(workspaceId, lastEventId, iso());
+    },
+  };
+
+  const githubDeliveries = {
+    /** Insert an ingestion record; false when the canonical event key was already ingested (either channel). */
+    mark(eventKey, source) {
+      const r = q(
+        "INSERT OR IGNORE INTO github_deliveries (event_key, source, received_at) VALUES (?, ?, ?)",
+      ).run(eventKey, source, iso());
+      return r.changes > 0;
+    },
+    seen(eventKey) {
+      return q("SELECT source FROM github_deliveries WHERE event_key = ?").get(eventKey)?.source;
+    },
+  };
+
   return {
     projects,
     workspaces,
@@ -780,6 +841,9 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     loops,
     loopVersions,
     loopRuns,
+    loopMatchState,
+    githubCursor,
+    githubDeliveries,
     close() {
       db.close();
     },

@@ -102,15 +102,33 @@ export function validateTrigger(trigger, { now = Date.now, allowStartAt } = {}) 
     }
     case "github_issue":
     case "github_pr": {
-      const events = kind === "github_issue" ? GITHUB_ISSUE_EVENTS : GITHUB_PR_EVENTS;
-      const event = trigger.event;
-      if (!events.includes(event)) fail(`${kind}.event must be one of: ${events.join(", ")}`);
+      const allowed = kind === "github_issue" ? GITHUB_ISSUE_EVENTS : GITHUB_PR_EVENTS;
+      // Accept either `events: ["opened", ...]` (spec shape) or the legacy single `event`. Normalized to `events`.
+      let events;
+      if (trigger.events !== undefined) {
+        if (!Array.isArray(trigger.events) || trigger.events.length === 0) fail(`${kind}.events must be a non-empty array`);
+        events = trigger.events.map((e) => {
+          if (!allowed.includes(e)) fail(`${kind}.events entry must be one of: ${allowed.join(", ")} (got ${e})`);
+          return e;
+        });
+        events = [...new Set(events)];
+      } else if (trigger.event !== undefined) {
+        if (!allowed.includes(trigger.event)) fail(`${kind}.event must be one of: ${allowed.join(", ")}`);
+        events = [trigger.event];
+      } else {
+        fail(`${kind}.events is required`);
+      }
       let filters;
       if (trigger.filters !== undefined) {
         if (!isObject(trigger.filters)) fail("trigger.filters must be an object");
-        filters = trigger.filters;
+        const f = trigger.filters;
+        filters = {
+          ...(f.branch !== undefined ? { branch: optStr(f.branch, 200) } : {}),
+          ...(f.label !== undefined ? { label: optStr(f.label, 100) } : {}),
+          ...(f.author !== undefined ? { author: optStr(f.author, 100) } : {}),
+        };
       }
-      return { kind, event, ...(filters ? { filters } : {}) };
+      return { kind, events, ...(filters && Object.keys(filters).length ? { filters } : {}) };
     }
   }
   fail(`unsupported trigger kind: ${kind}`);
