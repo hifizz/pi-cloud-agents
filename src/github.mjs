@@ -62,8 +62,13 @@ function normalizePull(raw) {
   };
 }
 
-/** One entry of the repo activity feed (GET /repos/{repo}/events), normalized to a small shape.
- * Only the kinds the events sync understands are mapped; everything else returns null. */
+/**
+ * One entry of the repo activity feed (GET /repos/{repo}/events), normalized to a small superset shape that serves
+ * BOTH consumers: the Issue13 workspace events sync (src/github-events.mjs — id/kind/action/number/title/url/
+ * actor/at/body/isPr) and the Issue14 Phase2 loop poller (loops/github-events.mjs normalizePollEvent — additionally
+ * labels, label, headSha, baseRef, entityUpdatedAt, commentId, reviewId). Feed entries lack check-suite data; the
+ * loop poll path supplements that with the Checks API for subscribed PRs. Unhandled event types return null.
+ */
 function normalizeEvent(raw) {
   const actor = raw?.actor?.login ?? null;
   const at = raw?.created_at ?? null;
@@ -71,7 +76,18 @@ function normalizeEvent(raw) {
   const base = { id: String(raw?.id ?? ""), actor, at };
   switch (raw?.type) {
     case "IssuesEvent":
-      return { ...base, kind: "issue", action: p.action ?? "opened", number: p.issue?.number ?? null, title: p.issue?.title ?? "", url: p.issue?.html_url ?? null, isPr: false };
+      return {
+        ...base,
+        kind: "issue",
+        action: p.action ?? "opened",
+        number: p.issue?.number ?? null,
+        title: p.issue?.title ?? "",
+        url: p.issue?.html_url ?? null,
+        labels: (p.issue?.labels ?? []).map((l) => l.name ?? l),
+        label: p.label?.name ?? null,
+        entityUpdatedAt: p.issue?.updated_at ?? null,
+        isPr: false,
+      };
     case "PullRequestEvent":
       return {
         ...base,
@@ -80,6 +96,11 @@ function normalizeEvent(raw) {
         number: p.pull_request?.number ?? null,
         title: p.pull_request?.title ?? "",
         url: p.pull_request?.html_url ?? null,
+        labels: (p.pull_request?.labels ?? []).map((l) => l.name ?? l),
+        label: p.label?.name ?? null,
+        headSha: p.pull_request?.head?.sha ?? null,
+        baseRef: p.pull_request?.base?.ref ?? null,
+        entityUpdatedAt: p.pull_request?.updated_at ?? null,
         isPr: true,
       };
     case "IssueCommentEvent":
@@ -91,6 +112,9 @@ function normalizeEvent(raw) {
         title: p.issue?.title ?? "",
         url: p.comment?.html_url ?? null,
         body: p.comment?.body ?? "",
+        commentId: p.comment?.id ?? null,
+        labels: (p.issue?.labels ?? []).map((l) => l.name ?? l),
+        entityUpdatedAt: p.issue?.updated_at ?? null,
         isPr: Boolean(p.issue?.pull_request),
       };
     case "PullRequestReviewEvent":
@@ -103,6 +127,9 @@ function normalizeEvent(raw) {
         title: p.pull_request?.title ?? "",
         url: p.review?.html_url ?? p.pull_request?.html_url ?? null,
         body: p.review?.body ?? "",
+        reviewId: p.review?.id ?? null,
+        baseRef: p.pull_request?.base?.ref ?? null,
+        entityUpdatedAt: p.pull_request?.updated_at ?? null,
         isPr: true,
       };
     case "PullRequestReviewCommentEvent":
@@ -114,6 +141,9 @@ function normalizeEvent(raw) {
         title: p.pull_request?.title ?? "",
         url: p.comment?.html_url ?? null,
         body: p.comment?.body ?? "",
+        commentId: p.comment?.id ?? null,
+        baseRef: p.pull_request?.base?.ref ?? null,
+        entityUpdatedAt: p.pull_request?.updated_at ?? null,
         isPr: true,
       };
     default:
@@ -432,7 +462,11 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
      * Includes the title (normalizePull is the older shape). */
     async listPulls(repo, { limit = 200 } = {}) {
       assertRepo(repo);
-      return paginate(`/repos/${repo}/pulls`, "state=open&sort=created&direction=desc&", limit, (p) => ({ ...normalizePull(p), title: p.title ?? "" }));
+      return paginate(`/repos/${repo}/pulls`, "state=open&sort=created&direction=desc&", limit, (p) => ({
+        ...normalizePull(p),
+        title: p.title ?? "",
+        headSha: p.head?.sha ?? null,
+      }));
     },
 
     /** Open PRs whose base is `base` branch (the pull request(s) tracking the selected baseline). */
@@ -442,15 +476,42 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
     },
 
     /** Repo activity events (GET /repos/{repo}/events), newest first. Only issues, PRs, comments and reviews are
-     * mapped — unhandled event types are dropped, so the result may be shorter than `limit`. Each entry:
-     * {id, kind: issue|pr|comment|review|review_comment, action, state?, number, title, url, actor, at, body?, isPr}. */
+     * mapped — unhandled event types are dropped, so the result may be shorter than `limit`. Each entry carries the
+     * Issue13 sync fields {id, kind: issue|pr|comment|review|review_comment, action, state?, number, title, url,
+     * actor, at, body?, isPr} PLUS the Phase2 loop-poll fields (labels?, label?, headSha?, baseRef?, commentId?,
+     * reviewId?, entityUpdatedAt?) — same canonical keys the webhook mapper emits so poll and webhook dedup alike. */
+
     async listEvents(repo, { limit = 300 } = {}) {
       assertRepo(repo);
       return paginate(`/repos/${repo}/events`, "", limit, normalizeEvent).then((list) => list.filter(Boolean));
     },
 
+    /** Issue timeline (GET /repos/{repo}/issues/{n}/timeline) — covers labeled/assigned/cross-referenced events the
+     * repo events feed drops. Normalized to the same loop event shape. */
+    async listIssueTimeline(repo, number, { limit = 100 } = {}) {
+      assertRepo(repo);
+      const n = Number(number);
+      if (!Number.isInteger(n) || n <= 0) throw new GithubError("not_found", `invalid issue number: ${String(number).slice(0, 40)}`);
+      return paginate(
+        `/repos/${repo}/issues/${n}/timeline`,
+        "",
+        limit,
+        (e) => ({
+          id: String(e.id ?? ""),
+          kind: "timeline",
+          event: e.event ?? "",
+          number: n,
+          actor: e.actor?.login ?? null,
+          at: e.created_at ?? null,
+          label: e.label?.name ?? null,
+          isPr: false,
+        }),
+      );
+    },
+
     /** Combined CI status of a commit (GET /repos/{repo}/commits/{sha}/status):
      * {state, sha, statuses: [{context, state, targetUrl}]} or null when the commit is unknown. */
+
     async getCommitStatus(repo, sha) {
       assertRepo(repo);
       const { data } = await request("GET", `/repos/${repo}/commits/${encodeRef(sha)}/status`, { allow404: true });
@@ -463,10 +524,11 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
     },
 
     /** Check runs of a commit (GET /repos/{repo}/commits/{sha}/check-runs). GitHub Actions reports here — NOT in the
-     * combined status endpoint — so real "PR checks" coverage needs this call.
+     * combined status endpoint — so real "PR checks" coverage needs this call (Issue13 sync AND loop poller).
      * {sha, state, total, runs: [{name, status, conclusion, url}]} or null when the commit is unknown.
      * `state` rollup: any in-progress run -> "pending"; else any failing conclusion -> "failure";
      * else "success"; "none" when there are no runs. */
+
     async getCheckRuns(repo, sha, { limit = 100 } = {}) {
       assertRepo(repo);
       const { data } = await request("GET", `/repos/${repo}/commits/${encodeRef(sha)}/check-runs`, { allow404: true });
@@ -484,6 +546,45 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
         else state = "success";
       }
       return { sha, state, total: data.total_count ?? runs.length, runs };
+    },
+
+    // ---- scoped write ops for the loop GitHub tools (server-side token; each call is one tool's single action) ----
+
+    /** POST /repos/{repo}/issues/{n}/comments — returns {id, url}. */
+    async createIssueComment(repo, number, body) {
+      assertRepo(repo);
+      const { data } = await request("POST", `/repos/${repo}/issues/${number}/comments`, { body: { body: String(body) } });
+      return { id: data?.id ?? null, url: data?.html_url ?? null };
+    },
+
+    /** POST /repos/{repo}/issues/{n}/labels — returns the applied label names. */
+    async addIssueLabels(repo, number, labels) {
+      assertRepo(repo);
+      const { data } = await request("POST", `/repos/${repo}/issues/${number}/labels`, { body: { labels } });
+      return (Array.isArray(data) ? data : []).map((l) => l.name);
+    },
+
+    /** POST /repos/{repo}/issues — returns {number, url}. */
+    async createIssue(repo, { title, body, labels } = {}) {
+      assertRepo(repo);
+      const { data } = await request("POST", `/repos/${repo}/issues`, {
+        body: { title: String(title ?? ""), body: String(body ?? ""), ...(labels ? { labels } : {}) },
+      });
+      return { number: data?.number ?? null, url: data?.html_url ?? null };
+    },
+
+    /** Reviews of a PR (GET /repos/{repo}/pulls/{n}/reviews). */
+    async listPullReviews(repo, number, { limit = 100 } = {}) {
+      assertRepo(repo);
+      const n = Number(number);
+      return paginate(`/repos/${repo}/pulls/${n}/reviews`, "", limit, (r) => ({
+        id: String(r.id ?? ""),
+        state: r.state ?? "",
+        author: r.user?.login ?? null,
+        at: r.submitted_at ?? null,
+        body: r.body ?? "",
+        url: r.html_url ?? null,
+      }));
     },
   };
   return gh;

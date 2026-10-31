@@ -147,8 +147,10 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   // never the workspace feature branch. PR review sessions (SPIKE-review-loop) are detached at the PR head SHA.
   const loop = bot?.issueLoop;
   const review = !loop ? bot?.review : undefined;
-  // A worktree of its own: an issue-loop session, a review session, or a session added by hand.
-  const own = loop ?? (review ? { dir: review.dir, pinnedSha: review.headSha, branch: undefined } : undefined) ?? (bot?.worktree ? { dir: bot.worktree.dir, pinnedSha: bot.worktree.pinnedSha, branch: bot.worktree.branch } : undefined);
+  // A worktree of its own: an issue-loop session, a review session, a session added by hand, or a Loop-run session
+  // (Issue14: loopRun carries its own dir/pinnedSha/branch — never fall back to the workspace cwd for it).
+  const loopRun = !loop && !review && bot?.loopRun?.dir ? bot.loopRun : undefined;
+  const own = loop ?? (review ? { dir: review.dir, pinnedSha: review.headSha, branch: undefined } : undefined) ?? (bot?.worktree ? { dir: bot.worktree.dir, pinnedSha: bot.worktree.pinnedSha, branch: bot.worktree.branch } : undefined) ?? (loopRun ? { dir: loopRun.dir!, pinnedSha: loopRun.pinnedSha, branch: loopRun.branch ?? undefined } : undefined);
   // An execution session (has a source discussion Bot) can report its result back to the source issue.
   const isExecution = Boolean(loop?.sourceBotId);
   const result = bot?.executionResult;
@@ -216,7 +218,7 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
 
       {/* SPIKE-review-loop: an execution session reports its human-written result; it feeds the source issue's
           overview card via the Bot record (aggregated by the parent from the session list). */}
-      {isExecution && bot && (
+      {bot && (isExecution || (bot.loopRun && result)) && (
         <section aria-label="执行结果" className="space-y-2">
           {result ? (
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-line bg-raised p-4 text-sm" data-testid="execution-result">

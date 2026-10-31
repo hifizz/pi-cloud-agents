@@ -35,6 +35,10 @@ import {
   type WorkspaceOverview,
 } from "./lib/workspaces";
 import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary, type ForkInput, type SessionStatus } from "./types";
+import { LoopsList } from "./components/LoopsList";
+import { LoopEditor } from "./components/LoopEditor";
+import { LoopRuns } from "./components/LoopRuns";
+import { loopsApi, type Loop } from "./lib/loops";
 
 /** Small publish-task form for an issue-loop discussion session. Empty input; the human writes the task explicitly. */
 function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; error?: string; onPublish: (task: string) => void; onCancel: () => void }) {
@@ -95,6 +99,7 @@ function WorkspaceOverview({
   onOpenIssue,
   onOpenSession,
   onReview,
+  onOpenLoops,
 }: {
   workspace: Workspace;
   railOpen: boolean;
@@ -107,6 +112,8 @@ function WorkspaceOverview({
   onOpenSession: (botId: string) => void;
   /** PR row Review action; resolves when the review session is created/reused and opened. */
   onReview: (wsId: string, pr: number) => Promise<void>;
+  /** Issue14: open the workspace's Loops surface. */
+  onOpenLoops: () => void;
 }) {
   const [data, setData] = useState<WorkspaceOverview>();
   const [err, setErr] = useState<string>();
@@ -135,10 +142,12 @@ function WorkspaceOverview({
   const executionsByIssue = useMemo(() => {
     const map = new Map<number, BotSummary[]>();
     for (const b of bots) {
-      if (b.workspaceId !== workspace.id || !b.issueLoop?.sourceBotId || !b.issueLoop.issue) continue;
-      const list = map.get(b.issueLoop.issue) ?? [];
+      if (b.workspaceId !== workspace.id) continue;
+      const issue = b.issueLoop?.sourceBotId ? b.issueLoop.issue : b.loopRun ? b.executionResult?.issue : undefined;
+      if (!issue) continue;
+      const list = map.get(issue) ?? [];
       list.push(b);
-      map.set(b.issueLoop.issue, list);
+      map.set(issue, list);
     }
     return map;
   }, [bots, workspace.id]);
@@ -204,6 +213,18 @@ function WorkspaceOverview({
             </p>
           )}
           {loading && !data && !err && <p className="text-sm text-fg-muted">加载中…</p>}
+
+          <section aria-label="Loops">
+            <button
+              type="button"
+              onClick={onOpenLoops}
+              className={`${row} font-medium`}
+              data-testid="open-loops"
+            >
+              <span className="min-w-0 flex-1">Loops（定时 / Webhook 自动运行）</span>
+              <span className="shrink-0 text-[11px] text-fg-muted">打开 →</span>
+            </button>
+          </section>
 
           {data && (
             <>
@@ -301,6 +322,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   /** Session picked inside the selected workspace. undefined = the primary session; null = the workspace overview
    * (explicit state, so picking the workspace entry is never overridden by the primary-session fallback). */
   const [pickedBotId, setPickedBotId] = useState<string | null>();
+  // Deep link: ?loopRun=<botId-or-runId> picks the session that owns the run (PR bodies link here).
+  const [deepLinked, setDeepLinked] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [error, setError] = useState<string>();
   // Issue-loop publish-task form: open only on a discussion session; the human writes the task explicitly.
@@ -308,6 +331,9 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const [publishBusy, setPublishBusy] = useState(false);
   const [publishError, setPublishError] = useState<string>();
   const approvals = useApprovals();
+  // Issue14: the Loops surface inside a workspace. list = the loops list, edit = editor, runs = run history.
+  const [loopsView, setLoopsView] = useState<{ mode: "list" | "edit" | "runs"; loopId?: string } | undefined>();
+  const [loopsViewLoop, setLoopsViewLoop] = useState<Loop>();
   const [forkAt, setForkAt] = useState<number | string>();
   const rail = useRailState();
   const panels = usePanelState(PANELS[0]?.id);
@@ -349,6 +375,17 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   }, [selectedWorkspaceId]);
 
   const workspace = useMemo(() => workspaces.find((w) => w.id === selectedWorkspaceId), [workspaces, selectedWorkspaceId]);
+  // Deep link ?loopRun=<id>: the run's session may be keyed by bot id OR loop_run id — resolve to a bot.
+  useEffect(() => {
+    if (deepLinked || !workspace || bots.length === 0) return;
+    const target = new URLSearchParams(globalThis.location.search).get("loopRun");
+    if (!target) { setDeepLinked(true); return; }
+    const hit = bots.find((b) => b.id === target || b.loopRun?.runId === target);
+    if (hit) setPickedBotId(hit.id);
+    setDeepLinked(true);
+  }, [deepLinked, workspace, bots]);
+  // Opening the loops surface keeps the picked session but replaces the main pane.
+  const loopsOpen = Boolean(workspace) && loopsView !== undefined;
   const botWorkspace = useMemo(() => mapBotsToWorkspaces(bots, workspaces), [bots, workspaces]);
 
   // AMP13-collaboration: a ?bot=<id> deep link selects that session's workspace once the lists arrive. An unknown
@@ -459,6 +496,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const selectWorkspace = (id: string) => {
     setSelectedWorkspaceId(id);
+    setLoopsView(undefined);
     // null = open the workspace overview, not the primary session.
     setPickedBotId(null);
     // AMP13-collaboration: on phones the rail is an overlay; dismiss it after picking so the content is visible.
@@ -471,6 +509,23 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     },
     [isNarrow, rail],
   );
+
+  // Issue14: resolve the loop being edited / whose runs are shown.
+  const openLoops = () => {
+    setLoopsView({ mode: "list" });
+    setPickedBotId(null);
+  };
+  useEffect(() => {
+    if (loopsView?.mode !== "runs" || !loopsView.loopId) return;
+    let dead = false;
+    loopsApi
+      .get(loopsView.loopId)
+      .then((l) => !dead && setLoopsViewLoop(l))
+      .catch(() => !dead && setLoopsViewLoop(undefined));
+    return () => {
+      dead = true;
+    };
+  }, [loopsView]);
 
   /** Click an issue row: reuse the existing discussion session when there is one, else POST the discuss flow and
    * open the session it created (same workspace, discussion only — executions never match server-side). */
@@ -600,7 +655,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const mainNode = (
     <>
-      {!overviewOpen && (
+      {!overviewOpen && !loopsOpen && (
         <SessionHeader
           bot={bot}
           vm={vm}
@@ -608,6 +663,10 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           workspace={workspace}
           bots={bots}
           onSelectBot={pickBot}
+          onOpenLoop={(loopId) => {
+            setPickedBotId(null);
+            setLoopsView({ mode: "runs", loopId });
+          }}
           railOpen={rail.open}
           panelOpen={panels.open}
           onExpandRail={rail.show}
@@ -621,8 +680,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         />
       )}
 
-      {!overviewOpen && <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />}
-      {!overviewOpen && otherPending > 0 && (
+      {!overviewOpen && !loopsOpen && <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />}
+      {!overviewOpen && !loopsOpen && otherPending > 0 && (
         <p className="border-b border-warn/30 bg-warn/10 px-4 py-1 text-xs text-warn">
           {otherPending} approval{otherPending === 1 ? "" : "s"} pending on other bots
         </p>
@@ -637,9 +696,57 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         </div>
       )}
 
-      {overviewOpen && workspace ? (
+      {loopsOpen && workspace ? (
+        <div className="flex min-h-0 flex-1 flex-col" data-testid="loops-pane">
+          {!rail.open && (
+            <div className="flex h-14 shrink-0 items-center border-b border-line px-4">
+              <button
+                type="button"
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+                onClick={rail.show}
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <Icon name="sidebar" className="size-4" />
+              </button>
+            </div>
+          )}
+          <div className="min-h-0 flex-1 overflow-y-auto p-6">
+            <div className="mx-auto max-w-2xl">
+              {loopsView?.mode === "list" && (
+                <LoopsList
+                  workspaceId={workspace.id}
+                  onEdit={(loopId) => setLoopsView({ mode: "edit", loopId })}
+                  onShowRuns={(loopId) => setLoopsView({ mode: "runs", loopId })}
+                />
+              )}
+              {loopsView?.mode === "edit" && (
+                <LoopEditor
+                  workspaceId={workspace.id}
+                  loopId={loopsView.loopId}
+                  onSaved={(loop) => {
+                    setLoopsView({ mode: "runs", loopId: loop.id });
+                    void refresh();
+                  }}
+                  onCancel={() => setLoopsView({ mode: "list" })}
+                />
+              )}
+              {loopsView?.mode === "runs" && loopsViewLoop && (
+                <LoopRuns
+                  loop={loopsViewLoop}
+                  onOpenSession={(botId) => {
+                    setLoopsView(undefined);
+                    setPickedBotId(botId);
+                  }}
+                  onBack={() => setLoopsView({ mode: "list" })}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : overviewOpen && workspace ? (
         // Keyed by workspace.id: switching workspaces remounts it, so stale rows of the previous repo can't linger.
-        <WorkspaceOverview key={workspace.id} workspace={workspace} railOpen={rail.open} bots={bots} onExpandRail={rail.show} onOpenIssue={onOpenIssue} onOpenSession={pickBot} onReview={onReview} />
+        <WorkspaceOverview key={workspace.id} workspace={workspace} railOpen={rail.open} bots={bots} onExpandRail={rail.show} onOpenIssue={onOpenIssue} onOpenSession={pickBot} onReview={onReview} onOpenLoops={openLoops} />
       ) : bot ? (
         <>
           <MessageList
@@ -706,13 +813,14 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     <WorkspaceContext.Provider value={workspaceCtx}>
       <WorkspaceShell
         railOpen={rail.open}
-        panelOpen={panels.open && !overviewOpen}
+        panelOpen={panels.open && !overviewOpen && !loopsOpen}
         rail={railNode}
         main={mainNode}
         onCloseRail={rail.close}
         panel={
-          // The right session panel belongs to a session; it stays closed while the workspace overview is open.
-          !overviewOpen && (
+          // The right session panel belongs to a session; it stays closed while the workspace overview or the
+          // Loops surface is open.
+          !overviewOpen && !loopsOpen && (
             <PanelHost
               panels={PANELS}
               active={panels.active}

@@ -83,6 +83,21 @@ export interface BotSummary {
     tasks?: unknown[];
     results?: unknown[];
   };
+  /** Issue14: this Session was created by a Loop run (UI backlink "来自 Loop"). Carries the run's own worktree so
+   *  Files/Git/Header never fall back to the workspace cwd, plus the capability level integrations must keep. */
+  loopRun?: {
+    loopId: string;
+    runId: string;
+    version: number;
+    /** The run's worktree directory (empty-dir runs: a stable non-repo dir). */
+    dir?: string;
+    /** Pinned baseline commit the worktree was taken from. */
+    pinnedSha?: string;
+    /** Own branch (code=readwrite runs), else detached HEAD. */
+    branch?: string | null;
+    /** Capability level this session was created under (scoped panels/integrations read the restriction here). */
+    capabilities?: { code: "none" | "read" | "readwrite"; web: boolean };
+  };
 }
 
 export interface ForkInput {

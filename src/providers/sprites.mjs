@@ -102,7 +102,7 @@ export function createSpritesProvider({
   }
 
   const bashCache = new Map();
-  function bash(runtimeId) {
+  function bash(runtimeId, opts) {
     if (typeof runtimeId !== "string" || !runtimeId) throw new TypeError("runtimeId required");
     let b = bashCache.get(runtimeId);
     if (!b) {
@@ -114,6 +114,16 @@ export function createSpritesProvider({
         log: (e) => note({ op: "bash", ...e }),
       });
       bashCache.set(runtimeId, b);
+    }
+    // Per-call env overlay (Issue14 Phase2): e.g. {GH_TOKEN: ""} strips the injected token for loop sessions.
+    // The wrapper stays env-capable and merges the caller's own env over the overlay (overlay wins on conflict
+    // only when the caller left the key unset — an explicit caller env value always passes through).
+    const overlay = opts?.env;
+    if (overlay && typeof overlay === "object" && Object.keys(overlay).length) {
+      const wrapped = (command, o) =>
+        b(command, { ...(o ?? {}), env: { ...overlay, ...(o?.env ?? {}) } });
+      wrapped.supportsEnv = b.supportsEnv === true;
+      return wrapped;
     }
     return b;
   }

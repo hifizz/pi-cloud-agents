@@ -450,6 +450,13 @@ export function createIntegrationsService(opts) {
             if (!ws || ws.id !== rec.workspaceId) {
               throw new Error(`MCP integration "${install.name}" is not installed for this conversation's workspace`);
             }
+            // Cross-feature boundary (Issue14): even if a restricted loop session somehow got this tool
+            // configured, execution refuses it — integrations never widen a run's capability snapshot.
+            const link = control.links.ofConversation?.(String(api.conversationId));
+            const sessionBot = link?.botId ? opts.bots?.get?.(link.botId) : undefined;
+            if (sessionBot?.readOnly || sessionBot?.loopRun?.runId) {
+              throw new Error(`MCP integration "${install.name}" is not available in a capability-restricted loop session`);
+            }
             const headers = {};
             if (rec.tokenEnv) {
               const token = env[rec.tokenEnv];
@@ -515,7 +522,9 @@ export function createIntegrationsService(opts) {
     const wanted = new Set(publishedFor(workspaceId).map((i) => mcpExtensionName(i.id)));
     for (const link of links) {
       const bot = link.botId ? reg.get(link.botId) : reg.list().find((b) => String(b.conversationId) === link.conversationId);
-      if (!bot || bot.readOnly) continue; // a read-only fork keeps its narrowed tool set — never widened
+      // A read-only fork keeps its narrowed tool set; a Loop-run session is capability-restricted and must never
+      // receive workspace MCP tools — both are skipped, never widened.
+      if (!bot || bot.readOnly || bot.loopRun?.runId) continue;
       let conv;
       try {
         conv = await reg.conversation(bot.id);
@@ -564,6 +573,9 @@ export function createIntegrationsService(opts) {
   async function applyToBot({ bot, conversation }) {
     const wsId = bot?.workspaceId;
     if (!wsId) return;
+    // Loop-run sessions are capability-restricted: workspace integrations (MCP tools especially) must never
+    // widen a run's session beyond its loopRun.capabilities snapshot.
+    if (bot.loopRun?.runId) return;
     const wanted = publishedFor(wsId);
     if (wanted.length === 0) return;
     const agent = await conversation.agent(ctx0());
@@ -588,7 +600,8 @@ export function createIntegrationsService(opts) {
     const links = control.links.conversationsOf(workspaceId);
     for (const link of links) {
       const bot = link.botId ? bots.get(link.botId) : bots.list().find((b) => String(b.conversationId) === link.conversationId);
-      if (!bot || bot.readOnly) continue; // a read-only fork keeps its narrowed tool set — never widened
+      // Same skip rule as configureWorkspaceSessions: read-only forks and loop-run sessions are never widened.
+      if (!bot || bot.readOnly || bot.loopRun?.runId) continue;
       let conv;
       try {
         conv = await bots.conversation(bot.id);

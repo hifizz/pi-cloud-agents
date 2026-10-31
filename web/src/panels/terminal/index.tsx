@@ -908,6 +908,7 @@ function ConsoleView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
 const Component = ({ bot }: PanelContext) => {
   const [mode, setMode] = useState<"pty" | "console">("pty");
   if (!bot) return <div className="p-4 text-sm text-zinc-500">Select a session to open its terminal.</div>;
+  if (bot.readOnly || bot.loopRun) return <p className="p-4 text-sm text-fg-muted">受限 Session 不提供人工 Shell，以免绕过运行权限。请在工作区新建普通 Session 使用终端。</p>;
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-1 border-b border-zinc-800 px-2 pt-1.5 text-[12px]">

@@ -348,6 +348,10 @@ export function EventsPanel({ bots }: PanelContext) {
                             </option>
                           ))}
                         </select>
+                        <button type="button" className={btn} disabled={busy || !eventTargetKey(ev)}
+                          onClick={() => void run(() => eventsApi.subscribe(workspace.id, { target: eventTargetKey(ev)!, botId: sendTarget[k] ?? defaultTarget(ev) }))}>
+                          订阅后续事件
+                        </button>
                         <button
                           type="button"
                           className={btn}

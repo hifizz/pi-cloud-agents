@@ -25,6 +25,8 @@ import { rebuildWorkspace, register as registerRebuildRoute } from "./workspace-
 import { createRunnerCache } from "./runner/attempt.mjs";
 import { createRunnerClient } from "./runner/client.mjs";
 import { setExecResolver } from "./ext/exec.mjs";
+import { createLoops } from "./loops/index.mjs";
+import { authSettings } from "./auth.mjs";
 
 /** Dynamically import every src/routes/*.mjs (each exports register(app)). */
 export async function loadRoutes(dir = join(ROOT, "src", "routes")) {
@@ -125,7 +127,18 @@ export async function assemble({
     if (!binding) return undefined;
     const provider = Object.hasOwn(providers, binding.provider) ? providers[binding.provider] : undefined;
     if (!provider) return undefined;
-    return { store, runner: runnerFor(binding.runtimeId), workspace, binding };
+    // Issue14 Phase2: loop-run sessions exec bash WITHOUT the injected GH_TOKEN. The env value is injected at
+    // `start` through the supportsEnv bash primitive (prepare stages NAMES only) — the token never appears in
+    // argv, files, or the session's shell environment. Loop GitHub writes go exclusively through the scoped
+    // send_github_* tools (server-side token).
+    const link = store.links.ofConversation(String(conversationId));
+    const bot = link?.botId ? bots.get(link.botId) : undefined;
+    const isLoop = Boolean(bot?.loopRun?.runId);
+    const runner = isLoop
+      ? createRunnerClient({ bash: provider.bash(binding.runtimeId, { env: { GH_TOKEN: "" } }) })
+      : runnerFor(binding.runtimeId);
+    const execEnv = isLoop ? { GH_TOKEN: "" } : undefined;
+    return { store, runner, workspace, binding, ...(execEnv ? { execEnv } : {}) };
   });
 
   const workspaces = createWorkspaceService({ store, github, providers, bots, ctx, runnerFor, secrets: redactList, ...serviceOptions });
@@ -160,7 +173,26 @@ export async function assemble({
     if (typeof provider?.pty !== "function") throw new Error(`provider ${binding.provider} has no interactive sessions`);
     return provider.pty(binding.runtimeId);
   };
-  const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash, ptySession, integrations };
+
+  // Loops (Issue14 Phase1): queue + runner + scheduler. Restore AFTER the harness resumes so the runner's
+  // restart probes read a live picture (sessions resuming under pi-durable look busy), and schedule ticks can fire.
+  const loops =
+    serviceOptions.loops === false
+      ? undefined
+      : createLoops({
+          store,
+          bots,
+          github,
+          runtimeBash,
+          harness,
+          maxConcurrent: config.loopsMaxConcurrent,
+          githubPollSec: config.loopsGithubPollSec,
+          publicUrl: authSettings().publicUrl,
+          log: (m) => console.error(m),
+        });
+  if (loops) await loops.restore();
+
+  const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash, ptySession, integrations, loops };
 
   let closed = false;
   async function close() {

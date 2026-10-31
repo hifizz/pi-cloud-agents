@@ -3,6 +3,10 @@
 import { randomBytes } from "node:crypto";
 import { openControlDb, STEPS } from "./db.mjs";
 
+/** loop_runs terminal statuses: a run in one of these never transitions again (B1 fix: canceled/failed/succeeded
+ *  must not be revived by a late in-flight write). */
+const RUN_TERMINAL = new Set(["succeeded", "failed", "canceled", "skipped"]);
+
 export class ControlStoreError extends Error {
   /** @param {"conflict"|"not_found"|"invalid"} code */
   constructor(code, message) {
@@ -286,6 +290,9 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     /** 返回该工作区的关联记录数组 [{conversationId, workspaceId, botId, createdAt}]。 */
     conversationsOf: (workspaceId) =>
       q("SELECT * FROM conversation_links WHERE workspace_id = ? ORDER BY created_at, rowid").all(workspaceId).map(linkRow),
+    /** The link record of one conversation ({conversationId, workspaceId, botId}) — undefined when unlinked. */
+    ofConversation: (conversationId) =>
+      linkRow(q("SELECT * FROM conversation_links WHERE conversation_id = ?").get(String(conversationId))),
   };
 
   // ----------------------------------------------------------------- intents
@@ -502,6 +509,324 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     },
   };
 
+  // ------------------------------------------------------------------- loops
+  // Loop definitions, version snapshots and the run queue (Issue14 Phase1).
+  // Higher-level validation (name length, trigger/capabilities schema) lives in src/loops/store.mjs;
+  // here only persistence primitives.
+  const loopRow = (r) =>
+    r && {
+      id: r.id,
+      workspaceId: r.workspace_id,
+      name: r.name,
+      description: r.description ?? null,
+      instructions: r.instructions,
+      trigger: fromJson(r.trigger),
+      conditions: fromJson(r.conditions),
+      capabilities: fromJson(r.capabilities),
+      reasoning: r.reasoning,
+      enabled: r.enabled === 1,
+      owner: r.owner ?? null,
+      editPolicy: r.edit_policy,
+      version: r.version,
+      webhookSecretHash: r.webhook_secret_hash ?? null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+
+  const LOOP_COLUMNS = {
+    name: "name",
+    description: "description",
+    instructions: "instructions",
+    reasoning: "reasoning",
+    owner: "owner",
+    editPolicy: "edit_policy",
+    version: "version",
+    webhookSecretHash: "webhook_secret_hash",
+  };
+
+  const loops = {
+    create(spec) {
+      must(typeof spec?.workspaceId === "string" && spec.workspaceId, "invalid", "workspaceId 必填");
+      must(typeof spec?.name === "string" && spec.name, "invalid", "name 必填");
+      must(typeof spec?.instructions === "string" && spec.instructions, "invalid", "instructions 必填");
+      must(spec?.trigger !== undefined && spec.trigger !== null, "invalid", "trigger 必填");
+      return tx(() => {
+        must(workspaces.get(spec.workspaceId), "not_found", `工作区不存在：${spec.workspaceId}`);
+        const id = newId("loop");
+        const t = iso();
+        q(
+          `INSERT INTO loops (id, workspace_id, name, description, instructions, trigger, conditions, capabilities, reasoning, enabled, owner, edit_policy, version, webhook_secret_hash, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+        ).run(
+          id,
+          spec.workspaceId,
+          spec.name,
+          spec.description ?? null,
+          spec.instructions,
+          toJson(spec.trigger),
+          toJson(spec.conditions),
+          toJson(spec.capabilities ?? {}),
+          spec.reasoning ?? "auto",
+          spec.enabled === false ? 0 : 1,
+          spec.owner ?? null,
+          spec.editPolicy ?? "members",
+          spec.webhookSecretHash ?? null,
+          t,
+          t,
+        );
+        return loops.get(id);
+      });
+    },
+    get: (id) => loopRow(q("SELECT * FROM loops WHERE id = ?").get(id)),
+    listByWorkspace: (workspaceId) =>
+      q("SELECT * FROM loops WHERE workspace_id = ? ORDER BY created_at, rowid").all(workspaceId).map(loopRow),
+    /** Every enabled loop whose trigger is a github_* kind — the ingestion fan-out candidate set. */
+    listEnabledGithub() {
+      return q("SELECT * FROM loops WHERE enabled = 1").all().map(loopRow).filter((l) => {
+        const k = l.trigger?.kind;
+        return k === "github_issue" || k === "github_pr";
+      });
+    },
+    /** patch keys: name, description, instructions, trigger, conditions, capabilities, reasoning, enabled,
+     *  owner, editPolicy, version, webhookSecretHash. undefined keys are ignored; null clears nullable fields. */
+    update(id, patch = {}) {
+      return tx(() => {
+        must(loops.get(id), "not_found", `loop 不存在：${id}`);
+        const sets = [];
+        const values = [];
+        for (const [key, value] of Object.entries(patch)) {
+          if (value === undefined) continue;
+          if (key === "trigger" || key === "conditions" || key === "capabilities") {
+            sets.push(`${key} = ?`);
+            values.push(toJson(value));
+          } else if (key === "enabled") {
+            sets.push("enabled = ?");
+            values.push(value ? 1 : 0);
+          } else if (LOOP_COLUMNS[key]) {
+            sets.push(`${LOOP_COLUMNS[key]} = ?`);
+            values.push(value ?? null);
+          } else {
+            throw new ControlStoreError("invalid", `不可更新的 loop 字段：${key}`);
+          }
+        }
+        if (!sets.length) return loops.get(id);
+        sets.push("updated_at = ?");
+        values.push(iso(), id);
+        q(`UPDATE loops SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+        return loops.get(id);
+      });
+    },
+    remove(id) {
+      const res = q("DELETE FROM loops WHERE id = ?").run(id);
+      return Number(res.changes) > 0;
+    },
+  };
+
+  const loopVersionRow = (r) =>
+    r && {
+      loopId: r.loop_id,
+      version: r.version,
+      snapshot: fromJson(r.snapshot),
+      publishedAt: r.published_at,
+      publishedBy: r.published_by ?? null,
+    };
+
+  const loopVersions = {
+    add(loopId, version, snapshot, { publishedBy } = {}) {
+      q("INSERT INTO loop_versions (loop_id, version, snapshot, published_at, published_by) VALUES (?, ?, ?, ?, ?)").run(
+        loopId,
+        version,
+        toJson(snapshot),
+        iso(),
+        publishedBy ?? null,
+      );
+      return loopVersions.get(loopId, version);
+    },
+    get: (loopId, version) =>
+      loopVersionRow(q("SELECT * FROM loop_versions WHERE loop_id = ? AND version = ?").get(loopId, version)),
+    list: (loopId) =>
+      q("SELECT * FROM loop_versions WHERE loop_id = ? ORDER BY version").all(loopId).map(loopVersionRow),
+  };
+
+  const runRow = (r) =>
+    r && {
+      id: r.id,
+      loopId: r.loop_id ?? null,
+      loopVersion: r.loop_version ?? null,
+      workspaceId: r.workspace_id,
+      triggerKind: r.trigger_kind,
+      triggerKey: r.trigger_key,
+      payload: fromJson(r.payload),
+      entityRef: r.entity_ref ?? null,
+      botId: r.bot_id ?? null,
+      branch: r.branch ?? null,
+      prNumber: r.pr_number ?? null,
+      status: r.status,
+      error: r.error ?? null,
+      enqueuedAt: r.enqueued_at,
+      startedAt: r.started_at ?? null,
+      endedAt: r.ended_at ?? null,
+      usage: fromJson(r.usage),
+    };
+
+  const RUN_PATCH = {
+    status: "status",
+    error: "error",
+    botId: "bot_id",
+    branch: "branch",
+    prNumber: "pr_number",
+    startedAt: "started_at",
+    endedAt: "ended_at",
+    entityRef: "entity_ref",
+  };
+
+  const loopRuns = {
+    /** Insert a queued run. Returns {run, created:false} when (loop_id, trigger_key) already exists. */
+    enqueue({ loopId, loopVersion, workspaceId, triggerKind, triggerKey, payload, entityRef, status = "queued" }) {
+      must(typeof triggerKind === "string" && triggerKind, "invalid", "triggerKind 必填");
+      must(typeof triggerKey === "string" && triggerKey, "invalid", "triggerKey 必填");
+      return tx(() => {
+        const existing = q("SELECT * FROM loop_runs WHERE loop_id IS ? AND trigger_key = ?").get(loopId ?? null, triggerKey);
+        if (existing) return { run: runRow(existing), created: false };
+        const id = newId("run");
+        q(
+          `INSERT INTO loop_runs (id, loop_id, loop_version, workspace_id, trigger_kind, trigger_key, payload, entity_ref, status, enqueued_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          id,
+          loopId ?? null,
+          loopVersion ?? null,
+          workspaceId,
+          triggerKind,
+          triggerKey,
+          toJson(payload),
+          entityRef ?? null,
+          status,
+          iso(),
+        );
+        return { run: loopRuns.get(id), created: true };
+      });
+    },
+    get: (id) => runRow(q("SELECT * FROM loop_runs WHERE id = ?").get(id)),
+    /** patch keys: status, error, botId, branch, prNumber, startedAt, endedAt, entityRef, usage.
+     * Status is one-way: once terminal (succeeded/failed/canceled/skipped) it cannot change — a late write from an
+     * in-flight execution that lost its slot never resurrects the row. Non-status fields stay writable (audit data
+     * such as an orphan botId may still be recorded). */
+    update(id, patch = {}) {
+      return tx(() => {
+        const existing = loopRuns.get(id);
+        must(existing, "not_found", `run 不存在：${id}`);
+        if (patch.status !== undefined && RUN_TERMINAL.has(existing.status) && patch.status !== existing.status) {
+          throw new ControlStoreError("invalid", `run 已终结（${existing.status}），不可再变更状态`);
+        }
+        const sets = [];
+        const values = [];
+        for (const [key, value] of Object.entries(patch)) {
+          if (key === "usage") {
+            sets.push("usage = ?");
+            values.push(toJson(value));
+          } else if (key === "payload") {
+            sets.push("payload = ?");
+            values.push(toJson(value));
+          } else if (RUN_PATCH[key]) {
+            sets.push(`${RUN_PATCH[key]} = ?`);
+            values.push(value ?? null);
+          } else {
+            throw new ControlStoreError("invalid", `不可更新的 run 字段：${key}`);
+          }
+        }
+        if (!sets.length) return loopRuns.get(id);
+        values.push(id);
+        q(`UPDATE loop_runs SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+        return loopRuns.get(id);
+      });
+    },
+    listByLoop(loopId, { limit = 50 } = {}) {
+      return q("SELECT * FROM loop_runs WHERE loop_id = ? ORDER BY enqueued_at DESC, rowid DESC LIMIT ?")
+        .all(loopId, limit)
+        .map(runRow);
+    },
+    /** All runs holding a queue slot or waiting in line: queued FIFO order first class. */
+    listActive() {
+      return q(
+        `SELECT * FROM loop_runs WHERE status IN ('queued','starting','running','needs_approval') ORDER BY enqueued_at, rowid`,
+      )
+        .all()
+        .map(runRow);
+    },
+    /** Oldest queued run, or undefined. */
+    nextQueued() {
+      return runRow(
+        q("SELECT * FROM loop_runs WHERE status = 'queued' ORDER BY enqueued_at, rowid LIMIT 1").get(),
+      );
+    },
+    /** Runs holding a concurrency slot (everything active that is not queued). */
+    listOccupying() {
+      return q("SELECT * FROM loop_runs WHERE status IN ('starting','running','needs_approval')")
+        .all()
+        .map(runRow);
+    },
+    countOccupying() {
+      return q("SELECT COUNT(*) AS n FROM loop_runs WHERE status IN ('starting','running','needs_approval')").get().n;
+    },
+    /** Queued runs in FIFO order with 1-based positions. */
+    listQueued() {
+      return q("SELECT * FROM loop_runs WHERE status = 'queued' ORDER BY enqueued_at, rowid").all().map(runRow);
+    },
+    /** The newest run of a loop (for list summaries), undefined when none. */
+    latestOf(loopId) {
+      return runRow(q("SELECT * FROM loop_runs WHERE loop_id = ? ORDER BY enqueued_at DESC, rowid DESC LIMIT 1").get(loopId));
+    },
+  };
+
+  // ------------------------------------------------------------- loops phase 2
+  // Condition-match state: one row per (loop, entity); `matched` flips on the transition into/out of the
+  // condition set — the "starts matching" semantics. Deliveries table is the ingestion-level cross-channel
+  // dedup for GitHub events; per-loop dedup is loop_runs' UNIQUE(loop_id,trigger_key). The poll cursor
+  // persists the newest seen event id per workspace.
+  const loopMatchState = {
+    get(loopId, entityRef) {
+      const r = q("SELECT matched FROM loop_match_state WHERE loop_id = ? AND entity_ref = ?")
+        .get(loopId, entityRef);
+      return r ? r.matched === 1 : false;
+    },
+    set(loopId, entityRef, matched) {
+      q(
+        `INSERT INTO loop_match_state (loop_id, entity_ref, matched, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (loop_id, entity_ref) DO UPDATE SET matched = excluded.matched, updated_at = excluded.updated_at`,
+      ).run(loopId, entityRef, matched ? 1 : 0, iso());
+    },
+    clearLoop(loopId) {
+      q("DELETE FROM loop_match_state WHERE loop_id = ?").run(loopId);
+    },
+  };
+
+  const githubCursor = {
+    get(workspaceId) {
+      const r = q("SELECT last_event_id, polled_at FROM github_event_cursor WHERE workspace_id = ?").get(workspaceId);
+      return r ? { lastEventId: r.last_event_id, polledAt: r.polled_at } : undefined;
+    },
+    set(workspaceId, lastEventId) {
+      q(
+        `INSERT INTO github_event_cursor (workspace_id, last_event_id, polled_at) VALUES (?, ?, ?)
+         ON CONFLICT (workspace_id) DO UPDATE SET last_event_id = excluded.last_event_id, polled_at = excluded.polled_at`,
+      ).run(workspaceId, lastEventId, iso());
+    },
+  };
+
+  const githubDeliveries = {
+    /** Insert an ingestion record; false when the canonical event key was already ingested (either channel). */
+    mark(eventKey, source) {
+      const r = q(
+        "INSERT OR IGNORE INTO github_deliveries (event_key, source, received_at) VALUES (?, ?, ?)",
+      ).run(eventKey, source, iso());
+      return r.changes > 0;
+    },
+    seen(eventKey) {
+      return q("SELECT source FROM github_deliveries WHERE event_key = ?").get(eventKey)?.source;
+    },
+  };
+
   return {
     projects,
     workspaces,
@@ -513,6 +838,12 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     executions,
     requests,
     checkpoints,
+    loops,
+    loopVersions,
+    loopRuns,
+    loopMatchState,
+    githubCursor,
+    githubDeliveries,
     close() {
       db.close();
     },

@@ -218,7 +218,7 @@ function FilesView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
           type="button"
           className="rounded px-1.5 py-0.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
           onClick={() => fileInput.current?.click()}
-          disabled={uploading || !list}
+          disabled={uploading || !list || bot.readOnly || Boolean(bot.loopRun && bot.loopRun.capabilities?.code !== "readwrite")}
           aria-label="Upload file"
           title="Upload file"
         >

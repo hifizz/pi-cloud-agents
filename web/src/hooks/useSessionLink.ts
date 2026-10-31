@@ -56,6 +56,7 @@ export function useSessionLink(): SessionLink {
   }, []);
   const setLink = useCallback((botId: string | undefined) => {
     const url = new URL(window.location.href);
+    url.searchParams.delete("loopRun");
     if (botId) url.searchParams.set(PARAM, botId);
     else url.searchParams.delete(PARAM);
     window.history.pushState(null, "", url.pathname + url.search + url.hash);

@@ -22,18 +22,18 @@
 - [x] D2 委派组合：新child d91393ce / task-b1c89377，Files读取README、Git显示子分支干净、PTY pwd分支一致，Header正确。`16-child-git.png`、`15-pty-interactive.png`。旧验收child未补metadata，不作新路径证据。
 - [x] E1 事件：开启后sandbox Issue13真实评论6532572536进入feed，UI投递到issue-13-discuss；重复同步0新事件，真实user消息仅1条，验收后停用。`09-event-delivery.png`。当前是手动同步，后台自动轮询仍需补齐。
 - [x] E2a 后台同步：启用后未点立即同步，60秒自动摄取真实评论6532987819，pollCount=1；停止按钮成功。`18-autopoll.png`。
-- [ ] E2b 后台同步重启恢复、PR订阅checks实际路径。
+- [x] E2b 组合版UI订阅PR15，真实Checks API显示head84c0513 success；重启后自动pollCount=1、订阅和check状态保留、lastError空，停止成功。`docs/acceptance/combined/04-pr-checks-subscription.png`、events-restart.json。
 - [x] I1a Skill安装/使用/停用/卸载：UI安装acceptance-greeting，Pi真实load_skill并回复标记；停用后实际toolResult拒绝，卸载记录消失。`14-skill-agent-load.png`。
 - [x] I1b Skill重启保留（21），Files在新验收child上传此前不存在的SKILL.md，UI从文件安装（22），新Session dc978ed3真实load_skill回复FILE_SKILL_INSTALLED（23）。不覆盖已有文件。
 - [x] I2 MCP安装：UI安装本地真实HTTP MCP；Pi调用add审批前计数0、批准后1，sum42；停用调用拒绝；重启后重新批准sum5。`19-mcp-approval.png`、`20-mcp-result.png`、`21-integrations-restart.png`。只证明此transport工具子集，不宣称OAuth/外部厂商兼容。
 - [x] C1 分享：UI复制链接，p2打开child深链接并刷新保持；切到讨论后浏览器back返回child正确。
 - [x] C2 窄屏：390px下展开侧栏选讨论Session、输入发送消息；scrollWidth=390，无横向溢出；面板可开关。`10-mobile-message.png`。
 - [x] C3 通知权限：用户处理后接管旧space7/p1，真实Notification.permission=granted；显式UI申请和页面通知约束已验证，后台push非本轮功能。
-- [ ] R1 回归：Review同SHA复用/来源，人工状态和执行结果回流，跨Session草稿不串，发布任务首条和手动Session保持。
+- [x] R1 回归：组合版PR16同SHA重复Review前后15bot不增加；人工结果/状态仍显示；草稿跨Session隔离、task-only首条完整测试通过；现场fresh publish见loops/phase-2/publish.json，新手动Session见23-new-session-skill.png。
 - [x] A1 鉴权：实际新HTTP/console WS/PTY WS匿名401见auth-checks.json；敏感路径与跨空间拒绝测试通过，preview有签名范围认证而非匿名放行。
-- [x] Q1 当前集成完整后端461通过/1既有skip，前端214通过，typecheck/build、git diff --check通过；后续组合合入后须重跑。
+- [x] Q1 最终组合版后端551通过/1既有skip，前端224通过，typecheck/build与diff检查通过。
 - [x] Q2 独立审查/tmp/pca-amp13-review.md，MCP工具namespace冲突和HTTP凭据风险已修并回归；父级纠正Git --exit-code错误与空格文件名路径。独立报告中“clean”仅离线范围，不替代现场。
-- [ ] PR13：验收证据、限制记录完整后提交，push并开PR（base spike/issue-loop）。
+- [x] PR13：commit65c5292，Draft PR #23（base spike/issue-loop），后续组合修复独立integration分支，不混改原PR。
 
 ## 明确未完整实现的能力（不能以部分功能勾选替代）
 - [x] 交互PTY终端：用户确认后真实shell，pwd/分支输出正确，read读取后续stdin并回显，Kill关闭。`15-pty-interactive.png`。显示器有限ANSI，不承诺vim/CJK完整渲染。
@@ -43,7 +43,7 @@
 - [x] L1 Phase1 worker交付并独立审查；取消竞态/readonly bash问题修复，父级完整测试复跑通过。
 - [x] L2 Phase1实际UI与API：CRUD/版本/开关、Run now、Session来源、5run排队/取消、kill-9重启、定时首slot、Bearer/Standard Webhooks鉴权去重。证据在独立loops worktree `docs/acceptance/loops/phase-1/`。
 - [x] L3 Phase1 Draft PR #21，commit0fd371f，base feat/loops；不合并不部署。
-- [ ] L4 Phase2：已现场通过审批push/开sandbox Draft PR15、真实评论poll触发、poll后签名Webhook重放去重、任务草稿fresh Session发布。修复modelTools对象、conversationId文本查询和durable poll NextTaskState错误。待验：Webhook先/poll后、其他事件/条件矩阵、权限负例、Issue触发PR总览回流、与Issue13最终组合。详见loops worktree `docs/acceptance/loops/phase-2/README.md`。浏览器已恢复，无通知阻塞。
+- [x] L4 Phase2本地Demo验收：Draft PR24，真实审批push/PR15与Issue触发PR16、总览回流、双向Webhook/poll去重、fresh发布和组合Files/Git/权限入口通过。其他事件矩阵/条件/负例用离线确定性测试验证，不冒充全量现场。证据`docs/acceptance/combined/README.md`，公网Webhook部署非本轮。
 - [x] L5 范围处理：Phase3明确延期到独立 Issue #22（https://github.com/hifizz/pi-cloud-agents/issues/22），下一次大任务开发。本勾选仅代表拆分记录完成，不代表Phase3实现。
 
 ## 失败与修复记录
