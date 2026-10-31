@@ -57,8 +57,9 @@ function compilePath(path) {
     .split("/")
     .map((seg) => {
       if (seg.startsWith(":")) {
-        keys.push(seg.slice(1));
-        return "([^/]+)";
+        const star = seg.endsWith("*");
+        keys.push(seg.slice(1, star ? -1 : undefined));
+        return star ? "(.*)" : "([^/]+)";
       }
       return seg.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     })

@@ -24,6 +24,12 @@ export interface SessionHeaderProps {
   onReset: () => void;
   /** SPIKE-review-loop: human sets the session's business status. */
   onSetStatus?: (status: SessionStatus) => void;
+  /** AMP13-collaboration: copy the ?bot=<id> session deep link. */
+  onShare?: () => void;
+  /** AMP13-collaboration: share feedback ("已复制链接" / failure) rendered inside the header. */
+  shareFeedback?: string;
+  /** AMP13-collaboration: browser-notification state and opt-in toggle. */
+  notifications?: { supported: boolean; permission: string; enabled: boolean; onToggle: () => void };
 }
 
 const hbtn =
@@ -43,6 +49,9 @@ export function SessionHeader({
   onCompact,
   onReset,
   onSetStatus,
+  onShare,
+  shareFeedback,
+  notifications,
 }: SessionHeaderProps) {
   // This session's own git state: a detached discussion/review pins a commit; an execution session has its own branch.
   // The workspace's feature branch is never used to stand in for these sessions.
@@ -57,20 +66,20 @@ export function SessionHeader({
     : review
       ? `PR #${review.pr} @ ${shortSha(review.headSha) ?? review.headSha}`
       : added
-        ? `detached @ ${shortSha(added.pinnedSha) ?? added.pinnedSha}`
+        ? (added.branch ?? `detached @ ${shortSha(added.pinnedSha) ?? added.pinnedSha}`)
         : workspace?.branch;
   const gitTitle = loop
     ? `${loop.branch ? `branch ${loop.branch}` : `detached HEAD`} · pinned ${loop.pinnedSha}`
     : review
       ? `reviewing PR #${review.pr} · detached HEAD · pinned ${review.headSha}`
       : added
-        ? `detached HEAD · pinned ${added.pinnedSha}`
+        ? `${added.branch ? `branch ${added.branch}` : "detached HEAD"} · pinned ${added.pinnedSha}`
         : workspace?.branch;
   const sourceName = loop?.sourceBotId ? (bots.find((b) => b.id === loop.sourceBotId)?.name ?? loop.sourceBotId) : undefined;
   const sessionStatus = bot ? defaultSessionStatus(bot) : undefined;
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-2 sm:gap-3 sm:px-4">
       {!railOpen && (
         <button
           type="button"
@@ -111,7 +120,7 @@ export function SessionHeader({
               onClick={() => loop?.sourceBotId && onSelectBot?.(loop.sourceBotId)}
               data-testid="backlink-to-discussion"
               title={`返回讨论会话 ${sourceName}`}
-              className="block truncate text-left text-[11px] leading-tight text-fg-faint underline decoration-dotted underline-offset-2 hover:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent"
+              className="hidden truncate text-left text-[11px] leading-tight text-fg-faint underline decoration-dotted underline-offset-2 hover:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent sm:block"
             >
               来自讨论：{sourceName}
             </button>
@@ -142,10 +151,40 @@ export function SessionHeader({
       )}
       {vm.compacting > 0 && <span className="text-xs text-fg-muted">Compacting…</span>}
       <UsageBadge usage={vm.usage} />
-      <button type="button" className={hbtn} disabled={!bot || vm.busy} onClick={onCompact}>
+      {/* AMP13-collaboration: the deep link opens this session for any signed-in whitelist member. */}
+      {onShare && (
+        <button type="button" className={hbtn} disabled={!bot} onClick={onShare} title="复制此会话的深链接（仅已登录白名单成员可打开）">
+          <Icon name="copy" className="size-3" />
+          <span className="hidden sm:inline">分享</span>
+        </button>
+      )}
+      {shareFeedback && (
+        <span role="status" data-testid="share-feedback" className="shrink-0 text-[11px] text-fg-muted">
+          {shareFeedback}
+        </span>
+      )}
+      {notifications?.supported && (
+        <button
+          type="button"
+          className={`${hbtn} ${notifications.permission === "denied" ? "border-bad/40 text-bad" : ""}`}
+          disabled={!bot || notifications.permission === "denied"}
+          aria-pressed={notifications.enabled}
+          onClick={notifications.onToggle}
+          title={
+            notifications.permission === "denied"
+              ? "浏览器已拒绝通知权限；需在浏览器设置中允许"
+              : notifications.enabled
+                ? "会话运行结束时通知（页面需保持打开，不是后台推送）"
+                : "开启会话完成通知"
+          }
+        >
+          {notifications.permission === "denied" ? "通知被拒" : notifications.enabled ? "通知开" : "通知"}
+        </button>
+      )}
+      <button type="button" className={`${hbtn} hidden md:flex`} disabled={!bot || vm.busy} onClick={onCompact}>
         Compact
       </button>
-      <button type="button" className={hbtn} disabled={!bot} onClick={onReset}>
+      <button type="button" className={`${hbtn} hidden md:flex`} disabled={!bot} onClick={onReset}>
         Reset
       </button>
       <button

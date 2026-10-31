@@ -32,11 +32,16 @@ export interface BotSummary {
   /** Present on Bots created by forking another Bot. */
   parent?: { botId: string; entryId?: number | string };
   readOnly?: boolean;
-  /** SPIKE-add-session: a session added by hand from the workspace menu runs in its own detached worktree. */
+  integrationError?: string;
+  /** SPIKE-add-session: a session added by hand from the workspace menu runs in its own detached worktree.
+   * Also the shared session-worktree shape delegation children declare (AMP13): `branch` is the child's
+   * own tarsbot/task-* branch (absent on a detached add-session). */
   worktree?: {
     baseBranch: string;
     pinnedSha: string;
     dir: string;
+    /** Delegation children only: their own feature branch (never present on detached sessions). */
+    branch?: string;
   };
   /** Issue-loop spike metadata: this session's own git state + the source discussion backlink. */
   issueLoop?: {
@@ -68,6 +73,15 @@ export interface BotSummary {
     issue: number;
     sourceBotId: string;
     reportedAt: string;
+  };
+  /** AMP13-delegation: small metadata for the delegation panel (parent tasks list or child backlink). */
+  delegation?: {
+    role?: "child";
+    parentBotId?: string;
+    taskId?: string;
+    depth?: number;
+    tasks?: unknown[];
+    results?: unknown[];
   };
 }
 

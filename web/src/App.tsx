@@ -17,6 +17,8 @@ import { StatusLine } from "./shell/ComposerContext";
 import { RailFooter, RailHeader } from "./shell/rail";
 import { usePanelState } from "./shell/usePanelState";
 import { useRailState } from "./shell/useRailState";
+import { useSessionLink, copySessionLink, readSessionLink } from "./hooks/useSessionLink";
+import { useSessionNotifications } from "./hooks/useSessionNotifications";
 import { PANELS } from "./panels";
 import {
   STATUS_LABEL,
@@ -309,6 +311,11 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const [forkAt, setForkAt] = useState<number | string>();
   const rail = useRailState();
   const panels = usePanelState(PANELS[0]?.id);
+  // AMP13-collaboration: ?bot=<id> deep link; a copied link resolves to the same session for any signed-in member.
+  const link = useSessionLink();
+  const [shareMsg, setShareMsg] = useState<string>();
+  /** Set once after the first workspace list arrived; the deep-link param is consumed only after this. */
+  const linkHandled = useRef(false);
   // Workspaces created in this tab; kept until a list response contains them (see mergeWorkspaceList).
   const localWorkspaces = useRef(new Map<string, LocalWorkspace>());
 
@@ -343,6 +350,25 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const workspace = useMemo(() => workspaces.find((w) => w.id === selectedWorkspaceId), [workspaces, selectedWorkspaceId]);
   const botWorkspace = useMemo(() => mapBotsToWorkspaces(bots, workspaces), [bots, workspaces]);
+
+  // AMP13-collaboration: a ?bot=<id> deep link selects that session's workspace once the lists arrive. An unknown
+  // id shows an explicit error instead of silently falling back; the URL keeps the param for transparency.
+  useEffect(() => {
+    if (!workspacesLoaded || linkHandled.current) return;
+    linkHandled.current = true;
+    const target = link.linkBot;
+    if (!target) return;
+    const wsId = botWorkspace.get(target);
+    if (wsId) {
+      setSelectedWorkspaceId(wsId);
+      setPickedBotId(target);
+    } else {
+      setError(`链接中的会话不存在：${target}`);
+    }
+    // The effect must run only once, when the first workspace list lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspacesLoaded, botWorkspace]);
+
   /** True while the user is looking at the workspace overview instead of a session. */
   const overviewOpen = Boolean(workspace) && pickedBotId === null;
   const bot = useMemo(() => {
@@ -352,6 +378,49 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   }, [bots, botWorkspace, workspace, pickedBotId]);
   const selectedId = bot?.id;
   const { vm, status } = useBotStream(selectedId);
+  const notifications = useSessionNotifications({ botId: selectedId, botName: bot?.name, busy: vm.busy });
+
+  // AMP13-collaboration: keep the address bar pointing at the open session so a refresh (or a copied link) lands
+  // back here; the workspace overview clears the param.
+  useEffect(() => {
+    if (!linkHandled.current) return;
+    // Initial URL resolution may still be selecting a workspace in this render.
+    if (pickedBotId === undefined && link.linkBot && botWorkspace.has(link.linkBot)) return;
+    const want = overviewOpen || !bot ? undefined : bot.id;
+    if (want === readSessionLink()) return;
+    link.setLink(want);
+  }, [selectedId, overviewOpen, pickedBotId]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const target = readSessionLink();
+      if (!target) {
+        setPickedBotId(null);
+        return;
+      }
+      const wsId = botWorkspace.get(target);
+      if (!wsId) {
+        setError(`链接中的会话不存在：${target}`);
+        return;
+      }
+      setSelectedWorkspaceId(wsId);
+      setPickedBotId(target);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [botWorkspace]);
+
+  const onShareLink = useCallback(() => {
+    if (!bot) return;
+    void copySessionLink(bot.id)
+      .then(() => setShareMsg("已复制链接"))
+      .catch((e: unknown) => setShareMsg(e instanceof Error ? e.message : "复制失败"));
+  }, [bot]);
+  useEffect(() => {
+    if (!shareMsg) return;
+    const t = setTimeout(() => setShareMsg(undefined), 3000);
+    return () => clearTimeout(t);
+  }, [shareMsg]);
 
   const onUpdateWorkspace = useCallback((ws: Workspace) => setWorkspaces((list) => upsertWorkspace(list, ws)), []);
   useWorkspacePoll(workspace?.id, workspace?.status === "preparing", onUpdateWorkspace);
@@ -379,11 +448,29 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     void refresh();
   };
 
+  /** Narrow screens open with the rail closed exactly once (persisted state wins afterwards). */
+  const narrowCollapsed = useRef(false);
+  const isNarrow = useCallback(() => globalThis.matchMedia?.("(max-width: 767px)").matches ?? false, []);
+  useEffect(() => {
+    if (!isNarrow() || narrowCollapsed.current) return;
+    narrowCollapsed.current = true;
+    rail.close();
+  }, [isNarrow, rail]);
+
   const selectWorkspace = (id: string) => {
     setSelectedWorkspaceId(id);
     // null = open the workspace overview, not the primary session.
     setPickedBotId(null);
+    // AMP13-collaboration: on phones the rail is an overlay; dismiss it after picking so the content is visible.
+    if (isNarrow()) rail.close();
   };
+  const pickBot = useCallback(
+    (id: string) => {
+      setPickedBotId(id);
+      if (isNarrow()) rail.close();
+    },
+    [isNarrow, rail],
+  );
 
   /** Click an issue row: reuse the existing discussion session when there is one, else POST the discuss flow and
    * open the session it created (same workspace, discussion only — executions never match server-side). */
@@ -393,7 +480,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
       try {
         const { discussion } = await workspacesApi.issueLoopDiscuss(wsId, { issue: issueNo });
         await refresh();
-        setPickedBotId(discussion.botId);
+        pickBot(discussion.botId);
       } catch (e) {
         setError(describeError(e));
       }
@@ -410,7 +497,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         const { review } = await workspacesApi.reviewPr(wsId, { pr });
         await refresh();
         setSelectedWorkspaceId(wsId);
-        setPickedBotId(review.botId);
+        pickBot(review.botId);
       } catch (e) {
         setError(describeError(e));
       }
@@ -421,7 +508,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const onFork = async (input: ForkInput) => {
     const created = await api.forkBot(bot!.id, input);
     await refresh();
-    setPickedBotId(created.id);
+    pickBot(created.id);
   };
 
   const onResolveApproval = async (taskId: string, approved: boolean) => {
@@ -457,7 +544,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
       const { execution } = await workspacesApi.issueLoopPublish(workspace.id, { botId: bot.id, task });
       setPublishOpen(false);
       await refresh();
-      setPickedBotId(execution.botId); // open the new execution session
+      pickBot(execution.botId); // open the new execution session
     } catch (e) {
       setPublishError(describeError(e));
     } finally {
@@ -495,14 +582,14 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           selectedWorkspaceId={selectedWorkspaceId}
           selectedBotId={selectedId}
           onSelectWorkspace={selectWorkspace}
-          onSelectBot={setPickedBotId}
+          onSelectBot={pickBot}
           onNewWorkspace={() => setShowNew(true)}
           pendingApprovals={pendingByBot}
           loading={!workspacesLoaded}
           onSessionAdded={(workspaceId, botId) => {
             // SPIKE-add-session: select the workspace and the new blank session, then refresh the list so it shows
             setSelectedWorkspaceId(workspaceId);
-            setPickedBotId(botId);
+            pickBot(botId);
             void refresh();
           }}
         />
@@ -520,7 +607,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           status={status}
           workspace={workspace}
           bots={bots}
-          onSelectBot={setPickedBotId}
+          onSelectBot={pickBot}
           railOpen={rail.open}
           panelOpen={panels.open}
           onExpandRail={rail.show}
@@ -528,6 +615,9 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           onCompact={onCompact}
           onReset={onReset}
           onSetStatus={onSetStatus}
+          onShare={onShareLink}
+          shareFeedback={shareMsg}
+          notifications={notifications}
         />
       )}
 
@@ -549,7 +639,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
       {overviewOpen && workspace ? (
         // Keyed by workspace.id: switching workspaces remounts it, so stale rows of the previous repo can't linger.
-        <WorkspaceOverview key={workspace.id} workspace={workspace} railOpen={rail.open} bots={bots} onExpandRail={rail.show} onOpenIssue={onOpenIssue} onOpenSession={setPickedBotId} onReview={onReview} />
+        <WorkspaceOverview key={workspace.id} workspace={workspace} railOpen={rail.open} bots={bots} onExpandRail={rail.show} onOpenIssue={onOpenIssue} onOpenSession={pickBot} onReview={onReview} />
       ) : bot ? (
         <>
           <MessageList
@@ -619,6 +709,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         panelOpen={panels.open && !overviewOpen}
         rail={railNode}
         main={mainNode}
+        onCloseRail={rail.close}
         panel={
           // The right session panel belongs to a session; it stays closed while the workspace overview is open.
           !overviewOpen && (

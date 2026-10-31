@@ -62,6 +62,65 @@ function normalizePull(raw) {
   };
 }
 
+/** One entry of the repo activity feed (GET /repos/{repo}/events), normalized to a small shape.
+ * Only the kinds the events sync understands are mapped; everything else returns null. */
+function normalizeEvent(raw) {
+  const actor = raw?.actor?.login ?? null;
+  const at = raw?.created_at ?? null;
+  const p = raw?.payload ?? {};
+  const base = { id: String(raw?.id ?? ""), actor, at };
+  switch (raw?.type) {
+    case "IssuesEvent":
+      return { ...base, kind: "issue", action: p.action ?? "opened", number: p.issue?.number ?? null, title: p.issue?.title ?? "", url: p.issue?.html_url ?? null, isPr: false };
+    case "PullRequestEvent":
+      return {
+        ...base,
+        kind: "pr",
+        action: p.action === "closed" && p.pull_request?.merged ? "merged" : (p.action ?? "opened"),
+        number: p.pull_request?.number ?? null,
+        title: p.pull_request?.title ?? "",
+        url: p.pull_request?.html_url ?? null,
+        isPr: true,
+      };
+    case "IssueCommentEvent":
+      return {
+        ...base,
+        kind: "comment",
+        action: p.action ?? "created",
+        number: p.issue?.number ?? null,
+        title: p.issue?.title ?? "",
+        url: p.comment?.html_url ?? null,
+        body: p.comment?.body ?? "",
+        isPr: Boolean(p.issue?.pull_request),
+      };
+    case "PullRequestReviewEvent":
+      return {
+        ...base,
+        kind: "review",
+        action: p.action ?? "submitted",
+        state: p.review?.state ?? null,
+        number: p.pull_request?.number ?? null,
+        title: p.pull_request?.title ?? "",
+        url: p.review?.html_url ?? p.pull_request?.html_url ?? null,
+        body: p.review?.body ?? "",
+        isPr: true,
+      };
+    case "PullRequestReviewCommentEvent":
+      return {
+        ...base,
+        kind: "review_comment",
+        action: p.action ?? "created",
+        number: p.pull_request?.number ?? null,
+        title: p.pull_request?.title ?? "",
+        url: p.comment?.html_url ?? null,
+        body: p.comment?.body ?? "",
+        isPr: true,
+      };
+    default:
+      return null;
+  }
+}
+
 /** True when the server definitively refused the request (so nothing was created). */
 function isDefinitiveRejection(err) {
   const s = err?.status;
@@ -380,6 +439,51 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
     async listPullsByBase(repo, baseBranch, { limit = 50 } = {}) {
       assertRepo(repo);
       return paginate(`/repos/${repo}/pulls`, `state=open&base=${encodeURIComponent(baseBranch)}&sort=created&direction=desc&`, limit, normalizePull);
+    },
+
+    /** Repo activity events (GET /repos/{repo}/events), newest first. Only issues, PRs, comments and reviews are
+     * mapped — unhandled event types are dropped, so the result may be shorter than `limit`. Each entry:
+     * {id, kind: issue|pr|comment|review|review_comment, action, state?, number, title, url, actor, at, body?, isPr}. */
+    async listEvents(repo, { limit = 300 } = {}) {
+      assertRepo(repo);
+      return paginate(`/repos/${repo}/events`, "", limit, normalizeEvent).then((list) => list.filter(Boolean));
+    },
+
+    /** Combined CI status of a commit (GET /repos/{repo}/commits/{sha}/status):
+     * {state, sha, statuses: [{context, state, targetUrl}]} or null when the commit is unknown. */
+    async getCommitStatus(repo, sha) {
+      assertRepo(repo);
+      const { data } = await request("GET", `/repos/${repo}/commits/${encodeRef(sha)}/status`, { allow404: true });
+      if (!data) return null;
+      return {
+        state: data.state ?? "unknown",
+        sha: data.sha ?? sha,
+        statuses: (Array.isArray(data.statuses) ? data.statuses : []).map((s) => ({ context: s.context ?? "", state: s.state ?? "", targetUrl: s.target_url ?? null })),
+      };
+    },
+
+    /** Check runs of a commit (GET /repos/{repo}/commits/{sha}/check-runs). GitHub Actions reports here — NOT in the
+     * combined status endpoint — so real "PR checks" coverage needs this call.
+     * {sha, state, total, runs: [{name, status, conclusion, url}]} or null when the commit is unknown.
+     * `state` rollup: any in-progress run -> "pending"; else any failing conclusion -> "failure";
+     * else "success"; "none" when there are no runs. */
+    async getCheckRuns(repo, sha, { limit = 100 } = {}) {
+      assertRepo(repo);
+      const { data } = await request("GET", `/repos/${repo}/commits/${encodeRef(sha)}/check-runs`, { allow404: true });
+      if (!data) return null;
+      const runs = (Array.isArray(data.check_runs) ? data.check_runs : []).slice(0, limit).map((r) => ({
+        name: r.name ?? "",
+        status: r.status ?? "",
+        conclusion: r.conclusion ?? null,
+        url: r.html_url ?? null,
+      }));
+      let state = "none";
+      if (runs.length) {
+        if (runs.some((r) => r.status !== "completed")) state = "pending";
+        else if (runs.some((r) => ["failure", "cancelled", "timed_out", "action_required", "startup_failure"].includes(r.conclusion))) state = "failure";
+        else state = "success";
+      }
+      return { sha, state, total: data.total_count ?? runs.length, runs };
     },
   };
   return gh;

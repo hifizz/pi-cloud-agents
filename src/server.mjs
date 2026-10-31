@@ -11,7 +11,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ROOT, config } from "./config.mjs";
 import { ctx } from "./harness.mjs";
-import { BotRegistry } from "./bots.mjs";
+import { BotRegistry, setIntegrationsApplier } from "./bots.mjs";
+import { createIntegrationsService } from "./integrations.mjs";
+import { setIntegrationsService } from "./ext/integrations.mjs";
 import { bootstrap } from "./runtime.mjs";
 import { createApi } from "./api.mjs";
 import { openControlStore } from "./control/store.mjs";
@@ -67,6 +69,7 @@ export async function assemble({
   controlDbPath = config.controlDbPath,
   checkpointDir = config.checkpointDir,
   botsPath,
+  integrationsPath = givenStore ? null : join(config.dataDir, "integrations.json"),
   github: givenGithub,
   providers: givenProviders,
   runnerFor: givenRunnerFor,
@@ -106,9 +109,12 @@ export async function assemble({
   const releaseRunner = (runtimeId) => runners.forget(runtimeId);
 
   // 3. harness, not scheduled yet
-  const { harness } = await bootstrap({ ...harnessOptions, store, providers, resume: false });
+  const { harness, registry } = await bootstrap({ ...harnessOptions, store, providers, resume: false });
   await hooks.afterHarnessOpen?.({ harness, store });
   const bots = new BotRegistry(harness, botsPath === undefined ? {} : { path: botsPath });
+  const integrations = createIntegrationsService({ path: integrationsPath, control: store, registry, bots, ctx });
+  setIntegrationsService(integrations);
+  setIntegrationsApplier(integrations.applyToBot);
 
   // 4. Exec resolver (conversation -> workspace -> current binding -> runner), workspace service, rebuild
   setExecResolver(({ conversationId } = {}) => {
@@ -147,7 +153,14 @@ export async function assemble({
   await hooks.beforeResume?.({ harness, store, workspaces, rebuild, checkpoints });
   harness.resume();
 
-  const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash };
+  const ptySession = async (workspaceId) => {
+    const binding = store.bindings.current(workspaceId);
+    if (!binding) throw new Error(`workspace ${workspaceId} has no active binding`);
+    const provider = Object.hasOwn(providers, binding.provider) ? providers[binding.provider] : undefined;
+    if (typeof provider?.pty !== "function") throw new Error(`provider ${binding.provider} has no interactive sessions`);
+    return provider.pty(binding.runtimeId);
+  };
+  const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash, ptySession, integrations };
 
   let closed = false;
   async function close() {
@@ -175,6 +188,7 @@ export async function main() {
     routes: await loadRoutes(),
     extraCtx: parts.ctxForApi,
   });
+  api.app.ctx.githubEvents?.startPolling();
   const { port } = await api.listen(config.port, config.host);
   console.log(`TARSBot listening on http://${config.host}:${port}`);
 
@@ -184,6 +198,7 @@ export async function main() {
     closing = true;
     console.log(`${signal} received, shutting down`);
     try {
+      api.app.ctx.githubEvents?.close();
       await api.close();
       await parts.close();
     } finally {

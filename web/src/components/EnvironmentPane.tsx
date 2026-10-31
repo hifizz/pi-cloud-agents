@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { WorkspaceContext, describeError, envName, modelLabel, shortSha, workspacesApi, type Workspace } from "../lib/workspaces";
 import type { BotSummary, ConversationVM } from "../types";
 import { WorkspaceActions, WorkspaceStatus } from "./WorkspaceStatus";
@@ -128,6 +128,13 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   const [resultFormOpen, setResultFormOpen] = useState(false);
   const onResultReported = props.onResultReported ?? ctx?.onChanged;
 
+  // The panel is not keyed by bot: switching sessions while the result form is open must drop the draft —
+  // otherwise a summary typed for execution A posts to execution B's /result endpoint (cross-session result).
+  const botId = bot?.id;
+  useEffect(() => {
+    setResultFormOpen(false);
+  }, [botId]);
+
   if (!workspace) {
     return <p className="p-4 text-sm text-fg-muted">{loading ? "加载中…" : "还没有工作区。新建一个工作区后，这里会显示它的环境信息。"}</p>;
   }
@@ -141,7 +148,7 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   const loop = bot?.issueLoop;
   const review = !loop ? bot?.review : undefined;
   // A worktree of its own: an issue-loop session, a review session, or a session added by hand.
-  const own = loop ?? (review ? { dir: review.dir, pinnedSha: review.headSha, branch: undefined } : undefined) ?? (bot?.worktree ? { dir: bot.worktree.dir, pinnedSha: bot.worktree.pinnedSha, branch: undefined } : undefined);
+  const own = loop ?? (review ? { dir: review.dir, pinnedSha: review.headSha, branch: undefined } : undefined) ?? (bot?.worktree ? { dir: bot.worktree.dir, pinnedSha: bot.worktree.pinnedSha, branch: bot.worktree.branch } : undefined);
   // An execution session (has a source discussion Bot) can report its result back to the source issue.
   const isExecution = Boolean(loop?.sourceBotId);
   const result = bot?.executionResult;
@@ -234,7 +241,16 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
               <Row label="上报于">{result.reportedAt}</Row>
             </dl>
           ) : resultFormOpen ? (
-            <ResultForm workspaceId={workspace.id} botId={bot.id} onReported={() => { setResultFormOpen(false); onResultReported?.(); }} onCancel={() => setResultFormOpen(false)} />
+            <ResultForm
+              key={bot.id}
+              workspaceId={workspace.id}
+              botId={bot.id}
+              onReported={() => {
+                setResultFormOpen(false);
+                onResultReported?.();
+              }}
+              onCancel={() => setResultFormOpen(false)}
+            />
           ) : (
             <button
               type="button"

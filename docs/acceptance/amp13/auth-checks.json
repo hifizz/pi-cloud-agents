@@ -1,0 +1,34 @@
+[
+  {
+    "path": "/api/bots/b3b1d0d1/files/list",
+    "status": 401
+  },
+  {
+    "path": "/api/bots/b3b1d0d1/git/status",
+    "status": 401
+  },
+  {
+    "path": "/api/workspaces/ws_e168e5f97244a35b/search?q=hello",
+    "status": 401
+  },
+  {
+    "path": "/api/workspaces/ws_e168e5f97244a35b/events",
+    "status": 401
+  },
+  {
+    "path": "/api/integrations",
+    "status": 401
+  },
+  {
+    "path": "/api/bots/b3b1d0d1/delegation",
+    "status": 401
+  },
+  {
+    "path": "/api/bots/b3b1d0d1/terminal",
+    "status": 401
+  },
+  {
+    "path": "/api/bots/b3b1d0d1/terminal/pty",
+    "status": 401
+  }
+]

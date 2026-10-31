@@ -93,6 +93,7 @@ export function register(app, opts = {}) {
     const mutating = kind === "ws" || (req.method !== "GET" && req.method !== "HEAD");
     if (mutating) checkOrigin(req);
     if (kind === "http" && (path.startsWith("/api/auth/") || path === "/api/auth" || path === "/api/health")) return true;
+    if (kind === "http" && req.method === "GET" && app.ctx.previewAuthOk?.(path) === true) return true;
     if (!sessionOf(req)) throw new HttpError(401, "authentication required");
     return true;
   });
