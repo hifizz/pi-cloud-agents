@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import type { ApprovalItem } from "../types";
 
 export interface ApprovalBarProps {
@@ -32,9 +33,6 @@ function clip(s: string): string {
   return s.length > MAX_SUMMARY ? `${s.slice(0, MAX_SUMMARY)}…` : s;
 }
 
-const btn =
-  "rounded-md px-3 py-1 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40";
-
 export function ApprovalBar({ items, onResolve }: ApprovalBarProps) {
   const [busyId, setBusyId] = useState<string>();
   const [error, setError] = useState<string>();
@@ -61,36 +59,38 @@ export function ApprovalBar({ items, onResolve }: ApprovalBarProps) {
           return (
             <li key={item.taskId} data-testid="approval-item" className="flex flex-wrap items-center gap-3 px-4 py-2 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="text-fg">
+                <p className="text-foreground">
                   <span className="font-semibold">Approval needed:</span> <span className="font-mono">{item.toolName}</span>
                 </p>
-                {summary && <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-fg-dim">{summary}</pre>}
+                {summary && <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-muted-foreground">{summary}</pre>}
                 {item.reason && <p className="mt-0.5 text-xs text-warn">Reason: {item.reason}</p>}
               </div>
               <div className="flex shrink-0 gap-2">
-                <button
+                <Button
                   type="button"
-                  className={`${btn} bg-ok/90 text-black hover:bg-ok`}
+                  variant="default"
+                  size="sm"
                   disabled={busyId === item.taskId}
                   onClick={() => void resolve(item.taskId, true)}
                 >
                   Approve
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={`${btn} border border-bad/70 text-bad hover:bg-bad/10`}
+                  variant="destructive"
+                  size="sm"
                   disabled={busyId === item.taskId}
                   onClick={() => void resolve(item.taskId, false)}
                 >
                   Deny
-                </button>
+                </Button>
               </div>
             </li>
           );
         })}
       </ul>
       {error && (
-        <p role="alert" className="px-4 pb-2 text-xs text-bad">
+        <p role="alert" className="px-4 pb-2 text-xs text-destructive">
           {error}
         </p>
       )}

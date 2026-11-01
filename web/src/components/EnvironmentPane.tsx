@@ -2,6 +2,10 @@ import { useCallback, useContext, useEffect, useState } from "react";
 import { WorkspaceContext, describeError, envName, modelLabel, shortSha, workspacesApi, type SessionEnvEntry, type Workspace } from "../lib/workspaces";
 import type { BotSummary, ConversationVM } from "../types";
 import { WorkspaceActions, WorkspaceStatus } from "./WorkspaceStatus";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
 
 export interface EnvironmentPaneProps {
   /** Defaults to the selected workspace published through WorkspaceContext by the App. */
@@ -51,63 +55,63 @@ function ResultForm({ workspaceId, botId, onReported, onCancel }: {
     }
   };
   return (
-    <form aria-label="执行结果" onSubmit={submit} className="space-y-2 rounded-lg border border-line bg-raised p-4">
-      <p className="text-xs font-medium text-fg">填写执行结果（人工填写，回流到来源 Issue 的总览卡片）</p>
+    <form aria-label="执行结果" onSubmit={submit} className="space-y-2 rounded-lg border border-border bg-card p-4">
+      <p className="text-xs font-medium text-foreground">填写执行结果（人工填写，回流到来源 Issue 的总览卡片）</p>
       <div>
-        <label htmlFor="result-summary" className="block text-xs text-fg-muted">
+        <Label htmlFor="result-summary" className="text-xs text-muted-foreground">
           结果摘要
-        </label>
-        <textarea
+        </Label>
+        <Textarea
           id="result-summary"
           value={summary}
           onChange={(e) => setSummary(e.target.value)}
           rows={3}
-          className="mt-1 w-full resize-y rounded-md border border-line bg-field px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent"
+          className="mt-1 min-h-0 resize-y"
         />
       </div>
       <div>
-        <label htmlFor="result-tests" className="block text-xs text-fg-muted">
-          测试记录 <span className="text-fg-faint">（人工填写文本，不代表自动通过）</span>
-        </label>
-        <textarea
+        <Label htmlFor="result-tests" className="text-xs text-muted-foreground">
+          测试记录 <span className="text-muted-foreground/70">（人工填写文本，不代表自动通过）</span>
+        </Label>
+        <Textarea
           id="result-tests"
           value={tests}
           onChange={(e) => setTests(e.target.value)}
           rows={2}
-          className="mt-1 w-full resize-y rounded-md border border-line bg-field px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent"
+          className="mt-1 min-h-0 resize-y"
         />
       </div>
       <div>
-        <label htmlFor="result-pr" className="block text-xs text-fg-muted">
-          PR 编号 <span className="text-fg-faint">（可选，仅本空间仓库的真实 PR）</span>
-        </label>
-        <input
+        <Label htmlFor="result-pr" className="text-xs text-muted-foreground">
+          PR 编号 <span className="text-muted-foreground/70">（可选，仅本空间仓库的真实 PR）</span>
+        </Label>
+        <Input
           id="result-pr"
           type="text"
           inputMode="numeric"
           value={pr}
           onChange={(e) => setPr(e.target.value)}
-          className="mt-1 w-32 rounded-md border border-line bg-field px-2.5 py-1.5 text-sm text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+          className="mt-1 w-32"
         />
       </div>
       {error && (
-        <p role="alert" className="text-xs text-bad">
+        <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
       )}
       <div className="flex justify-end gap-2">
-        <button type="button" onClick={onCancel} disabled={busy} className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover">
+        <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={busy}>
           取消
-        </button>
-        <button type="submit" disabled={busy || !summary.trim()} className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40">
+        </Button>
+        <Button type="submit" size="sm" disabled={busy || !summary.trim()}>
           {busy ? "提交中…" : "提交结果"}
-        </button>
+        </Button>
       </div>
     </form>
   );
 }
 
-const code = "rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-xs text-fg";
+const code = "rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // ENV-DEMO: workspace env defaults + per-session overrides. Values are write-only — the API never returns
@@ -120,7 +124,7 @@ function EnvRow({ name, detail, actions }: { name: string; detail: React.ReactNo
   return (
     <div className="flex items-center gap-2 py-1 text-sm">
       <code className={code}>{name}</code>
-      <span className="min-w-0 flex-1 truncate text-xs text-fg-muted">{detail}</span>
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{detail}</span>
       {actions}
     </div>
   );
@@ -163,9 +167,9 @@ function WorkspaceEnvVars({ workspaceId, onVarsChanged }: { workspaceId: string;
         type="button"
         data-testid="open-ws-env"
         onClick={() => setOpen(true)}
-        className="w-full rounded-lg border border-line bg-raised p-4 text-left text-xs font-medium text-fg hover:bg-hover"
+        className="w-full rounded-lg border border-border bg-card p-4 text-left text-xs font-medium text-foreground hover:bg-muted"
       >
-        工作区环境变量 <span className="font-normal text-fg-muted">（默认变量，所有普通 Session 继承）</span>
+        工作区环境变量 <span className="font-normal text-muted-foreground">（默认变量，所有普通 Session 继承）</span>
       </button>
     );
   }
@@ -207,45 +211,40 @@ function WorkspaceEnvVars({ workspaceId, onVarsChanged }: { workspaceId: string;
   };
 
   return (
-    <section aria-label="工作区环境变量" className="space-y-2 rounded-lg border border-line bg-raised p-4" data-testid="ws-env">
-      <p className="text-xs font-medium text-fg">
+    <section aria-label="工作区环境变量" className="space-y-2 rounded-lg border border-border bg-card p-4" data-testid="ws-env">
+      <p className="text-xs font-medium text-foreground">
         工作区环境变量
-        <button type="button" onClick={() => setOpen(false)} className="ml-2 font-normal text-fg-muted hover:text-fg">
+        <button type="button" onClick={() => setOpen(false)} className="ml-2 font-normal text-muted-foreground hover:text-foreground">
           收起
         </button>
       </p>
-      <p className="text-xs text-fg-muted">
+      <p className="text-xs text-muted-foreground">
         普通 Session 的新命令与新终端继承这些值（加密保存，值不可回读；仅对新进程生效，已运行的服务需重启）。
-        {!enabled && <span className="text-bad"> 未配置 TARSBOT_ENV_KEY，功能已禁用。</span>}
+        {!enabled && <span className="text-destructive"> 未配置 TARSBOT_ENV_KEY，功能已禁用。</span>}
       </p>
-      {!loaded && !error && <p className="text-xs text-fg-faint">加载中…</p>}
+      {!loaded && !error && <p className="text-xs text-muted-foreground">加载中…</p>}
       {vars.map((v) => (
         <EnvRow
           key={v.name}
           name={v.name}
           detail="已设置（值不回显）"
           actions={
-            <button
-              type="button"
-              disabled={busy || !enabled}
-              onClick={() => void remove(v.name)}
-              className="rounded-md border border-line-strong px-2 py-0.5 text-xs text-fg-dim hover:bg-hover disabled:opacity-40"
-            >
+            <Button type="button" variant="outline" size="xs" disabled={busy || !enabled} onClick={() => void remove(v.name)}>
               删除
-            </button>
+            </Button>
           }
         />
       ))}
       <form onSubmit={submit} className="flex items-center gap-2">
-        <input
+        <Input
           aria-label="变量名"
           placeholder="NAME"
           value={name}
           onChange={(e) => setName(e.target.value)}
           disabled={!enabled}
-          className="w-40 rounded-md border border-line bg-field px-2.5 py-1 font-mono text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+          className="h-7 w-40 font-mono text-xs"
         />
-        <input
+        <Input
           aria-label="变量值"
           type="password"
           autoComplete="off"
@@ -253,18 +252,14 @@ function WorkspaceEnvVars({ workspaceId, onVarsChanged }: { workspaceId: string;
           value={value}
           onChange={(e) => setValue(e.target.value)}
           disabled={!enabled}
-          className="min-w-0 flex-1 rounded-md border border-line bg-field px-2.5 py-1 font-mono text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+          className="h-7 min-w-0 flex-1 font-mono text-xs"
         />
-        <button
-          type="submit"
-          disabled={busy || !enabled || !name.trim()}
-          className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40"
-        >
+        <Button type="submit" size="sm" disabled={busy || !enabled || !name.trim()}>
           {vars.some((v) => v.name === name.trim()) ? "覆盖" : "保存"}
-        </button>
+        </Button>
       </form>
       {error && (
-        <p role="alert" className="text-xs text-bad">
+        <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
       )}
@@ -311,9 +306,9 @@ function SessionEnvVars({ botId, refreshKey = 0 }: { botId: string; refreshKey?:
         type="button"
         data-testid="open-session-env"
         onClick={() => setOpen(true)}
-        className="w-full rounded-lg border border-line bg-raised p-4 text-left text-xs font-medium text-fg hover:bg-hover"
+        className="w-full rounded-lg border border-border bg-card p-4 text-left text-xs font-medium text-foreground hover:bg-muted"
       >
-        本 Session 环境变量 <span className="font-normal text-fg-muted">（覆盖 / 禁用 / 恢复继承）</span>
+        本 Session 环境变量 <span className="font-normal text-muted-foreground">（覆盖 / 禁用 / 恢复继承）</span>
       </button>
     );
   }
@@ -348,35 +343,37 @@ function SessionEnvVars({ botId, refreshKey = 0 }: { botId: string; refreshKey?:
 
   if (!state) {
     return (
-      <section aria-label="Session 环境变量" className="space-y-2 rounded-lg border border-line bg-raised p-4">
-        <p className="text-xs font-medium text-fg">本 Session 环境变量</p>
+      <section aria-label="Session 环境变量" className="space-y-2 rounded-lg border border-border bg-card p-4">
+        <p className="text-xs font-medium text-foreground">本 Session 环境变量</p>
         {error ? (
           <>
-            <p role="alert" className="text-xs text-bad">{error}</p>
-            <button type="button" onClick={() => { setError(undefined); refresh(); }}>重试</button>
+            <p role="alert" className="text-xs text-destructive">{error}</p>
+            <Button type="button" variant="outline" size="xs" onClick={() => { setError(undefined); refresh(); }}>
+              重试
+            </Button>
           </>
-        ) : <p className="text-xs text-fg-faint">加载中…</p>}
+        ) : <p className="text-xs text-muted-foreground">加载中…</p>}
       </section>
     );
   }
 
   return (
-    <section aria-label="Session 环境变量" className="space-y-2 rounded-lg border border-line bg-raised p-4" data-testid="session-env">
-      <p className="text-xs font-medium text-fg">
+    <section aria-label="Session 环境变量" className="space-y-2 rounded-lg border border-border bg-card p-4" data-testid="session-env">
+      <p className="text-xs font-medium text-foreground">
         本 Session 环境变量
-        <button type="button" onClick={() => setOpen(false)} className="ml-2 font-normal text-fg-muted hover:text-fg">
+        <button type="button" onClick={() => setOpen(false)} className="ml-2 font-normal text-muted-foreground hover:text-foreground">
           收起
         </button>
       </p>
-      <p className="text-xs text-fg-muted">
+      <p className="text-xs text-muted-foreground">
         覆盖或禁用只影响本 Session 的新命令/新终端；禁用是 unset，不是空字符串。Loop run 与只读 fork 不获得用户变量。
-        {!state.enabled && <span className="text-bad"> 未配置 TARSBOT_ENV_KEY，功能已禁用。</span>}
+        {!state.enabled && <span className="text-destructive"> 未配置 TARSBOT_ENV_KEY，功能已禁用。</span>}
       </p>
       {state.restricted ? (
-        <p className="text-xs text-fg-faint">受限 Session（loop run / 只读 fork）：不使用工作区环境变量，也不可配置。</p>
+        <p className="text-xs text-muted-foreground">受限 Session（loop run / 只读 fork）：不使用工作区环境变量，也不可配置。</p>
       ) : (
         <>
-          {state.entries.length === 0 && <p className="text-xs text-fg-faint">工作区未设置默认变量。</p>}
+          {state.entries.length === 0 && <p className="text-xs text-muted-foreground">工作区未设置默认变量。</p>}
           {state.entries.map((en) => (
             <EnvRow
               key={en.name}
@@ -385,39 +382,41 @@ function SessionEnvVars({ botId, refreshKey = 0 }: { botId: string; refreshKey?:
               actions={
                 <span className="flex gap-1">
                   {en.mode !== "disabled" && (
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="xs"
                       disabled={busy || !state.enabled}
                       onClick={() => void apply(en.name, { mode: "disabled" })}
-                      className="rounded-md border border-line-strong px-2 py-0.5 text-xs text-fg-dim hover:bg-hover disabled:opacity-40"
                     >
                       禁用
-                    </button>
+                    </Button>
                   )}
                   {en.mode !== "inherit" && (
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="xs"
                       disabled={busy || !state.enabled}
                       onClick={() => void apply(en.name, { mode: "inherit" })}
-                      className="rounded-md border border-line-strong px-2 py-0.5 text-xs text-fg-dim hover:bg-hover disabled:opacity-40"
                     >
                       {en.mode === "disabled" && !en.inherits ? "移除覆盖" : "恢复继承"}
-                    </button>
+                    </Button>
                   )}
                 </span>
               }
             />
           ))}
           <form onSubmit={submit} className="flex items-center gap-2">
-            <input
+            <Input
               aria-label="覆盖变量名"
               placeholder="NAME"
               value={name}
               onChange={(e) => setName(e.target.value)}
               disabled={!state.enabled}
-              className="w-40 rounded-md border border-line bg-field px-2.5 py-1 font-mono text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+              className="h-7 w-40 font-mono text-xs"
             />
-            <input
+            <Input
               aria-label="覆盖变量值"
               type="password"
               autoComplete="off"
@@ -425,20 +424,16 @@ function SessionEnvVars({ botId, refreshKey = 0 }: { botId: string; refreshKey?:
               value={value}
               onChange={(e) => setValue(e.target.value)}
               disabled={!state.enabled}
-              className="min-w-0 flex-1 rounded-md border border-line bg-field px-2.5 py-1 font-mono text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+              className="h-7 min-w-0 flex-1 font-mono text-xs"
             />
-            <button
-              type="submit"
-              disabled={busy || !state.enabled || !name.trim()}
-              className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40"
-            >
+            <Button type="submit" size="sm" disabled={busy || !state.enabled || !name.trim()}>
               覆盖
-            </button>
+            </Button>
           </form>
         </>
       )}
       {error && (
-        <p role="alert" className="text-xs text-bad">
+        <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
       )}
@@ -449,8 +444,8 @@ function SessionEnvVars({ botId, refreshKey = 0 }: { botId: string; refreshKey?:
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <>
-      <dt className="text-xs text-fg-muted">{label}</dt>
-      <dd className="min-w-0 break-all text-fg">{children}</dd>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-all text-foreground">{children}</dd>
     </>
   );
 }
@@ -474,7 +469,7 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   }, [botId]);
 
   if (!workspace) {
-    return <p className="p-4 text-sm text-fg-muted">{loading ? "加载中…" : "还没有工作区。新建一个工作区后，这里会显示它的环境信息。"}</p>;
+    return <p className="p-4 text-sm text-muted-foreground">{loading ? "加载中…" : "还没有工作区。新建一个工作区后，这里会显示它的环境信息。"}</p>;
   }
 
   const agent = vm?.agent;
@@ -496,7 +491,7 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   return (
     <div className="space-y-4 p-4">
       <dl
-        className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 rounded-lg border border-line bg-raised p-4 text-sm"
+        className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 rounded-lg border border-border bg-card p-4 text-sm"
         data-testid="sprite-card"
         data-sandbox={workspace.binding?.provider ?? ""}
       >
@@ -509,7 +504,7 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
           {baseSha && (
             <>
               {" "}
-              <span className="text-fg-muted">@</span> <code className={code}>{baseSha}</code>
+              <span className="text-muted-foreground">@</span> <code className={code}>{baseSha}</code>
             </>
           )}
         </Row>
@@ -524,7 +519,7 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
               ) : (
                 <span>
                   <code className={code}>detached @ {shortSha(own.pinnedSha) ?? own.pinnedSha}</code>
-                  <span className="ml-2 text-xs text-fg-muted">无功能分支</span>
+                  <span className="ml-2 text-xs text-muted-foreground">无功能分支</span>
                 </span>
               )}
             </Row>
@@ -538,10 +533,10 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
           {env ? (
             <>
               <code className={code}>{env}</code>
-              {workspace.binding && <span className="ml-2 text-xs text-fg-muted">绑定版本 v{workspace.binding.version}</span>}
+              {workspace.binding && <span className="ml-2 text-xs text-muted-foreground">绑定版本 v{workspace.binding.version}</span>}
             </>
           ) : (
-            <span className="text-fg-muted">尚未绑定</span>
+            <span className="text-muted-foreground">尚未绑定</span>
           )}
         </Row>
         {model && (
@@ -559,23 +554,23 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
       {bot && (isExecution || (bot.loopRun && result)) && (
         <section aria-label="执行结果" className="space-y-2">
           {result ? (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-line bg-raised p-4 text-sm" data-testid="execution-result">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-lg border border-border bg-card p-4 text-sm" data-testid="execution-result">
               <Row label="结果摘要">{result.summary}</Row>
               <Row label="测试记录">
                 {result.testsReportedByHuman ? (
                   <span>
-                    {result.testsReportedByHuman} <span className="text-xs text-fg-muted">（人工填写）</span>
+                    {result.testsReportedByHuman} <span className="text-xs text-muted-foreground">（人工填写）</span>
                   </span>
                 ) : (
-                  <span className="text-fg-muted">未记录</span>
+                  <span className="text-muted-foreground">未记录</span>
                 )}
               </Row>
               {result.pull && (
                 <Row label="关联 PR">
-                  <a className="text-accent underline" href={result.pull.url} target="_blank" rel="noreferrer">
+                  <a className="text-primary underline" href={result.pull.url} target="_blank" rel="noreferrer">
                     #{result.pull.number} {result.pull.title}
                   </a>
-                  {result.pull.state && <span className="ml-2 text-xs text-fg-muted">{result.pull.state}</span>}
+                  {result.pull.state && <span className="ml-2 text-xs text-muted-foreground">{result.pull.state}</span>}
                 </Row>
               )}
               <Row label="上报于">{result.reportedAt}</Row>
@@ -592,14 +587,9 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
               onCancel={() => setResultFormOpen(false)}
             />
           ) : (
-            <button
-              type="button"
-              data-testid="open-result-form"
-              onClick={() => setResultFormOpen(true)}
-              className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
-            >
+            <Button type="button" variant="outline" size="sm" data-testid="open-result-form" onClick={() => setResultFormOpen(true)}>
               填写执行结果
-            </button>
+            </Button>
           )}
         </section>
       )}
@@ -614,7 +604,7 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
         <SessionEnvVars key={`sess-env-${workspace.id}-${bot.id}`} botId={bot.id} refreshKey={wsEnvVersion} />
       )}
       {bot && (bot.readOnly || bot.loopRun?.runId) && (
-        <p className="rounded-lg border border-line bg-raised p-4 text-xs text-fg-muted" data-testid="session-env-restricted">
+        <p className="rounded-lg border border-border bg-card p-4 text-xs text-muted-foreground" data-testid="session-env-restricted">
           受限 Session（loop run / 只读 fork）：不继承工作区环境变量，也不可配置。
         </p>
       )}

@@ -71,8 +71,8 @@ const notes: ChatMessage[] = [
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="flex min-h-0 flex-col border-b border-line">
-      <h2 className="border-b border-line bg-raised px-4 py-1.5 font-mono text-xs text-fg-muted">{title}</h2>
+    <section className="flex min-h-0 flex-col border-b border-border">
+      <h2 className="border-b border-border bg-card px-4 py-1.5 font-mono text-xs text-muted-foreground">{title}</h2>
       {children}
     </section>
   );
@@ -81,7 +81,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Gallery() {
   const [log, setLog] = useState("");
   return (
-    <div className="min-h-screen bg-surface text-fg">
+    <div className="min-h-screen bg-background text-foreground">
       <Section title="settled turn (folded behind “Worked for …”)">
         <div className="h-[1000px] flex flex-col"><MessageList messages={settled} busy={false} onFork={() => {}} /></div>
       </Section>
@@ -102,10 +102,10 @@ function Gallery() {
           model="swe-2"
           onSend={(t) => setLog(t)}
           onAbort={() => {}}
-          context={<div className="mt-2 rounded-lg border border-line bg-raised px-3 py-1.5 text-xs text-fg-dim">sprite · /home/sprite/workspace</div>}
-          status={<p className="mt-1.5 text-center text-[11px] text-fg-muted">connected · 12.3k tokens</p>}
+          context={<div className="mt-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground">sprite · /home/sprite/workspace</div>}
+          status={<p className="mt-1.5 text-center text-[11px] text-muted-foreground">connected · 12.3k tokens</p>}
         />
-        <p className="px-4 pb-2 font-mono text-xs text-fg-faint">last: {log}</p>
+        <p className="px-4 pb-2 font-mono text-xs text-muted-foreground/70">last: {log}</p>
       </Section>
     </div>
   );

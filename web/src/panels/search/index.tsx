@@ -4,7 +4,9 @@
 // pasting reference text into the normal composer (the server re-reads and labels the cited entries).
 import { useCallback, useMemo, useState } from "react";
 import { ApiError, request } from "../../lib/api";
-import { cx } from "../../lib/cx";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
 import type { BotSummary } from "../../types";
 import type { PanelContext, PanelDefinition } from "../types";
 
@@ -142,12 +144,12 @@ export function SessionSearchPanel({ bot }: PanelContext) {
   }, [workspaceId, bot, question, refs]);
 
   if (!workspaceId) {
-    return <div className="p-4 text-xs text-fg-muted">当前会话不属于任何工作区，无法跨会话搜索。</div>;
+    return <div className="p-4 text-xs text-muted-foreground">当前会话不属于任何工作区，无法跨会话搜索。</div>;
   }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-line p-3">
+      <div className="border-b border-border p-3">
         <form
           className="flex gap-2"
           onSubmit={(e) => {
@@ -155,23 +157,24 @@ export function SessionSearchPanel({ bot }: PanelContext) {
             void search();
           }}
         >
-          <input
+          <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="搜索同工作区所有会话历史…"
             aria-label="搜索同工作区会话"
-            className="h-8 min-w-0 flex-1 rounded-lg border border-line-strong bg-field px-2.5 text-[12.5px] text-fg placeholder:text-fg-faint focus-visible:outline-2 focus-visible:outline-accent"
+            className="min-w-0 flex-1 text-[12.5px]"
           />
-          <button
+          <Button
             type="submit"
+            size="sm"
             disabled={loading || !q.trim()}
-            className="h-8 shrink-0 rounded-lg bg-accent/90 px-3 text-[12.5px] font-medium text-white hover:bg-accent disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
+            className="h-8 shrink-0 text-[12.5px]"
           >
             {loading ? "搜索中…" : "搜索"}
-          </button>
+          </Button>
         </form>
         {data && (
-          <p className="mt-1.5 text-[11px] text-fg-muted">
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
             {data.results.length} 条结果 · 扫描 {data.scanned} 条历史（{data.sessionsScanned} 个会话）
             {data.truncated ? " · 已达扫描/结果上限，结果不完整" : ""}
           </p>
@@ -180,7 +183,7 @@ export function SessionSearchPanel({ bot }: PanelContext) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error && (
-          <p role="alert" className="m-3 rounded-lg border border-bad/40 bg-bad/10 px-3 py-2 text-xs text-bad">
+          <p role="alert" className="m-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {error}
           </p>
         )}
@@ -189,8 +192,8 @@ export function SessionSearchPanel({ bot }: PanelContext) {
             {sentNote}
           </p>
         )}
-        {data && data.results.length === 0 && !error && <p className="p-4 text-xs text-fg-muted">没有匹配的历史记录。</p>}
-        <ul className="divide-y divide-line-soft">
+        {data && data.results.length === 0 && !error && <p className="p-4 text-xs text-muted-foreground">没有匹配的历史记录。</p>}
+        <ul className="divide-y divide-border">
           {data?.results.map((r) => {
             const key = refKey(r);
             const open = Boolean(previewOpen[key]);
@@ -203,31 +206,31 @@ export function SessionSearchPanel({ bot }: PanelContext) {
                     checked={checked.has(key)}
                     disabled={!checked.has(key) && refs.length >= MAX_REFERENCES}
                     onChange={() => toggleCheck(r)}
-                    className="mt-1 shrink-0 accent-[#4b8dff]"
+                    className="mt-1 shrink-0 accent-primary"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <a
                         href={botLink(r.botId)}
-                        className="max-w-40 truncate text-[12px] font-medium text-accent hover:underline"
+                        className="max-w-40 truncate text-[12px] font-medium text-primary hover:underline"
                         title={`打开会话 ${r.botName}`}
                       >
                         {r.botName}
                       </a>
-                      <span className="rounded bg-[#222] px-1.5 py-0.5 text-[10px] text-fg-dim">{r.role}</span>
-                      <span className="text-[10px] text-fg-faint">entry {r.entryId}</span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{r.role}</span>
+                      <span className="text-[10px] text-muted-foreground/70">entry {r.entryId}</span>
                       <button
                         type="button"
                         onClick={() => void togglePreview(r)}
                         aria-expanded={open}
-                        className="text-[11px] text-fg-muted underline hover:text-fg-dim focus-visible:outline-2 focus-visible:outline-accent"
+                        className="text-[11px] text-muted-foreground underline hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
                       >
                         {open ? "收起预览" : "预览原文"}
                       </button>
                     </div>
-                    <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-fg-dim">{r.snippet}</p>
+                    <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-muted-foreground">{r.snippet}</p>
                     {open && (
-                      <pre className="mt-1.5 max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-raised p-2.5 text-[11.5px] leading-5 text-fg-dim">
+                      <pre className="mt-1.5 max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted p-2.5 text-[11.5px] leading-5 text-muted-foreground">
                         {preview[key]?.text ?? "加载中…"}
                       </pre>
                     )}
@@ -240,29 +243,27 @@ export function SessionSearchPanel({ bot }: PanelContext) {
       </div>
 
       {refs.length > 0 && (
-        <div className="border-t border-line p-3">
-          <p className="mb-1.5 text-[11px] text-fg-muted">
+        <div className="border-t border-border p-3">
+          <p className="mb-1.5 text-[11px] text-muted-foreground">
             已选 {refs.length}/{MAX_REFERENCES} 条引用 · 将作为参考资料（非指令）发送到当前会话 “{bot?.name ?? "?"}”
           </p>
-          <textarea
+          <Textarea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             rows={3}
             placeholder="针对所选引用，输入你的问题…"
             aria-label="针对引用输入问题"
-            className="w-full resize-y rounded-lg border border-line-strong bg-field px-2.5 py-2 text-[12.5px] text-fg placeholder:text-fg-faint focus-visible:outline-2 focus-visible:outline-accent"
+            className="resize-y text-[12.5px]"
           />
-          <button
+          <Button
             type="button"
+            size="sm"
             onClick={() => void send()}
             disabled={sending || !question.trim()}
-            className={cx(
-              "mt-2 h-8 rounded-lg px-3 text-[12.5px] font-medium text-white focus-visible:outline-2 focus-visible:outline-accent",
-              sending || !question.trim() ? "bg-accent/40" : "bg-accent/90 hover:bg-accent",
-            )}
+            className="mt-2 h-8 text-[12.5px]"
           >
             {sending ? "发送中…" : `发送问题 + ${refs.length} 条引用`}
-          </button>
+          </Button>
         </div>
       )}
     </div>

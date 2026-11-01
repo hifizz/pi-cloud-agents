@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { cx } from "../../lib/cx";
+import { cn } from "../../lib/utils";
 import { clip } from "../../lib/format";
 import type { TurnChange } from "../../lib/turns";
 
@@ -34,13 +34,13 @@ export function TurnSelect({ turns, value, onChange }: { turns: TurnChange[]; va
         aria-expanded={open}
         aria-label="Select turn"
         onClick={() => setOpen((o) => !o)}
-        className="flex h-7 items-center gap-1.5 rounded-md border border-line-strong bg-raised px-2.5 text-xs text-fg hover:bg-hover"
+        className="flex h-7 items-center gap-1.5 rounded-md border border-input bg-muted px-2.5 text-xs text-foreground hover:bg-muted/80"
       >
         {current ? `Turn ${current.index}` : "No turns"}
-        <span aria-hidden className="text-fg-muted">▾</span>
+        <span aria-hidden className="text-muted-foreground">▾</span>
       </button>
       {open && (
-        <div role="listbox" aria-label="Turns" className="absolute left-0 top-8 z-20 max-h-72 w-72 overflow-auto rounded-lg border border-line-strong bg-raised p-1 shadow-xl">
+        <div role="listbox" aria-label="Turns" className="absolute left-0 top-8 z-20 max-h-72 w-72 overflow-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-xl">
           {turns.map((t) => (
             <button
               key={t.key}
@@ -51,10 +51,10 @@ export function TurnSelect({ turns, value, onChange }: { turns: TurnChange[]; va
                 onChange(t.key);
                 setOpen(false);
               }}
-              className={cx("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-hover", t.key === value && "bg-selected")}
+              className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted", t.key === value && "bg-muted")}
             >
-              <span className="shrink-0 text-fg">Turn {t.index}</span>
-              <span className="min-w-0 flex-1 truncate text-fg-muted">{t.title ? clip(t.title, 40) : ""}</span>
+              <span className="shrink-0 text-foreground">Turn {t.index}</span>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{t.title ? clip(t.title, 40) : ""}</span>
               <span className="shrink-0 font-mono text-ok">+{t.add}</span>
               <span className="shrink-0 font-mono text-bad">−{t.del}</span>
             </button>

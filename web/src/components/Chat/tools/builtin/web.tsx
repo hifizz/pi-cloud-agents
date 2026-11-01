@@ -42,16 +42,16 @@ function WebSearchBody({ tool }: { tool: ToolPart }) {
   const results = tool.status === "error" ? null : parseSearchResults(tool.output);
   if (!results) return <ResultOutput tool={tool} />;
   return (
-    <ol aria-label="Search results" className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-[#0e0e0e]">
+    <ol aria-label="Search results" className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
       {results.map((r, i) => (
         <li key={i}>
-          <a href={r.url} target="_blank" rel="noreferrer noopener" className="block px-3 py-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent">
-            <span className="block truncate text-[13px] text-fg">{r.title}</span>
-            <span className="block truncate font-mono text-[11px] text-fg-muted">
+          <a href={r.url} target="_blank" rel="noreferrer noopener" className="block px-3 py-2 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring">
+            <span className="block truncate text-[13px] text-foreground">{r.title}</span>
+            <span className="block truncate font-mono text-[11px] text-muted-foreground">
               {host(r.url)}
               {r.date ? ` · ${r.date.slice(0, 10)}` : ""}
             </span>
-            {r.snippet && <span className="mt-0.5 line-clamp-2 block text-xs text-fg-dim">{r.snippet}</span>}
+            {r.snippet && <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">{r.snippet}</span>}
           </a>
         </li>
       ))}
@@ -65,7 +65,7 @@ export const webSearchTool: ToolRenderer = {
   detail: (t) => argStr(t, "query") ?? "",
   stat: (t) => {
     const n = t.status === "done" ? parseSearchResults(t.output)?.length : undefined;
-    return n ? <span className="text-fg-faint">{n} results</span> : null;
+    return n ? <span className="text-muted-foreground/60">{n} results</span> : null;
   },
   Body: WebSearchBody,
 };

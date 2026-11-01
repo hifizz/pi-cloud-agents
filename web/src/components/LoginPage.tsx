@@ -1,16 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, auth, googleLoginUrl } from "../lib/api";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 const AUTH_ERRORS: Record<string, string> = {
   denied: "该邮箱不在允许名单",
   state: "登录失败，请重试",
   exchange: "登录失败，请重试",
 };
-
-const inputCls =
-  "w-full rounded-md border border-line-strong bg-field px-3 py-2 text-sm text-fg focus-visible:outline-2 focus-visible:outline-accent";
-const btnCls =
-  "w-full rounded-md border border-line-strong px-3 py-2 text-center text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
 
 export function LoginPage({ onLoggedIn }: { onLoggedIn: (email: string) => void }) {
   const [email, setEmail] = useState("");
@@ -43,33 +41,33 @@ export function LoginPage({ onLoggedIn }: { onLoggedIn: (email: string) => void 
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-surface p-4 text-fg">
+    <main className="flex min-h-screen items-center justify-center bg-background p-4 text-foreground">
       <div className="w-full max-w-sm space-y-5">
         <h1 className="text-center text-xl font-semibold">pi-cloud-agents</h1>
         {error && (
-          <p role="alert" className="rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
+          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {error}
           </p>
         )}
-        <a href={googleLoginUrl} className={btnCls}>
+        <Button render={<a href={googleLoginUrl} />} variant="outline" className="w-full">
           使用 Google 登录
-        </a>
+        </Button>
         <form onSubmit={(e) => void submit(e)} className="space-y-3">
           <div className="space-y-1">
-            <label htmlFor="login-email" className="text-xs text-fg-muted">
+            <Label htmlFor="login-email" className="text-xs text-muted-foreground">
               邮箱
-            </label>
-            <input id="login-email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
+            </Label>
+            <Input id="login-email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div className="space-y-1">
-            <label htmlFor="login-password" className="text-xs text-fg-muted">
+            <Label htmlFor="login-password" className="text-xs text-muted-foreground">
               密码
-            </label>
-            <input id="login-password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />
+            </Label>
+            <Input id="login-password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-          <button type="submit" disabled={busy} className={btnCls}>
+          <Button type="submit" disabled={busy} className="w-full">
             {busy ? "登录中…" : "登录"}
-          </button>
+          </Button>
         </form>
       </div>
     </main>

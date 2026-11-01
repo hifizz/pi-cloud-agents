@@ -70,18 +70,18 @@ export function DiffFileCard({ file, collapsed, wrap, onToggle, selected }: Prop
   const lang = extOf(file.path);
   const rows = useMemo(() => file.lines, [file.lines]);
   return (
-    <section role="group" aria-label={`Changes in ${file.path}`} data-path={file.path} data-selected={selected || undefined} className="border-b border-line">
-      <header className="sticky top-0 z-10 flex h-9 items-center gap-2 border-b border-line bg-surface px-3 text-xs">
+    <section role="group" aria-label={`Changes in ${file.path}`} data-path={file.path} data-selected={selected || undefined} className="border-b border-border">
+      <header className="sticky top-0 z-10 flex h-9 items-center gap-2 border-b border-border bg-background px-3 text-xs">
         <button type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? "Expand" : "Collapse"} ${file.path}`} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           <Icon name="chevron" className={cx("text-fg-muted transition-transform", !collapsed && "rotate-90")} />
-          <span className="rounded bg-raised px-1.5 py-px font-mono text-[10px] text-fg-dim">{langBadge(file.path)}</span>
-          <span className="min-w-0 truncate font-mono text-fg" title={file.path}>{file.path}</span>
+          <span className="rounded bg-muted px-1.5 py-px font-mono text-[10px] text-muted-foreground">{langBadge(file.path)}</span>
+          <span className="min-w-0 truncate font-mono text-foreground" title={file.path}>{file.path}</span>
         </button>
         <button
           type="button"
           aria-label="Copy path"
           onClick={() => void navigator.clipboard?.writeText(file.path)}
-          className="rounded p-1 text-fg-muted hover:bg-hover hover:text-fg"
+          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <Icon name="copy" />
         </button>

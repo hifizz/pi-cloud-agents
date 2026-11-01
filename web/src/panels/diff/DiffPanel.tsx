@@ -63,7 +63,7 @@ export function DiffPanel({ source = conversationSource, ...ctx }: PanelContext 
     });
 
   return (
-    <div className="flex h-full flex-col bg-surface">
+    <div className="flex h-full flex-col bg-background">
       <DiffToolbar
         turns={turns}
         turn={turn}
@@ -73,9 +73,9 @@ export function DiffPanel({ source = conversationSource, ...ctx }: PanelContext 
         allCollapsed={allCollapsed}
         onToggleAll={() => setCollapsed(allCollapsed ? new Set() : new Set(files.map((f) => f.path)))}
       />
-      {error && <p role="alert" className="px-4 py-2 text-xs text-bad">{error}</p>}
+      {error && <p role="alert" className="px-4 py-2 text-xs text-destructive">{error}</p>}
       {!turn ? (
-        loading ? <p className="p-4 text-sm text-fg-muted">Loading…</p> : <EmptyState />
+        loading ? <p className="p-4 text-sm text-muted-foreground">Loading…</p> : <EmptyState />
       ) : (
         <>
           <FileChips

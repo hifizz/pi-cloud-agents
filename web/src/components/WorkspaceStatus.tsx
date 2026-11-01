@@ -21,12 +21,14 @@ import {
   type WorkspaceState,
 } from "../lib/workspaces";
 import { Icon } from "./Chat/primitives/Icon";
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 
 const DOT: Record<WorkspaceState, string> = {
   preparing: "animate-pulse bg-warn",
   ready: "bg-ok",
-  failed: "bg-bad",
-  archived: "bg-fg-faint",
+  failed: "bg-destructive",
+  archived: "bg-muted-foreground",
 };
 
 /** Status dot with an accessible name ("准备中" / "就绪" / "失败"). */
@@ -36,22 +38,19 @@ export function StatusDot({ status, className }: { status: WorkspaceState; class
 
 function StepIcon({ state }: { state: StepState }) {
   if (state === "done") return <Icon name="check" className="size-3.5 text-ok" />;
-  if (state === "failed") return <Icon name="alert" className="size-3.5 text-bad" />;
+  if (state === "failed") return <Icon name="alert" className="size-3.5 text-destructive" />;
   if (state === "unknown") return <Icon name="alert" className="size-3.5 text-warn" />;
-  if (state === "running") return <span aria-hidden="true" className="m-[3px] size-2 animate-pulse rounded-full bg-accent" />;
-  return <span aria-hidden="true" className="m-[3px] size-2 rounded-full border border-fg-faint" />;
+  if (state === "running") return <span aria-hidden="true" className="m-[3px] size-2 animate-pulse rounded-full bg-brand" />;
+  return <span aria-hidden="true" className="m-[3px] size-2 rounded-full border border-muted-foreground" />;
 }
 
 const STATE_TEXT: Record<StepState, string> = {
-  pending: "text-fg-faint",
-  running: "text-accent",
-  done: "text-fg-dim",
-  failed: "text-bad",
+  pending: "text-muted-foreground",
+  running: "text-brand",
+  done: "text-muted-foreground",
+  failed: "text-destructive",
   unknown: "text-warn",
 };
-
-const retryButton =
-  "shrink-0 rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
 
 export interface WorkspaceStatusProps {
   workspace: Workspace;
@@ -83,12 +82,12 @@ export function WorkspaceStatus({ workspace, onUpdate, variant = "full" }: Works
   const failedStep = steps.find((s) => s.state === "failed" || s.state === "unknown");
   const reason = workspace.error || failedStep?.error || undefined;
   const retryNode = canRetry && (
-    <button type="button" onClick={() => void retry()} disabled={retrying} className={retryButton}>
+    <Button type="button" variant="outline" size="sm" onClick={() => void retry()} disabled={retrying} className="shrink-0">
       {retrying ? "重试中…" : "重试"}
-    </button>
+    </Button>
   );
   const retryErrorNode = retryError && (
-    <p role="alert" className="text-xs text-bad">
+    <p role="alert" className="text-xs text-destructive">
       重试失败：{retryError}
     </p>
   );
@@ -111,8 +110,8 @@ export function WorkspaceStatus({ workspace, onUpdate, variant = "full" }: Works
     }
     return (
       <div className="mx-auto w-full max-w-[720px] px-[18px] pt-2">
-        <div className="flex items-start gap-3 rounded-lg border border-line-strong bg-raised px-3 py-2 text-xs">
-          <p role={tone} className={cx("min-w-0 flex-1 break-words", tone === "alert" ? "text-warn" : "text-fg-dim")}>
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-card px-3 py-2 text-xs">
+          <p role={tone} className={cx("min-w-0 flex-1 break-words", tone === "alert" ? "text-warn" : "text-muted-foreground")}>
             {text}
           </p>
           {retryNode}
@@ -123,10 +122,10 @@ export function WorkspaceStatus({ workspace, onUpdate, variant = "full" }: Works
   }
 
   return (
-    <section aria-label="工作区状态" className="rounded-lg border border-line bg-raised p-4 text-sm">
+    <section aria-label="工作区状态" className="rounded-lg border border-border bg-card p-4 text-sm">
       <div className="flex items-center gap-2">
         <StatusDot status={workspace.status} />
-        <h2 className="min-w-0 flex-1 text-sm font-semibold text-fg">
+        <h2 className="min-w-0 flex-1 text-sm font-semibold text-foreground">
           {workspace.status === "ready" ? "工作区已就绪" : workspace.status === "failed" ? "工作区准备失败" : workspace.status === "archived" ? "工作区已归档" : "正在准备工作区"}
         </h2>
         {retryNode}
@@ -139,30 +138,26 @@ export function WorkspaceStatus({ workspace, onUpdate, variant = "full" }: Works
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[13px] text-fg">{STEP_LABEL[s.step]}</span>
+                <span className="text-[13px] text-foreground">{STEP_LABEL[s.step]}</span>
                 <span className={cx("shrink-0 text-xs", STATE_TEXT[s.state])}>{STEP_STATE_LABEL[s.state]}</span>
               </div>
-              {s.error && (s.state === "failed" || s.state === "unknown") && <p className="mt-0.5 break-words text-xs text-fg-muted">{s.error}</p>}
+              {s.error && (s.state === "failed" || s.state === "unknown") && <p className="mt-0.5 break-words text-xs text-muted-foreground">{s.error}</p>}
             </div>
           </li>
         ))}
       </ol>
       {workspace.error && workspace.error !== failedStep?.error && (
-        <p role="alert" className="mt-3 break-words text-xs text-bad">
+        <p role="alert" className="mt-3 break-words text-xs text-destructive">
           {workspace.error}
         </p>
       )}
-      {current?.state === "unknown" && <p className="mt-3 text-xs text-fg-muted">无法确认这一步是否已经执行。点击「重试」会先核对现状，再决定是否继续。</p>}
+      {current?.state === "unknown" && <p className="mt-3 text-xs text-muted-foreground">无法确认这一步是否已经执行。点击「重试」会先核对现状，再决定是否继续。</p>}
       {retryError && <div className="mt-2">{retryErrorNode}</div>}
     </section>
   );
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Operations on a ready workspace: create PR, save checkpoint, checkpoint list, rebuild from a checkpoint.
-
-const actionBtn =
-  "rounded-md border border-line-strong px-2.5 py-1.5 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
 
 function RebuildConfirm({
   checkpoint,
@@ -178,40 +173,29 @@ function RebuildConfirm({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="rebuild-title"
-        onKeyDown={(e) => e.key === "Escape" && !busy && onCancel()}
-        className="w-96 max-w-full rounded-lg border border-line-strong bg-raised p-4 shadow-xl"
-      >
-        <h2 id="rebuild-title" className="text-sm font-semibold text-fg">
+    <Dialog open onOpenChange={(open) => !open && !busy && onCancel()}>
+      <DialogContent aria-labelledby="rebuild-title" showCloseButton={false} className="w-96">
+        <DialogTitle id="rebuild-title" className="text-sm font-semibold">
           从检查点重建环境
-        </h2>
-        <p className="mt-2 text-xs text-fg-dim">
+        </DialogTitle>
+        <DialogDescription className="text-xs">
           会新建一台环境并恢复到该检查点（{formatTime(checkpoint.createdAt) || "时间未知"} · {formatBytes(checkpoint.size)}）。旧环境不会被删除，但新环境只包含该检查点的内容：比它更新的提交和未保存改动都不会出现在新环境里，只留在旧环境中。
-        </p>
+        </DialogDescription>
         {error && (
-          <p role="alert" className="mt-2 break-words text-xs text-bad">
+          <p role="alert" className="break-words text-xs text-destructive">
             重建失败：{error}
           </p>
         )}
-        <div className="mt-3 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} disabled={busy} className={actionBtn}>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
             取消
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className="rounded-md bg-brand px-3 py-1.5 text-xs font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
-          >
+          </Button>
+          <Button type="button" onClick={onConfirm} disabled={busy}>
             {busy ? "重建中…" : error ? "重试重建" : "确认重建"}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -313,22 +297,22 @@ export function WorkspaceActions({ workspace, onChanged }: WorkspaceActionsProps
   return (
     <section aria-label="工作区操作" className="space-y-4 text-sm">
       <div>
-        <h3 className="text-xs font-medium text-fg-muted">交付</h3>
+        <h3 className="text-xs font-medium text-muted-foreground">交付</h3>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => void createPr()} disabled={prBusy} className={actionBtn}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void createPr()} disabled={prBusy}>
             {prBusy ? "创建中…" : "创建 PR"}
-          </button>
+          </Button>
           {pr && (
-            <span role="status" className="min-w-0 break-all text-xs text-fg-dim">
+            <span role="status" className="min-w-0 break-all text-xs text-muted-foreground">
               {pr.created ? "PR 已创建：" : "PR 已存在："}
-              <a href={pr.pull.url} target="_blank" rel="noreferrer" className="text-accent underline">
+              <a href={pr.pull.url} target="_blank" rel="noreferrer" className="text-brand underline">
                 #{pr.pull.number}
               </a>
             </span>
           )}
         </div>
         {prError && (
-          <p role="alert" className="mt-1 break-words text-xs text-bad">
+          <p role="alert" className="mt-1 break-words text-xs text-destructive">
             创建 PR 失败：{prError}。可以再次点击重试。
           </p>
         )}
@@ -336,14 +320,14 @@ export function WorkspaceActions({ workspace, onChanged }: WorkspaceActionsProps
 
       <div>
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-medium text-fg-muted">检查点</h3>
-          <button type="button" onClick={() => void save()} disabled={saving} className={actionBtn}>
+          <h3 className="text-xs font-medium text-muted-foreground">检查点</h3>
+          <Button type="button" variant="outline" size="sm" onClick={() => void save()} disabled={saving}>
             {saving ? "保存中…" : "保存检查点"}
-          </button>
+          </Button>
         </div>
-        <p className="mt-1 text-xs text-fg-faint">保存未提交的代码，用于在新环境中恢复。被 .gitignore 忽略的文件不包含在内。</p>
+        <p className="mt-1 text-xs text-muted-foreground">保存未提交的代码，用于在新环境中恢复。被 .gitignore 忽略的文件不包含在内。</p>
         {saved && (
-          <p role="status" className="mt-1 text-xs text-fg-dim">
+          <p role="status" className="mt-1 text-xs text-muted-foreground">
             {saved.unchanged ? "与上一个检查点相同，没有新建：" : "已保存："}
             {formatTime(saved.createdAt) || "刚刚"} · {formatBytes(saved.size)}
           </p>
@@ -358,31 +342,31 @@ export function WorkspaceActions({ workspace, onChanged }: WorkspaceActionsProps
           </ul>
         )}
         {saveError && (
-          <p role="alert" className="mt-1 break-words text-xs text-bad">
+          <p role="alert" className="mt-1 break-words text-xs text-destructive">
             保存检查点失败：{saveError}
           </p>
         )}
         {listError && (
-          <p role="alert" className="mt-1 text-xs text-bad">
+          <p role="alert" className="mt-1 text-xs text-destructive">
             无法加载检查点列表：{listError}{" "}
             <button type="button" onClick={() => void loadCheckpoints()} className="underline">
               重新加载
             </button>
           </p>
         )}
-        {checkpoints && checkpoints.length === 0 && !listError && <p className="mt-2 text-xs text-fg-muted">还没有检查点。</p>}
+        {checkpoints && checkpoints.length === 0 && !listError && <p className="mt-2 text-xs text-muted-foreground">还没有检查点。</p>}
         {checkpoints && checkpoints.length > 0 && (
           <ul aria-label="检查点列表" className="mt-2 space-y-1">
             {checkpoints.map((cp) => (
-              <li key={String(cp.id)} data-testid="checkpoint-item" className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1.5">
-                <span className="min-w-0 flex-1 text-xs text-fg-dim">
+              <li key={String(cp.id)} data-testid="checkpoint-item" className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
+                <span className="min-w-0 flex-1 text-xs text-muted-foreground">
                   {formatTime(cp.createdAt) || "时间未知"} · {formatBytes(cp.size)}
                   {typeof cp.fileCount === "number" ? ` · ${cp.fileCount} 个文件` : ""}
                   {cp.bindingVersion ? ` · 环境 v${cp.bindingVersion}` : ""}
                 </span>
-                <button type="button" onClick={() => openRebuild(cp)} className={actionBtn} aria-label={`从 ${formatTime(cp.createdAt) || "该"} 检查点重建`}>
+                <Button type="button" variant="outline" size="sm" onClick={() => openRebuild(cp)} aria-label={`从 ${formatTime(cp.createdAt) || "该"} 检查点重建`}>
                   重建
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

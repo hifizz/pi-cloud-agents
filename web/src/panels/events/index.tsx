@@ -3,6 +3,9 @@
 // autoAppend do it for subscribed issues/PRs). Off by default; no public webhook; test repo only (server enforces).
 import { useCallback, useContext, useEffect, useState } from "react";
 import { request } from "../../lib/api";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Card } from "../../components/ui/card";
 import { WorkspaceContext, describeError, formatTime } from "../../lib/workspaces";
 import type { PanelContext, PanelDefinition } from "../types";
 
@@ -79,10 +82,6 @@ export const eventsApi = {
   disable: (wsId: string) => request<EventsSyncState>("POST", `/api/workspaces/${enc(wsId)}/events/disable`, {}),
 };
 
-const btn =
-  "rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40";
-const btnAccent = "rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40";
-
 const KIND_LABEL: Record<SyncEvent["kind"], string> = {
   issue: "Issue",
   pr: "PR",
@@ -121,11 +120,11 @@ function eventTargetKey(ev: SyncEvent): string | null {
 
 function Toggle({ label, checked, disabled, onChange, hint }: { label: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void; hint?: string }) {
   return (
-    <label className="flex items-start gap-2 text-xs text-fg">
-      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5" />
+    <label className="flex items-start gap-2 text-xs text-foreground">
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 accent-primary" />
       <span>
         {label}
-        {hint && <span className="block text-fg-muted">{hint}</span>}
+        {hint && <span className="block text-muted-foreground">{hint}</span>}
       </span>
     </label>
   );
@@ -156,7 +155,7 @@ export function EventsPanel({ bots }: PanelContext) {
   }, [load]);
 
   if (!workspace) {
-    return <p className="p-4 text-sm text-fg-muted">{wsCtx?.loading ? "加载中…" : "选择一个工作区后，这里可以同步它绑定仓库的 GitHub 事件。"}</p>;
+    return <p className="p-4 text-sm text-muted-foreground">{wsCtx?.loading ? "加载中…" : "选择一个工作区后，这里可以同步它绑定仓库的 GitHub 事件。"}</p>;
   }
 
   // Sessions of this workspace that can receive appended events.
@@ -185,19 +184,19 @@ export function EventsPanel({ bots }: PanelContext) {
 
   return (
     <div className="h-full space-y-4 overflow-y-auto p-4">
-      <section aria-label="GitHub 事件同步" className="space-y-3 rounded-lg border border-line bg-raised p-4 text-sm">
+      <section aria-label="GitHub 事件同步"><Card size="sm" className="gap-3">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">GitHub 事件同步</h3>
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${state?.enabled ? "bg-emerald-500/15 text-emerald-400" : "bg-zinc-500/15 text-fg-muted"}`}>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">GitHub 事件同步</h3>
+          <Badge variant={state?.enabled ? "default" : "secondary"} className={state?.enabled ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/15" : ""}>
             {state ? (state.enabled ? "已启用" : "已停用") : "…"}
-          </span>
+          </Badge>
         </div>
-        <p className="text-xs text-fg-muted">
+        <p className="text-xs text-muted-foreground">
           后台轮询 <code className="font-mono">{workspace.repo}</code> 的认证事件 feed（仅限测试仓库；默认每 60 秒一次，也可点「立即同步」手动触发）。不是 webhook；不写 GitHub。外部内容视为不可信材料。
         </p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-          <dt className="text-fg-muted">轮询</dt>
-          <dd className="text-fg">
+          <dt className="text-muted-foreground">轮询</dt>
+          <dd className="text-foreground">
             {state?.enabled ? (
               <>
                 每 {state.pollSec ?? 60} 秒自动同步
@@ -208,12 +207,12 @@ export function EventsPanel({ bots }: PanelContext) {
               "已停止（不轮询；重新开启后恢复）"
             )}
           </dd>
-          <dt className="text-fg-muted">最后同步</dt>
-          <dd className="text-fg">{formatTime(state?.lastSyncAt) || "从未"}</dd>
+          <dt className="text-muted-foreground">最后同步</dt>
+          <dd className="text-foreground">{formatTime(state?.lastSyncAt) || "从未"}</dd>
           {state?.lastResult && (
             <>
-              <dt className="text-fg-muted">上次结果</dt>
-              <dd className="text-fg">
+              <dt className="text-muted-foreground">上次结果</dt>
+              <dd className="text-foreground">
                 {state.lastResult.events} 新事件 · {state.lastResult.appended} 条已追加 · {state.lastResult.created} 个新会话
                 {state.lastResult.seeded !== undefined && `（首次启用已标记 ${state.lastResult.seeded} 条历史，不重放）`}
               </dd>
@@ -221,36 +220,36 @@ export function EventsPanel({ bots }: PanelContext) {
           )}
           {state?.baseline && (
             <>
-              <dt className="text-fg-muted">基线 CI</dt>
-              <dd className="text-fg">
+              <dt className="text-muted-foreground">基线 CI</dt>
+              <dd className="text-foreground">
                 <code className="font-mono">{state.baseline.sha.slice(0, 12)}</code> {state.baseline.state}
-                <span className="ml-1 text-fg-muted">（combined status，不含 Actions checks）</span>
+                <span className="ml-1 text-muted-foreground">（combined status，不含 Actions checks）</span>
               </dd>
             </>
           )}
           {state?.prChecks && state.prChecks.length > 0 && (
             <>
-              <dt className="text-fg-muted">PR 检查</dt>
-              <dd className="text-fg">
+              <dt className="text-muted-foreground">PR 检查</dt>
+              <dd className="text-foreground">
                 {state.prChecks.map((c) => (
                   <span key={c.pr} className="mr-3 inline-block">
                     #{c.pr} <code className="font-mono">{c.headSha.slice(0, 7)}</code> {c.state}
                   </span>
                 ))}
-                <span className="text-fg-muted">（head commit 的 check runs）</span>
+                <span className="text-muted-foreground">（head commit 的 check runs）</span>
               </dd>
             </>
           )}
           {state?.lastError && (
             <>
-              <dt className="text-fg-muted">上次错误</dt>
-              <dd className="text-bad">{state.lastError}</dd>
+              <dt className="text-muted-foreground">上次错误</dt>
+              <dd className="text-destructive">{state.lastError}</dd>
             </>
           )}
         </dl>
 
         {state && (
-          <div className="space-y-2 border-t border-line pt-3">
+          <div className="space-y-2 border-t border-border pt-3">
             <Toggle
               label="新 Issue/PR 自动建立讨论/Review 会话"
               hint="复用现有 issue-loop / review 流程；同一编号不重复创建"
@@ -269,7 +268,7 @@ export function EventsPanel({ bots }: PanelContext) {
         )}
 
         {error && (
-          <p role="alert" className="text-xs text-bad">
+          <p role="alert" className="text-xs text-destructive">
             {error}
           </p>
         )}
@@ -277,67 +276,68 @@ export function EventsPanel({ bots }: PanelContext) {
         <div className="flex flex-wrap gap-2">
           {state?.enabled ? (
             <>
-              <button type="button" className={btnAccent} disabled={busy} onClick={() => void run(() => eventsApi.sync(workspace.id))}>
+              <Button type="button" size="sm" disabled={busy} onClick={() => void run(() => eventsApi.sync(workspace.id))}>
                 {busy ? "同步中…" : "立即同步"}
-              </button>
-              <button type="button" className={btn} disabled={busy} onClick={() => void run(() => eventsApi.disable(workspace.id))}>
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run(() => eventsApi.disable(workspace.id))}>
                 停止同步
-              </button>
+              </Button>
             </>
           ) : (
-            <button type="button" className={btnAccent} disabled={busy} onClick={() => void run(() => eventsApi.configure(workspace.id, { enabled: true }))}>
+            <Button type="button" size="sm" disabled={busy} onClick={() => void run(() => eventsApi.configure(workspace.id, { enabled: true }))}>
               {busy ? "开启中…" : "开启事件同步"}
-            </button>
+            </Button>
           )}
         </div>
-      </section>
+      </Card></section>
 
       {state?.subscriptions && state.subscriptions.length > 0 && (
-        <section aria-label="订阅" className="space-y-2 rounded-lg border border-line bg-raised p-4 text-sm">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">订阅</h3>
+        <section aria-label="订阅"><Card size="sm" className="gap-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">订阅</h3>
           <ul className="space-y-1 text-xs">
             {state.subscriptions.map((s) => (
               <li key={s.key} className="flex items-center justify-between gap-2">
-                <code className="font-mono text-fg">{s.key}</code>
-                <a className="text-accent underline" href={`?bot=${enc(s.botId)}`}>
+                <code className="font-mono text-foreground">{s.key}</code>
+                <a className="text-primary underline" href={`?bot=${enc(s.botId)}`}>
                   {s.name ?? s.botId}
                 </a>
               </li>
             ))}
           </ul>
-        </section>
+        </Card></section>
       )}
 
       <section aria-label="事件记录" className="space-y-2">
-        <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">事件记录</h3>
+        <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">事件记录</h3>
         {!state || state.record.length === 0 ? (
-          <p className="px-1 text-xs text-fg-muted">{state?.enabled ? "尚无事件。点「立即同步」拉取最新动态。" : "开启同步后，这里会列出每次同步处理过的事件。"}</p>
+          <p className="px-1 text-xs text-muted-foreground">{state?.enabled ? "尚无事件。点「立即同步」拉取最新动态。" : "开启同步后，这里会列出每次同步处理过的事件。"}</p>
         ) : (
           <ul className="space-y-2">
             {state.record.map((ev, i) => {
               const k = keyOf(ev);
               const sub = subscribed(ev);
               return (
-                <li key={`${k}-${i}`} data-testid="event-item" className="rounded-lg border border-line bg-raised p-3 text-xs">
+                <li key={`${k}-${i}`} data-testid="event-item">
+                  <Card size="sm" className="gap-1 text-xs">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <span className="mr-2 rounded bg-zinc-500/15 px-1 py-0.5 text-[10px] font-medium text-fg-muted">{KIND_LABEL[ev.kind]}</span>
-                      <span className="break-words text-fg">{eventHeadline(ev)}</span>
+                      <Badge variant="secondary" className="mr-2 px-1 text-[10px]">{KIND_LABEL[ev.kind]}</Badge>
+                      <span className="break-words text-foreground">{eventHeadline(ev)}</span>
                     </div>
-                    <span className="shrink-0 text-fg-muted">{formatTime(ev.at ?? ev.seenAt)}</span>
+                    <span className="shrink-0 text-muted-foreground">{formatTime(ev.at ?? ev.seenAt)}</span>
                   </div>
                   {ev.url && (
-                    <a className="mt-1 block truncate text-accent underline" href={ev.url} target="_blank" rel="noreferrer">
+                    <a className="block truncate text-primary underline" href={ev.url} target="_blank" rel="noreferrer">
                       {ev.url}
                     </a>
                   )}
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <span className={`text-fg-muted ${ev.outcome?.startsWith("error") ? "text-bad" : ""}`}>{ev.outcome ?? ""}</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-muted-foreground ${ev.outcome?.startsWith("error") ? "text-destructive" : ""}`}>{ev.outcome ?? ""}</span>
                     {state.enabled && sessions.length > 0 && !ev.delivered && ev.kind !== "ci" && ev.kind !== "checks" && (
                       <span className="flex items-center gap-1">
                         <select
                           aria-label={`追加事件 ${k} 到会话`}
-                          className="rounded border border-line-strong bg-field px-1 py-0.5 text-xs text-fg"
+                          className="rounded border border-input bg-transparent px-1 py-0.5 text-xs text-foreground"
                           value={sendTarget[k] ?? defaultTarget(ev)}
                           onChange={(e) => setSendTarget((m) => ({ ...m, [k]: e.target.value }))}
                         >
@@ -348,21 +348,23 @@ export function EventsPanel({ bots }: PanelContext) {
                             </option>
                           ))}
                         </select>
-                        <button type="button" className={btn} disabled={busy || !eventTargetKey(ev)}
+                        <Button type="button" variant="outline" size="xs" disabled={busy || !eventTargetKey(ev)}
                           onClick={() => void run(() => eventsApi.subscribe(workspace.id, { target: eventTargetKey(ev)!, botId: sendTarget[k] ?? defaultTarget(ev) }))}>
                           订阅后续事件
-                        </button>
-                        <button
+                        </Button>
+                        <Button
                           type="button"
-                          className={btn}
+                          variant="outline"
+                          size="xs"
                           disabled={busy}
                           onClick={() => void run(() => eventsApi.send(workspace.id, { eventId: k, botId: sendTarget[k] ?? defaultTarget(ev) }))}
                         >
                           追加到会话
-                        </button>
+                        </Button>
                       </span>
                     )}
                   </div>
+                  </Card>
                 </li>
               );
             })}

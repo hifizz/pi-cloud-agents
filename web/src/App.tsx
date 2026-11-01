@@ -41,6 +41,12 @@ import { LoopsList } from "./components/LoopsList";
 import { LoopEditor } from "./components/LoopEditor";
 import { LoopRuns } from "./components/LoopRuns";
 import { loopsApi, triggerLabel, RUN_STATUS_LABEL, type Loop } from "./lib/loops";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
+import { Label } from "./components/ui/label";
+import { Textarea } from "./components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 
 /** Small publish-task form for an issue-loop discussion session. Empty input; the human writes the task explicitly. */
 function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; error?: string; onPublish: (task: string) => void; onCancel: () => void }) {
@@ -54,34 +60,30 @@ function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; 
         if (task.trim() && !busy) onPublish(task);
       }}
     >
-      <div className="rounded-lg border border-line-strong bg-raised p-3">
-        <label className="block text-xs font-medium text-fg-muted" htmlFor="publish-task-input">
+      <div className="rounded-lg border border-border bg-card p-3">
+        <Label className="block text-xs text-muted-foreground" htmlFor="publish-task-input">
           发布任务（逐字作为新执行会话的首条消息；不会带入本讨论的内容）
-        </label>
-        <textarea
+        </Label>
+        <Textarea
           id="publish-task-input"
           value={task}
           onChange={(e) => setTask(e.target.value)}
           placeholder="写下要执行的任务…"
           rows={3}
-          className="mt-2 w-full resize-y rounded-md border border-line bg-field px-2.5 py-1.5 text-sm text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent"
+          className="mt-2"
         />
         {error && (
-          <p role="alert" className="mt-1 text-xs text-bad">
+          <p role="alert" className="mt-1 text-xs text-destructive">
             {error}
           </p>
         )}
         <div className="mt-2 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} disabled={busy} className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover">
+          <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={busy}>
             取消
-          </button>
-          <button
-            type="submit"
-            disabled={busy || !task.trim()}
-            className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
-          >
+          </Button>
+          <Button type="submit" size="sm" disabled={busy || !task.trim()}>
             {busy ? "发布中…" : "确认发布"}
-          </button>
+          </Button>
         </div>
       </div>
     </form>
@@ -216,84 +218,82 @@ function WorkspaceOverview({
     .sort((a, b) => String(b.latestRun!.enqueuedAt).localeCompare(String(a.latestRun!.enqueuedAt)))
     .slice(0, 5);
 
-  const row = "flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2 text-left text-[13px] text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent";
-  const cardBtn = "rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent";
+  const row = "flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-[13px] text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring";
+  const listCard = "rounded-lg border border-border bg-card";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="workspace-overview">
       {!railOpen && (
-        <div className="flex h-14 shrink-0 items-center border-b border-line px-4">
-          <button
+        <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             aria-label="Expand sidebar"
             title="Expand sidebar"
             onClick={onExpandRail}
-            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+            className="shrink-0"
           >
             <Icon name="sidebar" className="size-4" />
-          </button>
+          </Button>
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
         <div className="mx-auto max-w-3xl space-y-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold text-fg">{workspace.name}</h2>
-              <p className="mt-0.5 text-xs text-fg-muted">
+              <h2 className="truncate text-base font-semibold text-foreground">{workspace.name}</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 {workspace.repo} · {STATUS_LABEL[workspace.status]}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => void load()}
-              disabled={loading}
-              className="shrink-0 rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover disabled:opacity-40"
-            >
+            <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading} className="shrink-0">
               {loading ? "加载中…" : "刷新"}
-            </button>
+            </Button>
           </div>
 
           {err && (
-            <p role="alert" className="text-sm text-bad">
+            <p role="alert" className="text-sm text-destructive">
               {err}
             </p>
           )}
-          {loading && !data && !err && <p className="text-sm text-fg-muted">加载中…</p>}
+          {loading && !data && !err && <p className="text-sm text-muted-foreground">加载中…</p>}
 
           <section aria-label="Loops 概览" className="space-y-2">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">Loops（自动运行）</h3>
-              <button type="button" onClick={onOpenLoops} data-testid="open-loops" className="text-xs font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Loops（自动运行）</h3>
+              <Button type="button" variant="link" size="sm" onClick={onOpenLoops} data-testid="open-loops" className="h-auto p-0">
                 管理全部 Loops →
-              </button>
+              </Button>
             </div>
-            {loops === undefined && <p className="text-sm text-fg-muted">加载中…</p>}
+            {loops === undefined && <p className="text-sm text-muted-foreground">加载中…</p>}
             {loops?.length === 0 && (
-              <p className="text-sm text-fg-muted">
+              <p className="text-sm text-muted-foreground">
                 还没有 Loop。Loop 可以按定时计划、Webhook 或 GitHub 事件自动运行任务，
-                <button type="button" onClick={onOpenLoops} className="text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                <Button type="button" variant="link" size="sm" onClick={onOpenLoops} className="h-auto p-0 align-baseline">
                   新建一个 →
-                </button>
+                </Button>
               </p>
             )}
             {enabledLoops.length > 0 && (
               <ul className="space-y-1">
                 {enabledLoops.slice(0, 4).map((loop) => (
-                  <li key={loop.id} className="rounded-lg border border-line px-3 py-2 text-[13px]">
+                  <li key={loop.id} className={`${listCard} px-3 py-2 text-[13px]`}>
                     <div className="flex items-center gap-2">
-                      <button
+                      <Button
                         type="button"
+                        variant="link"
                         onClick={() => onOpenLoopRuns(loop.id)}
-                        className="min-w-0 flex-1 truncate text-left font-medium text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+                        className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-[13px] font-medium text-foreground"
                       >
                         {loop.name}
-                      </button>
-                      <span className="shrink-0 text-[11px] text-fg-muted" title={JSON.stringify(loop.trigger)}>
+                      </Button>
+                      <span className="shrink-0 text-[11px] text-muted-foreground" title={JSON.stringify(loop.trigger)}>
                         {triggerLabel(loop.trigger)}
                       </span>
                     </div>
-                    {loop.description && <p className="mt-0.5 truncate text-xs text-fg-muted">{loop.description}</p>}
-                    <p className="mt-0.5 text-[11px] text-fg-muted" data-testid={`overview-loop-last-${loop.id}`}>
+                    {loop.description && <p className="mt-0.5 truncate text-xs text-muted-foreground">{loop.description}</p>}
+                    <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`overview-loop-last-${loop.id}`}>
                       {loop.latestRun
                         ? `最近：${RUN_STATUS_LABEL[loop.latestRun.status]} · ${formatTime(loop.latestRun.endedAt ?? loop.latestRun.enqueuedAt)}`
                         : "从未运行"}
@@ -303,24 +303,24 @@ function WorkspaceOverview({
               </ul>
             )}
             {recentRuns.length > 0 && (
-              <div className="rounded-lg border border-line px-3 py-2">
-                <p className="pb-1 text-[11px] font-medium text-fg-muted">最近运行</p>
-                <ul className="space-y-1 text-xs text-fg-dim">
+              <div className={`${listCard} px-3 py-2`}>
+                <p className="pb-1 text-[11px] font-medium text-muted-foreground">最近运行</p>
+                <ul className="space-y-1 text-xs text-muted-foreground">
                   {recentRuns.map((loop) => {
                     const run = loop.latestRun!;
                     return (
                       <li key={`${loop.id}-${run.id}`} className="flex items-center gap-2">
-                        <span className={`shrink-0 font-medium ${ACTIVE_RUN.has(run.status) ? "text-warn" : run.status === "failed" ? "text-bad" : "text-fg-muted"}`}>
+                        <span className={`shrink-0 font-medium ${ACTIVE_RUN.has(run.status) ? "text-warn" : run.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
                           {RUN_STATUS_LABEL[run.status]}
                         </span>
-                        <button type="button" onClick={() => onOpenLoopRuns(loop.id)} className="min-w-0 flex-1 truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                        <Button type="button" variant="link" onClick={() => onOpenLoopRuns(loop.id)} className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-xs font-normal text-foreground">
                           {loop.name}
-                        </button>
-                        <span className="shrink-0 text-[11px] text-fg-faint">{formatTime(run.endedAt ?? run.enqueuedAt)}</span>
+                        </Button>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">{formatTime(run.endedAt ?? run.enqueuedAt)}</span>
                         {run.botId && (
-                          <button type="button" onClick={() => onOpenSession(run.botId!)} className="shrink-0 text-[11px] text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                          <Button type="button" variant="link" onClick={() => onOpenSession(run.botId!)} className="h-auto shrink-0 p-0 text-[11px]">
                             打开会话
-                          </button>
+                          </Button>
                         )}
                       </li>
                     );
@@ -329,16 +329,16 @@ function WorkspaceOverview({
               </div>
             )}
             {loops !== undefined && loops.length > enabledLoops.length && (
-              <p className="text-[11px] text-fg-faint">另有 {loops.length - enabledLoops.length} 个已停用的 Loop，在管理页查看。</p>
+              <p className="text-[11px] text-muted-foreground">另有 {loops.length - enabledLoops.length} 个已停用的 Loop，在管理页查看。</p>
             )}
           </section>
 
           {data && (
             <>
               <section aria-label="Issues" className="space-y-1">
-                <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">Issues（未解决）</h3>
+                <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Issues（未解决）</h3>
                 {data.issues.length === 0 ? (
-                  <p className="text-sm text-fg-muted">没有未解决的 issue。</p>
+                  <p className="text-sm text-muted-foreground">没有未解决的 issue。</p>
                 ) : (
                   <ul className="space-y-1">
                     {data.issues.map((issue) => {
@@ -353,36 +353,36 @@ function WorkspaceOverview({
                             className={row}
                             data-testid={`issue-row-${issue.number}`}
                           >
-                            <span className="shrink-0 font-mono text-xs text-fg-muted">#{issue.number}</span>
+                            <span className="shrink-0 font-mono text-xs text-muted-foreground">#{issue.number}</span>
                             <span className="min-w-0 flex-1 truncate">{issue.title}</span>
-                            {issue.author && <span className="shrink-0 text-[11px] text-fg-faint">@{issue.author}</span>}
+                            {issue.author && <span className="shrink-0 text-[11px] text-muted-foreground">@{issue.author}</span>}
                             {typeof issue.comments === "number" && issue.comments > 0 && (
-                              <span className="shrink-0 text-[11px] text-fg-faint">💬 {issue.comments}</span>
+                              <span className="shrink-0 text-[11px] text-muted-foreground">💬 {issue.comments}</span>
                             )}
-                            {issue.discussionBotId && <span className="shrink-0 text-[11px] text-fg-faint">已有讨论</span>}
-                            <span className="shrink-0 text-[11px] text-fg-muted" aria-hidden="true">{expanded ? "▾" : "▸"}</span>
+                            {issue.discussionBotId && <span className="shrink-0 text-[11px] text-muted-foreground">已有讨论</span>}
+                            <span className="shrink-0 text-[11px] text-muted-foreground" aria-hidden="true">{expanded ? "▾" : "▸"}</span>
                           </button>
                           {expanded && (
-                            <div className="mt-1 rounded-lg border border-line bg-raised px-3 py-2 text-xs" data-testid={`issue-detail-${issue.number}`}>
-                              <p className="text-fg-muted">
+                            <div className="mt-1 rounded-lg border border-border bg-card px-3 py-2 text-xs" data-testid={`issue-detail-${issue.number}`}>
+                              <p className="text-muted-foreground">
                                 #{issue.number} · {issue.state === "open" ? "开放" : (issue.state ?? "未知状态")}
                                 {issue.author ? ` · 作者 @${issue.author}` : ""}
                                 {typeof issue.comments === "number" ? ` · ${issue.comments} 条评论` : ""}
                                 {issue.updatedAt ? ` · 更新于 ${formatTime(issue.updatedAt)}` : ""}
                               </p>
-                              <p className="mt-1 text-fg-dim">先看信息再决定动作；点击本行不会创建任何会话。</p>
+                              <p className="mt-1 text-muted-foreground">先看信息再决定动作；点击本行不会创建任何会话。</p>
                               <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <button
+                                <Button
                                   type="button"
+                                  size="sm"
                                   onClick={() => void openIssue(issue.number)}
                                   disabled={opening !== undefined}
-                                  className="rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
                                   data-testid={`issue-discuss-${issue.number}`}
                                 >
                                   {opening === issue.number ? "创建讨论中…" : issue.discussionBotId ? "打开讨论 Session" : "开始讨论 Session"}
-                                </button>
+                                </Button>
                                 {issue.url && (
-                                  <a href={issue.url} target="_blank" rel="noreferrer" className="text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                                  <a href={issue.url} target="_blank" rel="noreferrer" className="text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
                                     在 GitHub 查看 ↗
                                   </a>
                                 )}
@@ -395,22 +395,22 @@ function WorkspaceOverview({
                                 const result = exec.executionResult;
                                 const st = defaultSessionStatus(exec);
                                 return (
-                                  <li key={exec.id} className="rounded-lg border border-line px-3 py-2 text-[13px]" data-testid={`exec-card-${exec.id}`}>
+                                  <li key={exec.id} className={`${listCard} px-3 py-2 text-[13px]`} data-testid={`exec-card-${exec.id}`}>
                                     <div className="flex items-center gap-2">
-                                      <button type="button" onClick={() => onOpenSession(exec.id)} className="min-w-0 flex-1 truncate text-left font-medium text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                                      <Button type="button" variant="link" onClick={() => onOpenSession(exec.id)} className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-[13px] font-medium text-foreground">
                                         {exec.name}
-                                      </button>
+                                      </Button>
                                       {/* Business status; 待确认 is a pending human decision, not an approval state. */}
-                                      <span className="shrink-0 text-[11px] text-fg-muted">{SESSION_STATUS_LABEL[st]}</span>
+                                      <Badge variant="secondary" className="shrink-0">{SESSION_STATUS_LABEL[st]}</Badge>
                                     </div>
-                                    <p className="mt-1 text-fg-dim">{result?.summary ?? "未记录"}</p>
-                                    <p className="mt-0.5 text-xs text-fg-muted">
+                                    <p className="mt-1 text-muted-foreground">{result?.summary ?? "未记录"}</p>
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
                                       {result?.testsReportedByHuman ? <>测试记录（人工填写）: {result.testsReportedByHuman}</> : "测试记录: 未记录"}
                                     </p>
                                     {result?.pull && (
-                                      <a href={result.pull.url} target="_blank" rel="noreferrer" className="mt-0.5 inline-block text-xs text-accent underline">
+                                      <a href={result.pull.url} target="_blank" rel="noreferrer" className="mt-0.5 inline-block text-xs text-primary underline">
                                         #{result.pull.number} {result.pull.title}
-                                        {result.pull.state && <span className="ml-1 text-fg-muted no-underline">{result.pull.state}</span>}
+                                        {result.pull.state && <span className="ml-1 text-muted-foreground no-underline">{result.pull.state}</span>}
                                       </a>
                                     )}
                                   </li>
@@ -427,55 +427,55 @@ function WorkspaceOverview({
 
               <section aria-label="Pull requests" className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">Pull requests</h3>
-                  <div className="flex items-center gap-1" role="group" aria-label="PR 状态筛选">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pull requests</h3>
+                  <ToggleGroup
+                    value={[prFilter]}
+                    onValueChange={(v: string[]) => v[0] && setPrFilter(v[0] as "open" | "closed" | "all")}
+                    size="sm"
+                    spacing={1}
+                    className="flex items-center gap-1"
+                    aria-label="PR 状态筛选"
+                  >
                     {([
                       ["open", `开放 ${openPulls.length}`],
                       ["closed", `已关闭 ${closedPulls.length}`],
                       ["all", `全部 ${(data?.pulls ?? []).length}`],
                     ] as const).map(([key, label]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => setPrFilter(key)}
-                        aria-pressed={prFilter === key}
-                        className={`rounded-md px-2 py-0.5 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-accent ${
-                          prFilter === key ? "bg-brand/15 text-accent" : "text-fg-dim hover:bg-hover"
-                        }`}
-                      >
+                      <ToggleGroupItem key={key} value={key} className="h-auto px-2 py-0.5 text-[11px] font-medium">
                         {label}
-                      </button>
+                      </ToggleGroupItem>
                     ))}
-                  </div>
+                  </ToggleGroup>
                 </div>
                 {shownPulls.length === 0 ? (
-                  <p className="text-sm text-fg-muted">{prFilter === "open" ? "没有开放的 PR。" : "没有符合条件的 PR。"}</p>
+                  <p className="text-sm text-muted-foreground">{prFilter === "open" ? "没有开放的 PR。" : "没有符合条件的 PR。"}</p>
                 ) : (
                   <ul className="space-y-1">
                     {shownPulls.map((pr) => (
-                      <li key={pr.number} className="rounded-lg border border-line px-3 py-2 text-[13px]">
+                      <li key={pr.number} className={`${listCard} px-3 py-2 text-[13px]`}>
                         <div className="flex items-center gap-2">
-                          <span className="shrink-0 font-mono text-xs text-fg-muted">#{pr.number}</span>
-                          <a href={pr.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                          <span className="shrink-0 font-mono text-xs text-muted-foreground">#{pr.number}</span>
+                          <a href={pr.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring">
                             {pr.title ?? ""}
                           </a>
-                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${pr.merged ? "bg-accent/15 text-accent" : pr.state === "closed" ? "bg-bad/10 text-bad" : "bg-ok/10 text-ok"}`}>
+                          <Badge variant={pr.merged ? "secondary" : pr.state === "closed" ? "destructive" : "outline"} className="shrink-0">
                             {prStateLabel(pr)}
-                          </span>
+                          </Badge>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[11px] text-fg-faint">
+                        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
                           {pr.headRef && <span className="min-w-0 flex-1 truncate font-mono">{pr.headRef}</span>}
                           {pr.updatedAt && <span className="shrink-0">更新于 {formatTime(pr.updatedAt)}</span>}
                           <span className="flex-1" />
-                          <button
+                          <Button
                             type="button"
+                            variant="outline"
+                            size="sm"
                             onClick={() => void startReview(pr.number)}
                             disabled={reviewing !== undefined}
-                            className={cardBtn}
                             data-testid={`pr-review-${pr.number}`}
                           >
                             {reviewing === pr.number ? "创建 Review Session 中…" : "打开 Review Session"}
-                          </button>
+                          </Button>
                         </div>
                       </li>
                     ))}
@@ -486,18 +486,26 @@ function WorkspaceOverview({
           )}
 
           <section aria-label="工作区设置" className="space-y-2">
-            <h3 className="pb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">设置</h3>
+            <h3 className="pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">设置</h3>
             <div className="space-y-2">
               <WorkspaceEnvSettings workspaceId={workspace.id} />
               <div className="grid gap-2 sm:grid-cols-2">
-                <div className="rounded-lg border border-line px-3 py-2 text-xs">
-                  <p className="text-[13px] font-medium text-fg">Skills（规划中）</p>
-                  <p className="mt-1 text-[11px] text-fg-faint">粒度三级待定：整个 pi（部署配置）、工作区（面板）、项目仓库（.pi/skills 走 git）；pipeline 安装入口待设计。</p>
-                </div>
-                <div className="rounded-lg border border-line px-3 py-2 text-xs">
-                  <p className="text-[13px] font-medium text-fg">MCP（规划中）</p>
-                  <p className="mt-1 text-[11px] text-fg-faint">粒度同 Skills；项目 .mcp.json 跟仓库走；凭据计划引用环境变量加密存储。</p>
-                </div>
+                <Card size="sm">
+                  <CardHeader>
+                    <CardTitle className="text-[13px]">Skills（规划中）</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-[11px] text-muted-foreground">粒度三级待定：整个 pi（部署配置）、工作区（面板）、项目仓库（.pi/skills 走 git）；pipeline 安装入口待设计。</p>
+                  </CardContent>
+                </Card>
+                <Card size="sm">
+                  <CardHeader>
+                    <CardTitle className="text-[13px]">MCP（规划中）</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-[11px] text-muted-foreground">粒度同 Skills；项目 .mcp.json 跟仓库走；凭据计划引用环境变量加密存储。</p>
+                  </CardContent>
+                </Card>
               </div>
             </div>
           </section>
@@ -901,43 +909,45 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
       {!overviewOpen && !loopsOpen && <ApprovalBar items={botApprovals} onResolve={onResolveApproval} />}
       {!overviewOpen && !loopsOpen && otherPending > 0 && (
-        <p className="border-b border-warn/30 bg-warn/10 px-4 py-1 text-xs text-warn">
-          {otherPending} approval{otherPending === 1 ? "" : "s"} pending on other bots
+        <p className="border-b border-warn/30 bg-warn/10 px-4 py-1 text-xs text-warn">          {otherPending} approval{otherPending === 1 ? "" : "s"} pending on other bots
         </p>
       )}
 
       {error && (
-        <div role="alert" className="flex items-center justify-between bg-bad/10 px-4 py-1.5 text-xs text-bad">
+        <div role="alert" className="flex items-center justify-between bg-destructive/10 px-4 py-1.5 text-xs text-destructive">
           <span>{error}</span>
-          <button type="button" onClick={() => setError(undefined)} className="underline focus-visible:outline-2 focus-visible:outline-accent">
+          <Button type="button" variant="link" size="sm" onClick={() => setError(undefined)} className="h-auto p-0">
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
 
       {loopsOpen && workspace ? (
         <div className="flex min-h-0 flex-1 flex-col" data-testid="loops-pane">
-          <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
+          <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
             {!rail.open && (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 aria-label="Expand sidebar"
                 title="Expand sidebar"
                 onClick={rail.show}
-                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+                className="shrink-0"
               >
                 <Icon name="sidebar" className="size-4" />
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={() => setLoopsView(undefined)}
               data-testid="loops-back"
-              className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
             >
               ← 返回工作区
-            </button>
-            <h2 className="min-w-0 truncate text-sm font-semibold text-fg">Loops · {workspace.name}</h2>
+            </Button>
+            <h2 className="min-w-0 truncate text-sm font-semibold text-foreground">Loops · {workspace.name}</h2>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
             <div className="mx-auto max-w-2xl">
@@ -1000,14 +1010,15 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
           {workspace && workspace.status !== "ready" && <WorkspaceStatus workspace={workspace} onUpdate={onUpdateWorkspace} variant="banner" />}
           {isDiscussion && !publishOpen && (
             <div className="mx-auto w-full max-w-[720px] px-[18px] pb-1.5">
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={() => setPublishOpen(true)}
                 data-testid="open-publish-task"
-                className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
               >
                 发布任务
-              </button>
+              </Button>
             </div>
           )}
           {isDiscussion && publishOpen && <PublishTaskForm busy={publishBusy} error={publishError} onPublish={onPublish} onCancel={() => setPublishOpen(false)} />}
@@ -1024,27 +1035,26 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
       ) : workspace ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           <div className="mx-auto max-w-xl space-y-3">
-            <h2 className="text-base font-semibold text-fg">{workspace.name}</h2>
-            <p className="text-sm text-fg-muted">
+            <h2 className="text-base font-semibold text-foreground">{workspace.name}</h2>
+            <p className="text-sm text-muted-foreground">
               {workspace.status === "ready" ? "工作区已就绪，会话正在加载。" : "工作区还没有可用的会话。准备完成后会自动出现，输入框此前保持禁用。"}
             </p>
             <WorkspaceStatus workspace={workspace} onUpdate={onUpdateWorkspace} />
-            <button type="button" onClick={() => setPickedBotId(null)} className="text-xs text-fg-muted underline focus-visible:outline-2 focus-visible:outline-accent">
+            <Button type="button" variant="link" size="sm" onClick={() => setPickedBotId(null)} className="h-auto p-0">
               打开工作区总览
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         <div className="m-auto max-w-sm space-y-3 p-6 text-center">
-          <p className="text-sm text-fg-muted">{workspacesLoaded ? readWorkspaceLink() ? "链接中的工作区不可用，请从左侧选择工作区。" : "还没有工作区。新建一个工作区，选择仓库并描述需求，Agent 会在独立的云环境里开始工作。" : "加载中…"}</p>
+          <p className="text-sm text-muted-foreground">{workspacesLoaded ? readWorkspaceLink() ? "链接中的工作区不可用，请从左侧选择工作区。" : "还没有工作区。新建一个工作区，选择仓库并描述需求，Agent 会在独立的云环境里开始工作。" : "加载中…"}</p>
           {workspacesLoaded && (
-            <button
+            <Button
               type="button"
               onClick={() => setShowNew(true)}
-              className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               新建工作区
-            </button>
+            </Button>
           )}
         </div>
       )}
