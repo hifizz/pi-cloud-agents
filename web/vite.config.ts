@@ -2,12 +2,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 
 // Dev server (port 5183) proxies the backend (REST + WebSocket) on 127.0.0.1:8090.
 // Ports are shifted from main (5173/8080) so both worktrees can run side by side.
 // Production: server.mjs serves web/dist.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   server: {
     port: 5183,
     strictPort: true,
