@@ -454,18 +454,20 @@ export function createGithubClient({ token = process.env.GITHUB_TOKEN, fetch: fe
         state: i.state,
         author: i.user?.login ?? null,
         comments: i.comments ?? 0,
+        updatedAt: i.updated_at ?? null,
         isPull: Boolean(i.pull_request),
       })).then((list) => list.filter((i) => !i.isPull).map(({ isPull: _isPull, ...rest }) => rest));
     },
 
     /** Open, unmerged pull requests, up to `limit` items across paginated requests (same MAX_PAGES ceiling).
      * Includes the title (normalizePull is the older shape). */
-    async listPulls(repo, { limit = 200 } = {}) {
+    async listPulls(repo, { limit = 200, state = "open" } = {}) {
       assertRepo(repo);
-      return paginate(`/repos/${repo}/pulls`, "state=open&sort=created&direction=desc&", limit, (p) => ({
+      return paginate(`/repos/${repo}/pulls`, `state=${state}&sort=created&direction=desc&`, limit, (p) => ({
         ...normalizePull(p),
         title: p.title ?? "",
         headSha: p.head?.sha ?? null,
+        updatedAt: p.updated_at ?? null,
       }));
     },
 

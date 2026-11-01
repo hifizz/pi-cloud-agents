@@ -99,6 +99,7 @@ export interface PullInfo {
   merged?: boolean;
   headRef?: string | null;
   baseRef?: string | null;
+  updatedAt?: string | null;
 }
 
 /** One open issue in the workspace overview; `discussionBotId` is the existing discussion session, when there is one. */
@@ -109,6 +110,7 @@ export interface OverviewIssue {
   state?: string;
   author?: string | null;
   comments?: number;
+  updatedAt?: string | null;
   discussionBotId?: string | null;
 }
 
@@ -219,9 +221,10 @@ export const workspacesApi = {
   create: async (input: NewWorkspaceInput) => normalizeWorkspace(await request<Workspace>("POST", "/api/workspaces", input)),
   list: async () => (await request<Workspace[]>("GET", "/api/workspaces")).map(normalizeWorkspace),
   get: async (id: string) => normalizeWorkspace(await request<Workspace>("GET", `/api/workspaces/${enc(id)}`)),
-  /** Workspace overview: open issues (+ existing discussion botId) and open unmerged PRs of the bound repo. One fetch
-   * on workspace open / manual refresh; not part of the 3s bots poll. */
-  overview: (id: string) => request<WorkspaceOverview>("GET", `/api/workspaces/${enc(id)}/overview`),
+  /** Workspace overview: open issues (+ existing discussion botId) and PRs of the bound repo. `allPrs` also returns
+   * closed/merged PRs (with state) so the UI can filter; the server default stays open-only. */
+  overview: (id: string, opts?: { allPrs?: boolean }) =>
+    request<WorkspaceOverview>("GET", `/api/workspaces/${enc(id)}/overview${opts?.allPrs ? "?prs=all" : ""}`),
   retry: async (id: string) => normalizeWorkspace(await request<Workspace>("POST", `/api/workspaces/${enc(id)}/retry`, {})),
   createPr: (id: string, input: { requestId: string; title?: string; body?: string; base?: string }) =>
     request<{ pull: PullInfo; created: boolean }>("POST", `/api/workspaces/${enc(id)}/pr`, input),

@@ -63,7 +63,20 @@ function boot(workspaces: Workspace[], bots: BotSummary[], extra: (c: { method: 
     const url = new URL(String(input), "http://localhost");
     const call = { method: (init as RequestInit | undefined)?.method ?? "GET", path: url.pathname + url.search };
     calls.push(call);
-    return (await extra(call)) ?? (call.path === "/api/bots" ? json(bots) : call.path === "/api/workspaces" && call.method === "GET" ? json(workspaces) : call.path === "/api/routines" ? json([]) : json({ error: `unexpected ${call.method} ${call.path}` }, 404));
+    return (
+      (await extra(call)) ??
+      (call.path === "/api/bots"
+        ? json(bots)
+        : call.path === "/api/workspaces" && call.method === "GET"
+          ? json(workspaces)
+          : call.path === "/api/routines"
+            ? json([])
+            : call.path === "/api/workspaces/w1/loops"
+              ? json([])
+              : call.path === "/api/workspaces/w1/env"
+                ? json({ enabled: true, vars: [] })
+                : json({ error: `unexpected ${call.method} ${call.path}` }, 404))
+    );
   });
   return calls;
 }
@@ -113,6 +126,49 @@ describe("useSessionLink", () => {
 });
 
 describe("App deep link", () => {
+  it("opens a workspace URL ahead of local storage and preserves overview after reload", async () => {
+    localStorage.setItem("pca.workspace", "w1");
+    window.history.replaceState(null, "", "/?workspace=w2");
+    boot([ws(), ws({ id: "w2", name: "other", botId: "b2" })], [bot(), bot({ id: "b2" })]);
+    const view = render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /other/ })).toHaveAttribute("aria-current", "true"));
+    expect(screen.queryByRole("button", { name: /分享/ })).not.toBeInTheDocument();
+    expect(window.location.search).toBe("?workspace=w2");
+    view.unmount();
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /other/ })).toHaveAttribute("aria-current", "true"));
+    expect(window.location.search).toBe("?workspace=w2");
+  });
+
+  it("workspace clicks, back and forward restore both overview and sidebar selection", async () => {
+    const user = userEvent.setup();
+    boot([ws(), ws({ id: "w2", name: "other", botId: "b2" })], [bot(), bot({ id: "b2" })]);
+    render(<App />);
+    await screen.findByRole("heading", { name: "main" });
+    await user.click(screen.getByRole("button", { name: /fix upload/ }));
+    await waitFor(() => expect(window.location.search).toBe("?workspace=w1"));
+    await user.click(screen.getByRole("button", { name: /other/ }));
+    await waitFor(() => expect(window.location.search).toBe("?workspace=w2"));
+    act(() => window.history.back());
+    await waitFor(() => expect(screen.getByRole("button", { name: /fix upload/ })).toHaveAttribute("aria-current", "true"));
+    expect(window.location.search).toBe("?workspace=w1");
+    act(() => window.history.forward());
+    await waitFor(() => expect(screen.getByRole("button", { name: /other/ })).toHaveAttribute("aria-current", "true"));
+    expect(window.location.search).toBe("?workspace=w2");
+    expect(screen.queryByRole("button", { name: /分享/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps an unknown workspace URL and allows recovery by selecting a workspace", async () => {
+    window.history.replaceState(null, "", "/?workspace=missing");
+    boot([ws()], [bot()]);
+    render(<App />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("链接中的工作区不存在：missing");
+    expect(window.location.search).toBe("?workspace=missing");
+    expect(screen.getByRole("button", { name: /fix upload/ })).not.toHaveAttribute("aria-current");
+    await userEvent.setup().click(screen.getByRole("button", { name: /fix upload/ }));
+    await waitFor(() => expect(window.location.search).toBe("?workspace=w1"));
+    expect(screen.queryByText("链接中的工作区不存在：missing")).not.toBeInTheDocument();
+  });
   it("opens the session of ?bot=<id> in its workspace, even when another workspace is persisted", async () => {
     const second = ws({ id: "w2", name: "other", branch: "tarsbot/other", botId: "b2" });
     localStorage.setItem("pca.workspace", "w1");

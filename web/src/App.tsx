@@ -4,6 +4,7 @@ import { useBotStream } from "./hooks/useBotStream";
 import { BotList } from "./components/BotList";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { WorkspaceStatus } from "./components/WorkspaceStatus";
+import { WorkspaceEnvSettings } from "./components/WorkspaceEnvSettings";
 import { ApprovalBar } from "./components/ApprovalBar";
 import { ForkDialog } from "./components/ForkDialog";
 import { useApprovals } from "./hooks/useApprovals";
@@ -17,13 +18,14 @@ import { StatusLine } from "./shell/ComposerContext";
 import { RailFooter, RailHeader } from "./shell/rail";
 import { usePanelState } from "./shell/usePanelState";
 import { useRailState } from "./shell/useRailState";
-import { useSessionLink, copySessionLink, readSessionLink } from "./hooks/useSessionLink";
+import { useSessionLink, copySessionLink, readSessionLink, readWorkspaceLink, readLoopsLink, type LoopsLink } from "./hooks/useSessionLink";
 import { useSessionNotifications } from "./hooks/useSessionNotifications";
 import { PANELS } from "./panels";
 import {
   STATUS_LABEL,
   WorkspaceContext,
   describeError,
+  formatTime,
   mapBotsToWorkspaces,
   mergeWorkspaceList,
   upsertWorkspace,
@@ -38,7 +40,7 @@ import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary, type ForkI
 import { LoopsList } from "./components/LoopsList";
 import { LoopEditor } from "./components/LoopEditor";
 import { LoopRuns } from "./components/LoopRuns";
-import { loopsApi, type Loop } from "./lib/loops";
+import { loopsApi, triggerLabel, RUN_STATUS_LABEL, type Loop } from "./lib/loops";
 
 /** Small publish-task form for an issue-loop discussion session. Empty input; the human writes the task explicitly. */
 function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; error?: string; onPublish: (task: string) => void; onCancel: () => void }) {
@@ -86,11 +88,28 @@ function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; 
   );
 }
 
-/** Central workspace overview (SPIKE-workspace-overview): open unresolved issues and open, unmerged PRs of the
- * workspace's bound repo. Fetches once when the workspace is opened and on the manual 刷新 button — it is NOT part
- * of the 3s bots poll. Clicking an issue reuses its existing discussion or creates one via the discuss flow; a PR
- * row's Review button starts a review session pinned at the PR head SHA. Execution sessions of this workspace are
- * grouped under their issue (issueLoop.issue/sourceBotId) as result cards; clicking a name opens that session. */
+const ACTIVE_RUN = new Set(["queued", "starting", "running", "needs_approval"]);
+
+/** URL encoding of the loops surface: list / new / <loopId> (runs), edit=1 marks the editor of an existing loop. */
+function loopsLinkOf(view: { mode: "list" | "edit" | "runs"; loopId?: string } | undefined): LoopsLink | undefined {
+  if (!view) return undefined;
+  if (view.mode === "list") return { mode: "list" };
+  if (view.mode === "edit") return view.loopId ? { mode: "edit", loopId: view.loopId } : { mode: "new" };
+  return { mode: "runs", loopId: view.loopId! };
+}
+
+function loopsViewOf(link: LoopsLink | undefined): { mode: "list" | "edit" | "runs"; loopId?: string } | undefined {
+  if (!link) return undefined;
+  if (link.mode === "list") return { mode: "list" };
+  if (link.mode === "new") return { mode: "edit" };
+  return { mode: link.mode, loopId: link.loopId };
+}
+
+/** Central workspace overview — the workspace's home page (workspace-IA demo). One load on open + manual 刷新:
+ * Loops of this workspace (active loops and their latest runs), GitHub issues (expandable rows with explicit actions,
+ * never a hidden session creation), PRs with an open/closed filter, and the settings cards (env vars are real,
+ * Skills / MCP are placeholders marking the open granularity question). Execution sessions stay grouped under their
+ * issue as result cards; clicking a name opens that session. */
 function WorkspaceOverview({
   workspace,
   railOpen,
@@ -100,40 +119,55 @@ function WorkspaceOverview({
   onOpenSession,
   onReview,
   onOpenLoops,
+  onOpenLoopRuns,
 }: {
   workspace: Workspace;
   railOpen: boolean;
   /** All sessions; execution bots of THIS workspace are grouped under their issue below. */
   bots: BotSummary[];
   onExpandRail: () => void;
-  /** Returns a promise so the row can stay disabled until the discuss flow resolves (simplest repeated-click guard). */
+  /** Issue 讨论 action: reuse the existing discussion or create one via the discuss flow. */
   onOpenIssue: (wsId: string, issue: number) => Promise<void>;
   /** Open an existing session (e.g. an execution session named on a result card). */
   onOpenSession: (botId: string) => void;
-  /** PR row Review action; resolves when the review session is created/reused and opened. */
+  /** PR row 打开 Review Session action; resolves when the review session is created/reused and opened. */
   onReview: (wsId: string, pr: number) => Promise<void>;
-  /** Issue14: open the workspace's Loops surface. */
+  /** Open the workspace's Loops management surface (list / editor). */
   onOpenLoops: () => void;
+  /** Open one loop's run history directly from the overview card. */
+  onOpenLoopRuns: (loopId: string) => void;
 }) {
   const [data, setData] = useState<WorkspaceOverview>();
+  const [loops, setLoops] = useState<Loop[]>();
   const [err, setErr] = useState<string>();
   const [loading, setLoading] = useState(true);
-  /** Issue currently being opened via the discuss flow; disables every issue row until it resolves. */
+  /** Issue row expanded into its detail + actions panel (click toggles; it never starts a session by itself). */
+  const [expandedIssue, setExpandedIssue] = useState<number>();
+  /** Issue currently being opened via the discuss flow; disables every issue action until it resolves. */
   const [opening, setOpening] = useState<number>();
   /** PR whose review request is in flight; disables every Review button until it resolves. */
   const [reviewing, setReviewing] = useState<number>();
+  const [prFilter, setPrFilter] = useState<"open" | "closed" | "all">("open");
+
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      setData(await workspacesApi.overview(workspace.id));
-      setErr(undefined);
-    } catch (e) {
-      setErr(describeError(e));
-    } finally {
-      setLoading(false);
+    const errors: string[] = [];
+    const [ov, lp] = await Promise.allSettled([
+      workspacesApi.overview(workspace.id, { allPrs: true }),
+      loopsApi.list(workspace.id),
+    ]);
+    if (ov.status === "fulfilled") setData(ov.value);
+    else errors.push(describeError(ov.reason));
+    if (lp.status === "fulfilled") setLoops(Array.isArray(lp.value) ? lp.value : []);
+    else {
+      setLoops([]);
+      errors.push(`Loops：${describeError(lp.reason)}`);
     }
+    setErr(errors.length > 0 ? errors.join("；") : undefined);
+    setLoading(false);
   }, [workspace.id]);
   useEffect(() => {
+    setExpandedIssue(undefined);
     void load();
   }, [load]);
 
@@ -172,7 +206,19 @@ function WorkspaceOverview({
     }
   };
 
+  const openPulls = (data?.pulls ?? []).filter((p) => p.state === "open" && !p.merged);
+  const closedPulls = (data?.pulls ?? []).filter((p) => !(p.state === "open" && !p.merged));
+  const shownPulls = prFilter === "open" ? openPulls : prFilter === "closed" ? closedPulls : (data?.pulls ?? []);
+  const prStateLabel = (p: { state?: string; merged?: boolean }) => (p.merged ? "已合并" : p.state === "closed" ? "已关闭" : "开放");
+  const enabledLoops = (loops ?? []).filter((l) => l.enabled);
+  const recentRuns = (loops ?? [])
+    .filter((l) => l.latestRun)
+    .sort((a, b) => String(b.latestRun!.enqueuedAt).localeCompare(String(a.latestRun!.enqueuedAt)))
+    .slice(0, 5);
+
   const row = "flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2 text-left text-[13px] text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent";
+  const cardBtn = "rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="workspace-overview">
       {!railOpen && (
@@ -189,7 +235,7 @@ function WorkspaceOverview({
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-2xl space-y-6">
+        <div className="mx-auto max-w-3xl space-y-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className="truncate text-base font-semibold text-fg">{workspace.name}</h2>
@@ -214,36 +260,135 @@ function WorkspaceOverview({
           )}
           {loading && !data && !err && <p className="text-sm text-fg-muted">加载中…</p>}
 
-          <section aria-label="Loops">
-            <button
-              type="button"
-              onClick={onOpenLoops}
-              className={`${row} font-medium`}
-              data-testid="open-loops"
-            >
-              <span className="min-w-0 flex-1">Loops（定时 / Webhook 自动运行）</span>
-              <span className="shrink-0 text-[11px] text-fg-muted">打开 →</span>
-            </button>
+          <section aria-label="Loops 概览" className="space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">Loops（自动运行）</h3>
+              <button type="button" onClick={onOpenLoops} data-testid="open-loops" className="text-xs font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                管理全部 Loops →
+              </button>
+            </div>
+            {loops === undefined && <p className="text-sm text-fg-muted">加载中…</p>}
+            {loops?.length === 0 && (
+              <p className="text-sm text-fg-muted">
+                还没有 Loop。Loop 可以按定时计划、Webhook 或 GitHub 事件自动运行任务，
+                <button type="button" onClick={onOpenLoops} className="text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                  新建一个 →
+                </button>
+              </p>
+            )}
+            {enabledLoops.length > 0 && (
+              <ul className="space-y-1">
+                {enabledLoops.slice(0, 4).map((loop) => (
+                  <li key={loop.id} className="rounded-lg border border-line px-3 py-2 text-[13px]">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onOpenLoopRuns(loop.id)}
+                        className="min-w-0 flex-1 truncate text-left font-medium text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent"
+                      >
+                        {loop.name}
+                      </button>
+                      <span className="shrink-0 text-[11px] text-fg-muted" title={JSON.stringify(loop.trigger)}>
+                        {triggerLabel(loop.trigger)}
+                      </span>
+                    </div>
+                    {loop.description && <p className="mt-0.5 truncate text-xs text-fg-muted">{loop.description}</p>}
+                    <p className="mt-0.5 text-[11px] text-fg-muted" data-testid={`overview-loop-last-${loop.id}`}>
+                      {loop.latestRun
+                        ? `最近：${RUN_STATUS_LABEL[loop.latestRun.status]} · ${formatTime(loop.latestRun.endedAt ?? loop.latestRun.enqueuedAt)}`
+                        : "从未运行"}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {recentRuns.length > 0 && (
+              <div className="rounded-lg border border-line px-3 py-2">
+                <p className="pb-1 text-[11px] font-medium text-fg-muted">最近运行</p>
+                <ul className="space-y-1 text-xs text-fg-dim">
+                  {recentRuns.map((loop) => {
+                    const run = loop.latestRun!;
+                    return (
+                      <li key={`${loop.id}-${run.id}`} className="flex items-center gap-2">
+                        <span className={`shrink-0 font-medium ${ACTIVE_RUN.has(run.status) ? "text-warn" : run.status === "failed" ? "text-bad" : "text-fg-muted"}`}>
+                          {RUN_STATUS_LABEL[run.status]}
+                        </span>
+                        <button type="button" onClick={() => onOpenLoopRuns(loop.id)} className="min-w-0 flex-1 truncate text-left hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                          {loop.name}
+                        </button>
+                        <span className="shrink-0 text-[11px] text-fg-faint">{formatTime(run.endedAt ?? run.enqueuedAt)}</span>
+                        {run.botId && (
+                          <button type="button" onClick={() => onOpenSession(run.botId!)} className="shrink-0 text-[11px] text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                            打开会话
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+            {loops !== undefined && loops.length > enabledLoops.length && (
+              <p className="text-[11px] text-fg-faint">另有 {loops.length - enabledLoops.length} 个已停用的 Loop，在管理页查看。</p>
+            )}
           </section>
 
           {data && (
             <>
-              <section aria-label="Issues">
-                <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">Issues</h3>
+              <section aria-label="Issues" className="space-y-1">
+                <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">Issues（未解决）</h3>
                 {data.issues.length === 0 ? (
                   <p className="text-sm text-fg-muted">没有未解决的 issue。</p>
                 ) : (
                   <ul className="space-y-1">
                     {data.issues.map((issue) => {
                       const executions = executionsByIssue.get(issue.number) ?? [];
+                      const expanded = expandedIssue === issue.number;
                       return (
                         <li key={issue.number}>
-                          <button type="button" onClick={() => void openIssue(issue.number)} disabled={opening !== undefined} className={`${row} disabled:opacity-50`}>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedIssue(expanded ? undefined : issue.number)}
+                            aria-expanded={expanded}
+                            className={row}
+                            data-testid={`issue-row-${issue.number}`}
+                          >
                             <span className="shrink-0 font-mono text-xs text-fg-muted">#{issue.number}</span>
                             <span className="min-w-0 flex-1 truncate">{issue.title}</span>
-                            {opening === issue.number && <span className="shrink-0 text-[11px] text-fg-muted">打开中…</span>}
-                            {issue.discussionBotId && opening !== issue.number && <span className="shrink-0 text-[11px] text-fg-faint">已有讨论</span>}
+                            {issue.author && <span className="shrink-0 text-[11px] text-fg-faint">@{issue.author}</span>}
+                            {typeof issue.comments === "number" && issue.comments > 0 && (
+                              <span className="shrink-0 text-[11px] text-fg-faint">💬 {issue.comments}</span>
+                            )}
+                            {issue.discussionBotId && <span className="shrink-0 text-[11px] text-fg-faint">已有讨论</span>}
+                            <span className="shrink-0 text-[11px] text-fg-muted" aria-hidden="true">{expanded ? "▾" : "▸"}</span>
                           </button>
+                          {expanded && (
+                            <div className="mt-1 rounded-lg border border-line bg-raised px-3 py-2 text-xs" data-testid={`issue-detail-${issue.number}`}>
+                              <p className="text-fg-muted">
+                                #{issue.number} · {issue.state === "open" ? "开放" : (issue.state ?? "未知状态")}
+                                {issue.author ? ` · 作者 @${issue.author}` : ""}
+                                {typeof issue.comments === "number" ? ` · ${issue.comments} 条评论` : ""}
+                                {issue.updatedAt ? ` · 更新于 ${formatTime(issue.updatedAt)}` : ""}
+                              </p>
+                              <p className="mt-1 text-fg-dim">先看信息再决定动作；点击本行不会创建任何会话。</p>
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void openIssue(issue.number)}
+                                  disabled={opening !== undefined}
+                                  className="rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
+                                  data-testid={`issue-discuss-${issue.number}`}
+                                >
+                                  {opening === issue.number ? "创建讨论中…" : issue.discussionBotId ? "打开讨论 Session" : "开始讨论 Session"}
+                                </button>
+                                {issue.url && (
+                                  <a href={issue.url} target="_blank" rel="noreferrer" className="text-accent hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                                    在 GitHub 查看 ↗
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           {executions.length > 0 && (
                             <ul className="ml-4 mt-1 space-y-1" aria-label={`issue #${issue.number} 执行结果`}>
                               {executions.map((exec) => {
@@ -280,27 +425,58 @@ function WorkspaceOverview({
                 )}
               </section>
 
-              <section aria-label="Pull requests">
-                <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">Pull requests</h3>
-                {data.pulls.length === 0 ? (
-                  <p className="text-sm text-fg-muted">没有开放的 PR。</p>
+              <section aria-label="Pull requests" className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-fg-muted">Pull requests</h3>
+                  <div className="flex items-center gap-1" role="group" aria-label="PR 状态筛选">
+                    {([
+                      ["open", `开放 ${openPulls.length}`],
+                      ["closed", `已关闭 ${closedPulls.length}`],
+                      ["all", `全部 ${(data?.pulls ?? []).length}`],
+                    ] as const).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setPrFilter(key)}
+                        aria-pressed={prFilter === key}
+                        className={`rounded-md px-2 py-0.5 text-[11px] font-medium focus-visible:outline-2 focus-visible:outline-accent ${
+                          prFilter === key ? "bg-brand/15 text-accent" : "text-fg-dim hover:bg-hover"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {shownPulls.length === 0 ? (
+                  <p className="text-sm text-fg-muted">{prFilter === "open" ? "没有开放的 PR。" : "没有符合条件的 PR。"}</p>
                 ) : (
                   <ul className="space-y-1">
-                    {data.pulls.map((pr) => (
-                      <li key={pr.number} className="flex items-center gap-2">
-                        <a href={pr.url} target="_blank" rel="noreferrer" className={row}>
+                    {shownPulls.map((pr) => (
+                      <li key={pr.number} className="rounded-lg border border-line px-3 py-2 text-[13px]">
+                        <div className="flex items-center gap-2">
                           <span className="shrink-0 font-mono text-xs text-fg-muted">#{pr.number}</span>
-                          <span className="min-w-0 flex-1 truncate">{pr.title ?? ""}</span>
-                          {pr.headRef && <span className="shrink-0 truncate font-mono text-[11px] text-fg-faint">{pr.headRef}</span>}
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => void startReview(pr.number)}
-                          disabled={reviewing !== undefined}
-                          className="shrink-0 rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
-                        >
-                          {reviewing === pr.number ? "Review 中…" : "Review"}
-                        </button>
+                          <a href={pr.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-fg hover:underline focus-visible:outline-2 focus-visible:outline-accent">
+                            {pr.title ?? ""}
+                          </a>
+                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${pr.merged ? "bg-accent/15 text-accent" : pr.state === "closed" ? "bg-bad/10 text-bad" : "bg-ok/10 text-ok"}`}>
+                            {prStateLabel(pr)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-[11px] text-fg-faint">
+                          {pr.headRef && <span className="min-w-0 flex-1 truncate font-mono">{pr.headRef}</span>}
+                          {pr.updatedAt && <span className="shrink-0">更新于 {formatTime(pr.updatedAt)}</span>}
+                          <span className="flex-1" />
+                          <button
+                            type="button"
+                            onClick={() => void startReview(pr.number)}
+                            disabled={reviewing !== undefined}
+                            className={cardBtn}
+                            data-testid={`pr-review-${pr.number}`}
+                          >
+                            {reviewing === pr.number ? "创建 Review Session 中…" : "打开 Review Session"}
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -308,6 +484,23 @@ function WorkspaceOverview({
               </section>
             </>
           )}
+
+          <section aria-label="工作区设置" className="space-y-2">
+            <h3 className="pb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">设置</h3>
+            <div className="space-y-2">
+              <WorkspaceEnvSettings workspaceId={workspace.id} />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border border-line px-3 py-2 text-xs">
+                  <p className="text-[13px] font-medium text-fg">Skills（规划中）</p>
+                  <p className="mt-1 text-[11px] text-fg-faint">粒度三级待定：整个 pi（部署配置）、工作区（面板）、项目仓库（.pi/skills 走 git）；pipeline 安装入口待设计。</p>
+                </div>
+                <div className="rounded-lg border border-line px-3 py-2 text-xs">
+                  <p className="text-[13px] font-medium text-fg">MCP（规划中）</p>
+                  <p className="mt-1 text-[11px] text-fg-faint">粒度同 Skills；项目 .mcp.json 跟仓库走；凭据计划引用环境变量加密存储。</p>
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -318,10 +511,10 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const [bots, setBots] = useState<BotSummary[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspacesLoaded, setWorkspacesLoaded] = useState(false);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | undefined>(() => globalThis.localStorage?.getItem("pca.workspace") ?? undefined);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | undefined>(() => readWorkspaceLink() ?? globalThis.localStorage?.getItem("pca.workspace") ?? undefined);
   /** Session picked inside the selected workspace. undefined = the primary session; null = the workspace overview
    * (explicit state, so picking the workspace entry is never overridden by the primary-session fallback). */
-  const [pickedBotId, setPickedBotId] = useState<string | null>();
+  const [pickedBotId, setPickedBotId] = useState<string | null | undefined>(() => readWorkspaceLink() && !readSessionLink() ? null : undefined);
   // Deep link: ?loopRun=<botId-or-runId> picks the session that owns the run (PR bodies link here).
   const [deepLinked, setDeepLinked] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -342,6 +535,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const [shareMsg, setShareMsg] = useState<string>();
   /** Set once after the first workspace list arrived; the deep-link param is consumed only after this. */
   const linkHandled = useRef(false);
+  /** Set once the ?loops= param of the initial URL has been applied (a ?bot= link wins over it). */
+  const loopsRestored = useRef(false);
   // Workspaces created in this tab; kept until a list response contains them (see mergeWorkspaceList).
   const localWorkspaces = useRef(new Map<string, LocalWorkspace>());
 
@@ -366,7 +561,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   // Keep the workspace selection valid: default to the first one.
   useEffect(() => {
-    if (workspaces.length === 0) return;
+    if (workspaces.length === 0 || readWorkspaceLink()) return;
     if (!selectedWorkspaceId || !workspaces.some((w) => w.id === selectedWorkspaceId)) setSelectedWorkspaceId(workspaces[0].id);
   }, [workspaces, selectedWorkspaceId]);
 
@@ -394,7 +589,11 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     if (!workspacesLoaded || linkHandled.current) return;
     linkHandled.current = true;
     const target = link.linkBot;
-    if (!target) return;
+    if (!target) {
+      const wsId = readWorkspaceLink();
+      if (wsId && !workspaces.some((w) => w.id === wsId)) setError(`链接中的工作区不存在：${wsId}`);
+      return;
+    }
     const wsId = botWorkspace.get(target);
     if (wsId) {
       setSelectedWorkspaceId(wsId);
@@ -417,22 +616,40 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const { vm, status } = useBotStream(selectedId);
   const notifications = useSessionNotifications({ botId: selectedId, botName: bot?.name, busy: vm.busy });
 
+  // Workspace-IA demo: ?workspace=…&loops=list|new|<loopId> restores the Loops surface on load (refresh / shared
+  // link). Applied once the workspace is known and only when no ?bot= session link competes with it.
+  useEffect(() => {
+    if (!workspace || loopsRestored.current || readSessionLink()) return;
+    loopsRestored.current = true;
+    setLoopsView(loopsViewOf(readLoopsLink()));
+  }, [workspace]);
+
   // AMP13-collaboration: keep the address bar pointing at the open session so a refresh (or a copied link) lands
   // back here; the workspace overview clears the param.
   useEffect(() => {
     if (!linkHandled.current) return;
     // Initial URL resolution may still be selecting a workspace in this render.
     if (pickedBotId === undefined && link.linkBot && botWorkspace.has(link.linkBot)) return;
-    const want = overviewOpen || !bot ? undefined : bot.id;
-    if (want === readSessionLink()) return;
-    link.setLink(want);
-  }, [selectedId, overviewOpen, pickedBotId]);
+    if (!workspace) return;
+    // The loops surface (?workspace=…&loops=…) replaces the session param; the overview clears both.
+    const want = loopsOpen || overviewOpen || !bot ? undefined : bot.id;
+    const wantWorkspace = want ? undefined : workspace.id;
+    const wantLoops = loopsOpen ? loopsLinkOf(loopsView) : undefined;
+    if (want === readSessionLink() && wantWorkspace === readWorkspaceLink() && JSON.stringify(wantLoops) === JSON.stringify(readLoopsLink())) return;
+    link.setLink(want, wantWorkspace, wantLoops);
+  }, [selectedId, overviewOpen, pickedBotId, workspace, loopsOpen, loopsView]);
 
   useEffect(() => {
     const onPop = () => {
       const target = readSessionLink();
+      setLoopsView(undefined);
+      setError(undefined);
       if (!target) {
+        const wsId = readWorkspaceLink();
+        setSelectedWorkspaceId(wsId ?? workspaces[0]?.id);
+        if (wsId && !workspaces.some((w) => w.id === wsId)) setError(`链接中的工作区不存在：${wsId}`);
         setPickedBotId(null);
+        setLoopsView(loopsViewOf(readLoopsLink()));
         return;
       }
       const wsId = botWorkspace.get(target);
@@ -445,7 +662,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [botWorkspace]);
+  }, [botWorkspace, workspaces]);
 
   const onShareLink = useCallback(() => {
     if (!bot) return;
@@ -495,6 +712,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   }, [isNarrow, rail]);
 
   const selectWorkspace = (id: string) => {
+    setError(undefined);
     setSelectedWorkspaceId(id);
     setLoopsView(undefined);
     // null = open the workspace overview, not the primary session.
@@ -504,6 +722,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   };
   const pickBot = useCallback(
     (id: string) => {
+      setLoopsView(undefined);
       setPickedBotId(id);
       if (isNarrow()) rail.close();
     },
@@ -698,8 +917,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
       {loopsOpen && workspace ? (
         <div className="flex min-h-0 flex-1 flex-col" data-testid="loops-pane">
-          {!rail.open && (
-            <div className="flex h-14 shrink-0 items-center border-b border-line px-4">
+          <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4">
+            {!rail.open && (
               <button
                 type="button"
                 aria-label="Expand sidebar"
@@ -709,8 +928,17 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
               >
                 <Icon name="sidebar" className="size-4" />
               </button>
-            </div>
-          )}
+            )}
+            <button
+              type="button"
+              onClick={() => setLoopsView(undefined)}
+              data-testid="loops-back"
+              className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              ← 返回工作区
+            </button>
+            <h2 className="min-w-0 truncate text-sm font-semibold text-fg">Loops · {workspace.name}</h2>
+          </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-6">
             <div className="mx-auto max-w-2xl">
               {loopsView?.mode === "list" && (
@@ -746,7 +974,21 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         </div>
       ) : overviewOpen && workspace ? (
         // Keyed by workspace.id: switching workspaces remounts it, so stale rows of the previous repo can't linger.
-        <WorkspaceOverview key={workspace.id} workspace={workspace} railOpen={rail.open} bots={bots} onExpandRail={rail.show} onOpenIssue={onOpenIssue} onOpenSession={pickBot} onReview={onReview} onOpenLoops={openLoops} />
+        <WorkspaceOverview
+          key={workspace.id}
+          workspace={workspace}
+          railOpen={rail.open}
+          bots={bots}
+          onExpandRail={rail.show}
+          onOpenIssue={onOpenIssue}
+          onOpenSession={pickBot}
+          onReview={onReview}
+          onOpenLoops={openLoops}
+          onOpenLoopRuns={(loopId) => {
+            setPickedBotId(null);
+            setLoopsView({ mode: "runs", loopId });
+          }}
+        />
       ) : bot ? (
         <>
           <MessageList
@@ -794,7 +1036,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         </div>
       ) : (
         <div className="m-auto max-w-sm space-y-3 p-6 text-center">
-          <p className="text-sm text-fg-muted">{workspacesLoaded ? "还没有工作区。新建一个工作区，选择仓库并描述需求，Agent 会在独立的云环境里开始工作。" : "加载中…"}</p>
+          <p className="text-sm text-fg-muted">{workspacesLoaded ? readWorkspaceLink() ? "链接中的工作区不可用，请从左侧选择工作区。" : "还没有工作区。新建一个工作区，选择仓库并描述需求，Agent 会在独立的云环境里开始工作。" : "加载中…"}</p>
           {workspacesLoaded && (
             <button
               type="button"
