@@ -6,6 +6,7 @@ import { request } from "../../lib/api";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
 import { WorkspaceContext, describeError, formatTime } from "../../lib/workspaces";
 import type { PanelContext, PanelDefinition } from "../types";
 
@@ -155,7 +156,13 @@ export function EventsPanel({ bots }: PanelContext) {
   }, [load]);
 
   if (!workspace) {
-    return <p className="p-4 text-sm text-muted-foreground">{wsCtx?.loading ? "加载中…" : "选择一个工作区后，这里可以同步它绑定仓库的 GitHub 事件。"}</p>;
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">
+          {wsCtx?.loading ? "加载中…" : "选择一个工作区后，这里可以同步它绑定仓库的 GitHub 事件。"}
+        </EmptyDescription>
+      </Empty>
+    );
   }
 
   // Sessions of this workspace that can receive appended events.

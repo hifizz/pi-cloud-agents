@@ -49,13 +49,13 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
         </DialogDescription>
         <form onSubmit={submit} className="space-y-3">
           <div>
-            <Label htmlFor="fork-name" className="mb-1 text-xs text-muted-foreground">
+            <Label htmlFor="fork-name" className="mb-1.5 block text-xs font-medium text-muted-foreground">
               New bot name
             </Label>
             <Input id="fork-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus autoComplete="off" />
           </div>
           <div>
-            <Label htmlFor="fork-model" className="mb-1 text-xs text-muted-foreground">
+            <Label htmlFor="fork-model" className="mb-1.5 block text-xs font-medium text-muted-foreground">
               Model
             </Label>
             <select

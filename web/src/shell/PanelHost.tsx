@@ -22,7 +22,7 @@ export function PanelHost({ panels, active, onSelect, onClose, ctx, focus }: Pan
   return (
     <>
       <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-3">
-        <div role="tablist" aria-label="Panels" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <div role="tablist" aria-label="Panels" className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {panels.map((p) => {
             const selected = p.id === current?.id;
             const badge = p.badge?.(ctx);
@@ -36,7 +36,7 @@ export function PanelHost({ panels, active, onSelect, onClose, ctx, focus }: Pan
                 aria-controls="panel-body"
                 onClick={() => onSelect(p.id)}
                 className={cn(
-                  "flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12.5px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                  "flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                   selected ? "border-border bg-muted text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
               >

@@ -338,7 +338,7 @@ function WorkspaceOverview({
 
           {data && (
             <>
-              <section aria-label="Issues" className="space-y-1">
+              <section aria-label="Issues" className="space-y-2">
                 <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Issues（未解决）</h3>
                 {data.issues.length === 0 ? (
                   <p className="text-sm text-muted-foreground">没有未解决的 issue。</p>
@@ -428,7 +428,7 @@ function WorkspaceOverview({
                 )}
               </section>
 
-              <section aria-label="Pull requests" className="space-y-1">
+              <section aria-label="Pull requests" className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pull requests</h3>
                   <ToggleGroup
@@ -466,19 +466,20 @@ function WorkspaceOverview({
                           </Badge>
                         </div>
                         <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                          {pr.headRef && <span className="min-w-0 flex-1 truncate font-mono">{pr.headRef}</span>}
+                          {pr.headRef && <span className="min-w-0 truncate font-mono">{pr.headRef}</span>}
                           {pr.updatedAt && <span className="shrink-0">更新于 {formatTime(pr.updatedAt)}</span>}
-                          <span className="flex-1" />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void startReview(pr.number)}
-                            disabled={reviewing !== undefined}
-                            data-testid={`pr-review-${pr.number}`}
-                          >
-                            {reviewing === pr.number ? "创建 Review Session 中…" : "打开 Review Session"}
-                          </Button>
+                          <span className="ml-auto flex shrink-0 items-center gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void startReview(pr.number)}
+                              disabled={reviewing !== undefined}
+                              data-testid={`pr-review-${pr.number}`}
+                            >
+                              {reviewing === pr.number ? "创建 Review Session 中…" : "打开 Review Session"}
+                            </Button>
+                          </span>
                         </div>
                       </li>
                     ))}
@@ -844,14 +845,15 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     if (!workspace) return [];
     const items: ContextStripItem[] = [];
     const cwd = bot?.worktree?.dir ?? bot?.issueLoop?.dir ?? bot?.review?.dir ?? bot?.loopRun?.dir ?? vm.agent.cwd;
-    if (cwd) items.push({ icon: <HugeiconsIcon icon={FolderIcon} className="size-[15px]" strokeWidth={1.8} />, label: cwd, title: cwd });
+    if (cwd) items.push({ icon: <HugeiconsIcon icon={FolderIcon} className="size-3.5" strokeWidth={1.8} />, label: cwd, title: cwd });
     const binding = workspace.binding;
     items.push({
-      icon: <HugeiconsIcon icon={AiCloudIcon} className="size-[15px]" strokeWidth={1.8} />,
+      icon: <HugeiconsIcon icon={AiCloudIcon} className="size-3.5" strokeWidth={1.8} />,
       label: workspace.status === "ready" ? `Sprite 就绪 · ${binding?.runtimeId ?? ""}` : `沙箱状态：${workspace.status}`,
+      title: binding?.runtimeId,
     });
     const branch = bot?.worktree?.branch ?? bot?.issueLoop?.branch ?? bot?.loopRun?.branch ?? null;
-    if (branch) items.push({ icon: <HugeiconsIcon icon={GitBranchIcon} className="size-[15px]" strokeWidth={1.8} />, label: branch });
+    if (branch) items.push({ icon: <HugeiconsIcon icon={GitBranchIcon} className="size-3.5" strokeWidth={1.8} />, label: branch, title: branch });
     return items;
   }, [workspace, bot, vm.agent.cwd]);
 

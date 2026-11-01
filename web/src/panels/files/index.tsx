@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
 import { Icon } from "../../components/Chat/primitives/Icon";
 import { cx } from "../../lib/cx";
 import type { PanelContext, PanelDefinition } from "../types";
@@ -238,7 +239,7 @@ function FilesView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
       <div className="flex min-h-0 flex-1">
         <ul className="w-2/5 shrink-0 overflow-y-auto border-r border-border" aria-label="Directory listing">
           {loading && <li className="px-3 py-2 text-muted-foreground">Loading…</li>}
-          {!loading && list?.entries.length === 0 && <li className="px-3 py-2 text-muted-foreground">(empty)</li>}
+          {!loading && list?.entries.length === 0 && <li className="px-3 py-2 text-xs text-muted-foreground">(empty)</li>}
           {list?.entries.map((e) => (
             <li key={e.path}>
               <button
@@ -286,7 +287,12 @@ function FilesView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
 }
 
 const Component = ({ bot }: PanelContext) => {
-  if (!bot) return <div className="p-4 text-sm text-muted-foreground">Select a session to browse its files.</div>;
+  if (!bot)
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">Select a session to browse its files.</EmptyDescription>
+      </Empty>
+    );
   return <FilesView bot={bot} />;
 };
 

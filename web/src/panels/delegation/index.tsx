@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ApiError, request } from "../../lib/api";
 import { Alert } from "../../components/ui/alert";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -83,9 +84,14 @@ function DelegationBody({ bot }: PanelContext) {
     return () => clearInterval(t);
   }, [load]);
 
-  if (!bot) return <div className="p-4 text-sm text-muted-foreground">选择一个会话后可委派子任务。</div>;
-  if (error && !view) return <div className="p-4 text-sm text-muted-foreground">{error}</div>;
-  if (!view) return <div className="p-4 text-sm text-muted-foreground">加载中…</div>;
+  const emptyNote = (text: string) => (
+    <Empty className="h-full">
+      <EmptyDescription className="max-w-xs">{text}</EmptyDescription>
+    </Empty>
+  );
+  if (!bot) return emptyNote("选择一个会话后可委派子任务。");
+  if (error && !view) return emptyNote(error);
+  if (!view) return emptyNote("加载中…");
 
   const addAttachment = async (e: FormEvent) => {
     e.preventDefault();

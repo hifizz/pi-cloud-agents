@@ -7,6 +7,7 @@
 // never a cached guess. The port list is server-probed common dev ports plus whatever the user types.
 import { useContext, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { request } from "../../lib/api";
@@ -116,17 +117,15 @@ function PreviewBody({ workspaceId }: { workspaceId: string }) {
           </>
         )}
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
         {state.kind === "idle" && (
-          <p className="p-4 text-sm text-muted-foreground">输入端口后「打开预览」：页面来自当前工作区 Sprite 内真实运行的服务。</p>
+          <PreviewEmpty>输入端口后「打开预览」：页面来自当前工作区 Sprite 内真实运行的服务。</PreviewEmpty>
         )}
-        {state.kind === "probing" && <p className="p-4 text-sm text-muted-foreground">正在检查端口…</p>}
+        {state.kind === "probing" && <PreviewEmpty>正在检查端口…</PreviewEmpty>}
         {state.kind === "empty" && (
-          <p className="p-4 text-sm text-muted-foreground">
-            无服务：该端口在当前工作区 Sprite 内没有进程监听。先在会话里让 Bot 启动开发服务器，再打开预览。
-          </p>
+          <PreviewEmpty>无服务：该端口在当前工作区 Sprite 内没有进程监听。先在会话里让 Bot 启动开发服务器，再打开预览。</PreviewEmpty>
         )}
-        {state.kind === "error" && <p className="p-4 text-sm text-destructive">{state.message}</p>}
+        {state.kind === "error" && <PreviewEmpty>{state.message}</PreviewEmpty>}
         {state.kind === "ready" && (
           <iframe
             key={`${state.port}:${reloadSeq}`}
@@ -147,6 +146,14 @@ function PreviewBody({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+function PreviewEmpty({ children }: { children: React.ReactNode }) {
+  return (
+    <Empty className="h-full">
+      <EmptyDescription className="max-w-xs">{children}</EmptyDescription>
+    </Empty>
+  );
+}
+
 function PreviewPanel({ bot, bots }: PanelContext) {
   const wsCtx = useContext(WorkspaceContext);
   // Resolve the bot's workspace the same way the rest of the UI does; the App's selected workspace is a hint only.
@@ -158,8 +165,8 @@ function PreviewPanel({ bot, bots }: PanelContext) {
     return mapBotsToWorkspaces(bots, [wsCtx.workspace]).get(bot.id) ?? wsCtx.workspace.id;
   }, [bot, bots, wsCtx]);
 
-  if (!bot) return <p className="p-4 text-sm text-muted-foreground">选择一个会话后，可预览其工作区 Sprite 内运行的服务。</p>;
-  if (!workspaceId) return <p className="p-4 text-sm text-muted-foreground">当前会话不属于任何工作区，无法预览。</p>;
+  if (!bot) return <PreviewEmpty>选择一个会话后，可预览其工作区 Sprite 内运行的服务。</PreviewEmpty>;
+  if (!workspaceId) return <PreviewEmpty>当前会话不属于任何工作区，无法预览。</PreviewEmpty>;
   return <PreviewBody workspaceId={workspaceId} />;
 }
 

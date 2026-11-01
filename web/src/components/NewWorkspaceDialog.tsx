@@ -16,7 +16,7 @@ export interface NewWorkspaceDialogProps {
 // Native <select> stays (ForkDialog precedent): tests drive it with selectOptions.
 const selectCls =
   "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30";
-const labelCls = "mb-1 block text-xs text-muted-foreground";
+const labelCls = "mb-1.5 block text-xs font-medium text-muted-foreground";
 
 export function NewWorkspaceDialog({ onCreated, onClose }: NewWorkspaceDialogProps) {
   // One requestId per opened dialog: double clicks and retries after a failure all reuse it, so the server

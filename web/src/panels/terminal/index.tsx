@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
 import { Input } from "../../components/ui/input";
 import { Icon } from "../../components/Chat/primitives/Icon";
 import { cx } from "../../lib/cx";
@@ -913,8 +914,18 @@ function ConsoleView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
 
 const Component = ({ bot }: PanelContext) => {
   const [mode, setMode] = useState<"pty" | "console">("pty");
-  if (!bot) return <div className="p-4 text-sm text-muted-foreground">Select a session to open its terminal.</div>;
-  if (bot.readOnly || bot.loopRun) return <p className="p-4 text-sm text-muted-foreground">受限 Session 不提供人工 Shell，以免绕过运行权限。请在工作区新建普通 Session 使用终端。</p>;
+  if (!bot)
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">Select a session to open its terminal.</EmptyDescription>
+      </Empty>
+    );
+  if (bot.readOnly || bot.loopRun)
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">受限 Session 不提供人工 Shell，以免绕过运行权限。请在工作区新建普通 Session 使用终端。</EmptyDescription>
+      </Empty>
+    );
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-1 border-b border-border px-2 pt-1.5 text-[12px]">

@@ -77,12 +77,12 @@ export function AddSessionDialog({
         <DialogDescription className="-mt-2 text-xs">
           在「{workspaceName}」里新建一个空白会话，使用独立目录，不会自动发送消息。
         </DialogDescription>
-        <form onSubmit={submit} className="space-y-3" aria-label="添加 Session">
+        <form onSubmit={submit} className="space-y-3" aria-label="添加 Session 表单">
           <div>
-            <Label htmlFor="add-session-name" className="text-xs font-medium text-muted-foreground">
+            <Label htmlFor="add-session-name" className="mb-1.5 block text-xs font-medium text-muted-foreground">
               名称
             </Label>
-            <Input id="add-session-name" type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={submitting} className="mt-1" />
+            <Input id="add-session-name" type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={submitting} />
           </div>
           {error && (
             <p role="alert" className="text-xs text-destructive">
@@ -261,12 +261,12 @@ export function BotList({
                                 onClick={() => onSelectBot(bot.id)}
                                 aria-current={botSelected ? "true" : undefined}
                                 data-active={botSelected || undefined}
-                                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] ${focusRing} ${
+                                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${focusRing} ${
                                   botSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-muted"
                                 }`}
                               >
                                 <span className="min-w-0 flex-1">
-                                  <span className="block truncate font-medium">
+                                  <span className="block truncate font-medium" title={bot.name}>
                                     {bot.name}
                                     <span data-testid="session-status-label" className="ml-1.5 text-[11px] font-normal text-muted-foreground">
                                       {SESSION_STATUS_LABEL[sessionStatus]}

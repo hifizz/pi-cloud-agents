@@ -3,6 +3,7 @@ import { WorkspaceContext, describeError, envName, modelLabel, shortSha, workspa
 import type { BotSummary, ConversationVM } from "../types";
 import { WorkspaceActions, WorkspaceStatus } from "./WorkspaceStatus";
 import { Button } from "./ui/button";
+import { Empty, EmptyDescription } from "./ui/empty";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
@@ -469,7 +470,13 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   }, [botId]);
 
   if (!workspace) {
-    return <p className="p-4 text-sm text-muted-foreground">{loading ? "加载中…" : "还没有工作区。新建一个工作区后，这里会显示它的环境信息。"}</p>;
+    return (
+      <Empty className="h-full min-h-48">
+        <EmptyDescription className="max-w-xs">
+          {loading ? "加载中…" : "还没有工作区。新建一个工作区后，这里会显示它的环境信息。"}
+        </EmptyDescription>
+      </Empty>
+    );
   }
 
   const agent = vm?.agent;

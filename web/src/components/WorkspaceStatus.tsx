@@ -178,7 +178,7 @@ function RebuildConfirm({
         <DialogTitle id="rebuild-title" className="text-sm font-semibold">
           从检查点重建环境
         </DialogTitle>
-        <DialogDescription className="text-xs">
+        <DialogDescription className="-mt-2 text-xs">
           会新建一台环境并恢复到该检查点（{formatTime(checkpoint.createdAt) || "时间未知"} · {formatBytes(checkpoint.size)}）。旧环境不会被删除，但新环境只包含该检查点的内容：比它更新的提交和未保存改动都不会出现在新环境里，只留在旧环境中。
         </DialogDescription>
         {error && (

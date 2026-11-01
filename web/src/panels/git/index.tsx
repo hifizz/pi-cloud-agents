@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "../../components/Chat/primitives/Icon";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
 import { Toggle } from "../../components/ui/toggle";
 import { request } from "../../lib/api";
 import { cx } from "../../lib/cx";
@@ -301,7 +302,11 @@ export function GitPanel({ bot }: PanelContext) {
   };
 
   if (!botId) {
-    return <p className="p-4 text-sm text-muted-foreground">选择一个会话查看它的 git 状态。</p>;
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">选择一个会话查看它的 git 状态。</EmptyDescription>
+      </Empty>
+    );
   }
 
   const shortHead = status?.head.slice(0, 7);

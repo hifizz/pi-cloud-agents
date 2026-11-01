@@ -5,6 +5,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { ApiError, request } from "../../lib/api";
 import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
 import type { BotSummary } from "../../types";
@@ -144,7 +145,11 @@ export function SessionSearchPanel({ bot }: PanelContext) {
   }, [workspaceId, bot, question, refs]);
 
   if (!workspaceId) {
-    return <div className="p-4 text-xs text-muted-foreground">当前会话不属于任何工作区，无法跨会话搜索。</div>;
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">当前会话不属于任何工作区，无法跨会话搜索。</EmptyDescription>
+      </Empty>
+    );
   }
 
   return (
@@ -192,7 +197,11 @@ export function SessionSearchPanel({ bot }: PanelContext) {
             {sentNote}
           </p>
         )}
-        {data && data.results.length === 0 && !error && <p className="p-4 text-xs text-muted-foreground">没有匹配的历史记录。</p>}
+        {data && data.results.length === 0 && !error && (
+          <Empty className="h-full">
+            <EmptyDescription className="max-w-xs">没有匹配的历史记录。</EmptyDescription>
+          </Empty>
+        )}
         <ul className="divide-y divide-border">
           {data?.results.map((r) => {
             const key = refKey(r);

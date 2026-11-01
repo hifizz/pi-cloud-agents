@@ -14,10 +14,10 @@ export function ContextStrip({
   className?: string;
 }) {
   return (
-    <div className={`mt-1 flex h-6 items-center gap-4 px-2 text-[13px] text-muted-foreground ${className}`}>
+    <div className={`flex min-h-6 items-center gap-3 px-2.5 pb-1 pt-1.5 text-xs text-muted-foreground ${className}`}>
       {items.map((item) => (
         <span key={item.label} title={item.title} className="flex min-w-0 items-center gap-1.5">
-          {item.icon}
+          {item.icon && <span className="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-full">{item.icon}</span>}
           <span className="truncate">{item.label}</span>
         </span>
       ))}
