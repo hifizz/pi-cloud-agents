@@ -33,7 +33,7 @@ const rowCls: Record<string, string> = {
 function Row({ line, lang, wrap }: { line: DiffLine; lang: string; wrap: boolean }) {
   if (line.kind === "gap") {
     return (
-      <div className="skip flex h-6 items-center justify-center bg-raised text-xs text-fg-faint" aria-label="unmodified lines">
+      <div className="skip flex h-6 items-center justify-center bg-muted text-xs text-muted-foreground/60" aria-label="unmodified lines">
         ⋯
       </div>
     );
@@ -41,9 +41,9 @@ function Row({ line, lang, wrap }: { line: DiffLine; lang: string; wrap: boolean
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
   return (
     <div className={cx("flex", rowCls[line.kind])} data-kind={line.kind}>
-      <span className="w-[60px] shrink-0 select-none pr-3 text-right text-fg-faint">{line.num ?? ""}</span>
+      <span className="w-[60px] shrink-0 select-none pr-3 text-right text-muted-foreground/60">{line.num ?? ""}</span>
       <span className={cx("min-w-0 flex-1 pr-3", wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre")}>
-        <span aria-hidden className="select-none text-fg-faint">{sign} </span>
+        <span aria-hidden className="select-none text-muted-foreground/60">{sign} </span>
         {tokenize(line.text, lang).map((t, i) =>
           t.kind ? (
             <span key={i} className={SYN[t.kind]}>
@@ -73,7 +73,7 @@ export function DiffFileCard({ file, collapsed, wrap, onToggle, selected }: Prop
     <section role="group" aria-label={`Changes in ${file.path}`} data-path={file.path} data-selected={selected || undefined} className="border-b border-border">
       <header className="sticky top-0 z-10 flex h-9 items-center gap-2 border-b border-border bg-background px-3 text-xs">
         <button type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? "Expand" : "Collapse"} ${file.path}`} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2 text-left">
-          <Icon name="chevron" className={cx("text-fg-muted transition-transform", !collapsed && "rotate-90")} />
+          <Icon name="chevron" className={cx("text-muted-foreground transition-transform", !collapsed && "rotate-90")} />
           <span className="rounded bg-muted px-1.5 py-px font-mono text-[10px] text-muted-foreground">{langBadge(file.path)}</span>
           <span className="min-w-0 truncate font-mono text-foreground" title={file.path}>{file.path}</span>
         </button>

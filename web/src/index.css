@@ -7,22 +7,11 @@
 @custom-variant dark (&:is(.dark *));
 
 /* Design tokens (UI refresh, docs/UI-PLAN.md §2). Ported from the work-session-v2 reference.
-   Use them as Tailwind utilities: bg-surface, bg-rail, bg-raised, border-line, text-fg-dim, text-accent, … */
+   Use them as Tailwind utilities: text-ok, bg-diff-add, text-syn-kw, …
+   Removed after the shadcn migration (zero references left): the surface/rail/raised/field/
+   hover/selected/line*/fg* palette and the duplicate --color-accent: #4b8dff. Their uses all
+   moved onto the shadcn tokens in @theme inline below. */
 @theme {
-  --color-surface: #0a0a0a;
-  --color-rail: #030303;
-  --color-raised: #141414;
-  --color-field: #151515;
-  --color-hover: #151515;
-  --color-selected: #1e1e1e;
-  --color-line: #1f1f1f;
-  --color-line-soft: #181818;
-  --color-line-strong: #272727;
-  --color-fg: #ededed;
-  --color-fg-dim: #a1a1a1;
-  --color-fg-muted: #6f6f6f;
-  --color-fg-faint: #565656;
-  --color-accent: #4b8dff;
   --color-brand: #1668e3;
   --color-ok: #3fb950;
   --color-bad: #f85149;
@@ -84,8 +73,8 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-surface);
-  color: var(--color-fg);
+  background: var(--background);
+  color: var(--foreground);
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.5;
@@ -127,7 +116,7 @@ code, pre, .font-mono { font-variant-ligatures: none; font-feature-settings: "li
 .md hr { border: 0; border-top: 1px solid #27272a; margin: 1.2em 0; }
 
 /* Streaming caret sits at the end of the last block instead of on its own line. */
-.md-streaming > :last-child::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 3px; vertical-align: -0.15em; background: var(--color-fg-dim); animation: md-blink 1s steps(2) infinite; }
+.md-streaming > :last-child::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 3px; vertical-align: -0.15em; background: var(--muted-foreground); animation: md-blink 1s steps(2) infinite; }
 @keyframes md-blink { 50% { opacity: 0; } }
 
 .dark {
