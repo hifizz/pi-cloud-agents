@@ -11,6 +11,9 @@ import { useApprovals } from "./hooks/useApprovals";
 import { MessageList } from "./components/Chat/MessageList";
 import { Icon } from "./components/Chat/primitives/Icon";
 import { Composer, type SendMode } from "./components/Chat/Composer";
+import type { ApprovalPolicy, ContextStripItem } from "./components/composer";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { AiCloudIcon, FolderIcon, GitBranchIcon } from "@hugeicons/core-free-icons";
 import { WorkspaceShell } from "./shell/WorkspaceShell";
 import { PanelHost } from "./shell/PanelHost";
 import { SessionHeader } from "./shell/SessionHeader";
@@ -836,6 +839,30 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const model = vm.agent.modelId ? `${vm.agent.provider ?? ""}/${vm.agent.modelId}` : bot ? `${bot.model.provider}/${bot.model.modelId}` : "";
 
+  // Composer context strip: session cwd, cloud sandbox, and the session's own branch (detached sessions show no branch).
+  const contextItems = useMemo<ContextStripItem[]>(() => {
+    if (!workspace) return [];
+    const items: ContextStripItem[] = [];
+    const cwd = bot?.worktree?.dir ?? bot?.issueLoop?.dir ?? bot?.review?.dir ?? bot?.loopRun?.dir ?? vm.agent.cwd;
+    if (cwd) items.push({ icon: <HugeiconsIcon icon={FolderIcon} className="size-[15px]" strokeWidth={1.8} />, label: cwd, title: cwd });
+    const binding = workspace.binding;
+    items.push({
+      icon: <HugeiconsIcon icon={AiCloudIcon} className="size-[15px]" strokeWidth={1.8} />,
+      label: workspace.status === "ready" ? `Sprite 就绪 · ${binding?.runtimeId ?? ""}` : `沙箱状态：${workspace.status}`,
+    });
+    const branch = bot?.worktree?.branch ?? bot?.issueLoop?.branch ?? bot?.loopRun?.branch ?? null;
+    if (branch) items.push({ icon: <HugeiconsIcon icon={GitBranchIcon} className="size-[15px]" strokeWidth={1.8} />, label: branch });
+    return items;
+  }, [workspace, bot, vm.agent.cwd]);
+
+  const onApprovalPolicyChange = (policy: ApprovalPolicy) => {
+    if (!bot) return;
+    void guard(async () => {
+      const { bot: updated } = await api.setApprovalPolicy(bot.id, policy);
+      setBots((list) => list.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)));
+    }).catch(() => {});
+  };
+
   // SPIKE-review-loop: the session status is a human-set business label persisted on the Bot record.
   const onSetStatus = async (status: SessionStatus) => {
     if (!workspace || !bot) return;
@@ -1029,6 +1056,9 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             queued={vm.inbox.length}
             onSend={onSend}
             onAbort={() => void guard(() => api.abort(bot.id)).catch(() => {})}
+            approvalPolicy={bot.approvalPolicy ?? "ask"}
+            onApprovalPolicyChange={onApprovalPolicyChange}
+            contextItems={contextItems}
             status={<StatusLine busy={vm.busy} queued={vm.inbox.length} status={status} />}
           />
         </>

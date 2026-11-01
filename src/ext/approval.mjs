@@ -208,12 +208,27 @@ function abortError(signal) {
 /** Process-wide approval center used by the production extension and the HTTP routes. */
 export const approvals = new ApprovalCenter();
 
+// ---- approval policy ------------------------------------------------------------------------------------------------
+
+// Per-session approval policy lookup, installed once by BotRegistry (the same late-binding pattern as
+// setExecResolver / setIntegrationsApplier: the extension module is imported before the registry exists).
+// productionExtensions() cannot take the registry — bootstrap() runs before BotRegistry is constructed in
+// server.mjs — so the hook consults this at call time. Unset, unknown, "ask", or a throwing lookup all mean ask.
+let policyLookup;
+export function setApprovalPolicyLookup(fn) {
+  if (fn !== undefined && fn !== null && typeof fn !== "function") throw new TypeError("setApprovalPolicyLookup requires a function");
+  policyLookup = fn ?? undefined;
+}
+
 // ---- extension ------------------------------------------------------------------------------------------------------
 
 /**
- * @param {{ center?: ApprovalCenter, rules?: Parameters<typeof createClassifier>[0] }} [opts]
+ * @param {{ center?: ApprovalCenter, rules?: Parameters<typeof createClassifier>[0], getPolicy?: (conversationId: unknown) => string | undefined }} [opts]
+ * `getPolicy` is consulted only after a call is classified dangerous; "auto" treats the call as already approved.
+ * Defaults to the process-wide lookup set by setApprovalPolicyLookup, resolved per call so a lookup installed
+ * after the extension still applies.
  */
-export function createApproval({ center = approvals, rules } = {}) {
+export function createApproval({ center = approvals, rules, getPolicy } = {}) {
   const classify = rules ? createClassifier(rules) : isDangerous;
   return defineExtension({
     name: "tarsbot.approval",
@@ -225,18 +240,34 @@ export function createApproval({ center = approvals, rules } = {}) {
           // The memo survives restarts: a verdict given before a crash is reused and the human is not asked twice.
           let ok = await api.memo("approval", context);
           if (ok === undefined) {
-            // Aborting the wait (conversation abort, harness close) rejects here; the tool task rethrows while it is
-            // aborting, so nothing is memoized and the question returns after recovery.
-            const verdict = await center.request({
-              taskId: api.taskId,
-              conversationId: api.conversationId,
-              toolName: call.name,
-              args: call.arguments,
-              reason,
-              signal: context?.abortSignal,
-            });
-            // First write wins (REQ-F10-2): a concurrent earlier verdict is returned instead of ours.
-            ok = await api.memo("approval", verdict, context);
+            // A conversation whose bot runs on policy "auto" skips the human question entirely; the same durable memo
+            // records the verdict, so restart and first-write-wins semantics are identical to a human approval.
+            // Anything else — "ask", unknown, or a lookup that throws — keeps the question.
+            let auto = false;
+            const lookup = getPolicy ?? policyLookup;
+            if (lookup) {
+              try {
+                auto = lookup(api.conversationId) === "auto";
+              } catch {
+                auto = false;
+              }
+            }
+            if (auto) {
+              ok = await api.memo("approval", true, context);
+            } else {
+              // Aborting the wait (conversation abort, harness close) rejects here; the tool task rethrows while it is
+              // aborting, so nothing is memoized and the question returns after recovery.
+              const verdict = await center.request({
+                taskId: api.taskId,
+                conversationId: api.conversationId,
+                toolName: call.name,
+                args: call.arguments,
+                reason,
+                signal: context?.abortSignal,
+              });
+              // First write wins (REQ-F10-2): a concurrent earlier verdict is returned instead of ours.
+              ok = await api.memo("approval", verdict, context);
+            }
           }
           if (ok === false) return { block: `User denied: ${reason}` };
           return undefined;

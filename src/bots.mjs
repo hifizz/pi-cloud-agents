@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config, defaultModel } from "./config.mjs";
 import { ctx } from "./harness.mjs";
+import { setApprovalPolicyLookup } from "./ext/approval.mjs";
 
 /** Tools a read-only fork (REQ-F07) may keep, by name. */
 export const READ_ONLY_TOOLS = ["read", "web_search", "search_history"];
@@ -23,6 +24,9 @@ export class BotRegistry {
     this.harness = harness;
     this.path = opts.path === undefined ? config.botsPath : opts.path;
     this.bots = this.#load();
+    // The production Approval extension resolves each conversation's policy through this registry (late binding:
+    // the extension list is fixed at bootstrap, before the registry exists). Last registry wins.
+    setApprovalPolicyLookup((conversationId) => this.policyOf(conversationId));
   }
 
   #load() {
@@ -76,10 +80,12 @@ export class BotRegistry {
    * metadata {dir, pinnedSha, branch} (Files/Git/Header show the session's real state, never the workspace cwd) and
    * the capability level {capabilities:{code,web,github}} integrations and scoped tools must respect.
    * `tools` narrows the model-callable tool whitelist (loop capability enforcement); omitted = the full toolset.
+ * `approvalPolicy` is the session's human-approval mode: "ask" (default; records without the field behave as ask)
+ * parks dangerous tool calls in the approval center, "auto" treats every classification as approved at the hook.
    * `publishedFrom` (Issue14 Phase2) marks a Session created by the loop draft→publish route: {runId, loopId,
    * loopVersion, pinnedSha, branch, dir, entity} — provenance for the compose panel, NOT a permission context
    * (no loopRun, so the session never carries the run's capability snapshot or scoped tools).
-   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object, delegation?: object, loopRun?: {loopId:string, runId:string, version:number, dir?:string, pinnedSha?:string, branch?:string|null, capabilities?:object}, publishedFrom?: object }} spec
+   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object, delegation?: object, loopRun?: {loopId:string, runId:string, version:number, dir?:string, pinnedSha?:string, branch?:string|null, capabilities?:object}, publishedFrom?: object, approvalPolicy?: "ask"|"auto" }} spec
    */
   async createBot(spec) {
     if (!spec?.name) throw new Error("name is required");
@@ -108,6 +114,7 @@ export class BotRegistry {
       ...(spec.delegation ? { delegation: { ...spec.delegation } } : {}),
       ...(spec.loopRun ? { loopRun: { ...spec.loopRun } } : {}),
       ...(spec.publishedFrom ? { publishedFrom: { ...spec.publishedFrom } } : {}),
+      ...(spec.approvalPolicy ? { approvalPolicy: spec.approvalPolicy } : {}),
       createdAt: new Date().toISOString(),
     };
     this.bots.push(bot);
@@ -125,12 +132,12 @@ export class BotRegistry {
     return bot;
   }
 
-  /** Persist small record fields (status / executionResult / delegation). Only these keys are writable; undefined removes nothing.
+  /** Persist small record fields (status / executionResult / delegation / approvalPolicy). Only these keys are writable; undefined removes nothing.
    * Passing `null` deletes the key. Returns the updated record, or undefined when the Bot does not exist. */
   update(id, patch) {
     const bot = this.get(id);
     if (!bot) return undefined;
-    for (const key of ["status", "executionResult", "delegation"]) {
+    for (const key of ["status", "executionResult", "delegation", "approvalPolicy"]) {
       if (key in patch) {
         if (patch[key] === null) delete bot[key];
         else bot[key] = patch[key];
@@ -138,6 +145,15 @@ export class BotRegistry {
     }
     this.#save();
     return bot;
+  }
+
+  /**
+   * The conversation's approval policy for the Approval extension's `getPolicy`: "ask" | "auto", or undefined
+   * when nothing is configured (missing record, missing field — the hook treats undefined as "ask").
+   */
+  policyOf(conversationId) {
+    const bot = this.bots.find((b) => b.conversationId === conversationId);
+    return bot?.approvalPolicy === "auto" ? "auto" : bot?.approvalPolicy === "ask" ? "ask" : undefined;
   }
 
   /**
