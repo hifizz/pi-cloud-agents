@@ -65,6 +65,8 @@ fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --
 
 ## 开发规则
 
+- 新需求、新功能或行为变更的 PR 描述，默认先读取并遵循项目 skill：`.agents/skills/feature-pr-description/SKILL.md`。按「功能定义、具体例子、主要流程、对象与状态、接口与数据格式、生效时机/失败行为/限制」组织正文，手动验收和验证证据放附录；此项目约定优先于通用 PR 简短模板。
+
 - 新功能以扩展（`src/ext/`）或路由插件（`src/routes/`）的形式加入，在 `src/runtime.mjs` 集成；不要把逻辑散落到 `server.mjs` / `api.mjs`。
 - 对 pi-durable 的依赖收敛在 `env.mjs`、`ext/`、`server.mjs` 三处，方便 API 变动时迁移。
 - 运行环境供应商（`src/providers/<name>.mjs`）提供 `ensure` / `init` / `bash` / `status` / `list` / `release`；任何创建、删除路径都必须先过 `provider.isManaged()`；文件与 exec 逻辑留在 `env.mjs`。
