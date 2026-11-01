@@ -827,6 +827,74 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     },
   };
 
+  // ------------------------------------------------------------------- env vars
+  // User-defined environment variables (ENV-DEMO, migration v4). `value` is whatever the caller stores — the
+  // env service (src/env-config.mjs) writes AES-GCM ciphertext; this layer keeps bytes verbatim, never inspects
+  // them. Session overrides are keyed by conversation id: a session's overrides never follow a fork or a
+  // delegation child (those are new conversation ids and inherit the workspace defaults on their own).
+  const envVarRow = (r) =>
+    r && {
+      workspaceId: r.workspace_id,
+      name: r.name,
+      value: r.value,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+
+  const envVars = {
+    /** Insert or replace one workspace default (atomic single-statement upsert). */
+    set(workspaceId, name, value) {
+      return tx(() => {
+        must(workspaces.get(workspaceId), "not_found", `工作区不存在：${workspaceId}`);
+        const t = iso();
+        q(
+          `INSERT INTO env_vars (workspace_id, name, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT (workspace_id, name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        ).run(workspaceId, name, value, t, t);
+        return envVarRow(q("SELECT * FROM env_vars WHERE workspace_id = ? AND name = ?").get(workspaceId, name));
+      });
+    },
+    /** True when a row was deleted. */
+    remove(workspaceId, name) {
+      return tx(() => {
+        must(workspaces.get(workspaceId), "not_found", `工作区不存在：${workspaceId}`);
+        return Number(q("DELETE FROM env_vars WHERE workspace_id = ? AND name = ?").run(workspaceId, name).changes) > 0;
+      });
+    },
+    list: (workspaceId) =>
+      q("SELECT * FROM env_vars WHERE workspace_id = ? ORDER BY name").all(workspaceId).map(envVarRow),
+    get: (workspaceId, name) => envVarRow(q("SELECT * FROM env_vars WHERE workspace_id = ? AND name = ?").get(workspaceId, name)),
+  };
+
+  const sessionEnvRow = (r) =>
+    r && {
+      conversationId: r.conversation_id,
+      name: r.name,
+      mode: r.mode,
+      value: r.value ?? null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+
+  const sessionEnv = {
+    /** mode "set" stores a value; mode "disabled" unsets the inherited name for this session (value ignored). */
+    set(conversationId, name, { mode, value } = {}) {
+      must(mode === "set" || mode === "disabled", "invalid", `mode 必须是 set | disabled`);
+      return tx(() => {
+        const t = iso();
+        q(
+          `INSERT INTO session_env_overrides (conversation_id, name, mode, value, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT (conversation_id, name) DO UPDATE SET mode = excluded.mode, value = excluded.value, updated_at = excluded.updated_at`,
+        ).run(conversationId, name, mode, mode === "set" ? value : null, t, t);
+        return sessionEnvRow(q("SELECT * FROM session_env_overrides WHERE conversation_id = ? AND name = ?").get(conversationId, name));
+      });
+    },
+    remove: (conversationId, name) =>
+      Number(q("DELETE FROM session_env_overrides WHERE conversation_id = ? AND name = ?").run(conversationId, name).changes) > 0,
+    list: (conversationId) =>
+      q("SELECT * FROM session_env_overrides WHERE conversation_id = ? ORDER BY name").all(conversationId).map(sessionEnvRow),
+  };
+
   return {
     projects,
     workspaces,
@@ -834,6 +902,8 @@ export function openControlStore({ path = null, now = Date.now } = {}) {
     links,
     intents,
     meta,
+    envVars,
+    sessionEnv,
     bumpGeneration: meta.bumpGeneration,
     executions,
     requests,

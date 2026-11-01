@@ -87,3 +87,21 @@ Bot 记录（bots.json）：`{ id, name, conversationId, model:{provider,modelId
 - **启动顺序**（`src/server.mjs` 的 `assemble()`）：控制库 → github / providers / 检查点 → `bootstrap({resume:false})` → `setExecResolver` + 工作区服务 → `await resumePending()` → **最后** `harness.resume()` → `createApi({extraCtx})`。`extraCtx` = `{workspaces, github, control, checkpoints, rebuild, runtimeBash}`，路由插件从 `app.ctx` 取；缺依赖时对应路由不注册。
 - **会话规则**：每个会话必须属于一个工作区；创建会话的唯一入口是 `POST /api/workspaces`（`POST /api/bots` 已删除）；fork 只允许只读并继承父会话的工作区关联。
 - **API**：`GET /api/github/repos|branches`、`POST|GET /api/workspaces`、`GET /api/workspaces/:id`、`POST .../retry|pr|checkpoint|rebuild`、`GET .../checkpoints`；错误统一 `{error}`；响应不含 token 与服务器绝对路径（工作区视图不返回 `requestId`、`cwd`）。
+
+### 用户环境变量（ENV-DEMO）
+
+- **存储**：`control.sqlite` 迁移 v4 的 `env_vars`（工作区默认）与 `session_env_overrides`（按 conversation id 的 `set`/`disabled` 覆盖）。`value` 列是 AES-256-GCM 密文 `v1:<iv>:<tag>:<data>`（base64url），明文永不落库。
+- **主密钥**：`TARSBOT_ENV_KEY`（>=16 字符，env/Fly secret），`src/env-config.mjs` 以 scrypt 派生 AES key。缺失：服务 `enabled=false`，写入 503，读取返回 masked 列表；**存了密文但缺 key 时 `effectiveEnv` 抛 `disabled`**（有配置的 Session 不会静默无配置跑命令），无存储时仍返回空——**无明文后备**。丢失/轮换后主密钥与已存密文不匹配，解密报“解密失败”，需重新录入。
+- **解析规则**：普通 Session 有效值 = 工作区默认 ∪ 本会话覆盖；`set` 替换（空字符串是合法值）、`disabled` 是 unset（不是空串）、`inherit` 删除覆盖恢复默认。覆盖按 conversation id 存——fork / 委派子会话是新 id，不复制父会话覆盖，仅各自继承工作区默认。
+- **受限 Session**：`readOnly` fork 与 `loopRun` 会话不得读写用户变量（路由 409/面板拒绝），exec 只拿 `{GH_TOKEN:""}` 能力裁剪。
+- **保留名**：`PATH HOME SHELL USER LOGNAME PWD OLDPWD BASH_ENV ENV ENVIRONMENT CDPATH GLOBIGNORE UID EUID PPID SHELLOPTS BASHOPTS PROMPT_COMMAND PS0-PS4 NODE_OPTIONS NODE_PATH NODE_EXTRA_CA_CERTS PYTHONSTARTUP PYTHONPATH PYTHONINSPECT PERL5OPT RUBYOPT GIT_SSH_COMMAND GIT_SSH GIT_EXEC_PATH GIT_ASKPASS SSH_ASKPASS GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN SPRITES_TOKEN FLY_API_TOKEN AWS_*` 与前缀 `TARSBOT_ PCA_ LD_ DYLD_ TOKEN_ROUTER_ EXA_ GOOGLE_ SPRITES_ FLY_ BASH_FUNC_ GIT_` 一律 400。
+- **注入路径（值绝不进 exec URL / argv / 文件）**：SDK `spawn(options.env)` 会把值序列化进 exec URL query，所以**所有值都走 stdin bootstrap**——
+  - **Agent bash / 命令控制台**：runner `prepare` 只落变量名（set 名进 `--env-file`，禁用名进 `--unset-file`），`start` 以 per-call env 传给 `createSpritesBash`；后者把值序列成一行 base64 `export`/`unset` 语句，作为 spawn 后第一帧 stdin 写入，argv 换成固定 bootstrap 脚本（`read` 该行 → `eval` → `exec sh -c <command>`）。注入失败以退出码 124/125 拒绝，绝不跑半配置的命令。
+  - **PTY**：`provider.pty` 握手 bootstrap——argv 固定 `bash -c <script>`，脚本先在 `/dev/tty` 上 `stty -echo -icanon`（关回显+canonical，突破 4096 行上限）、读固定 probe、打印 `PCA_READY_1` ACK、再读 base64 payload 行；客户端在 `spawn` 时发 probe、见到 ACK 才发 payload，再等 `PCA_APPLIED_1` 确认逐条应用成功后才返回 shell handle / 发送 started，之前不接收用户按键。两种标记均跨 chunk 解析并从 UI 输出过滤；probe/payload/client 截止时间分别为 30/60/90 秒，失败 kill/close。probe 错误/超时/坏 payload 退出 124/125 并关 socket，不开半配置 shell。
+  - **disabled/unset**：禁用名不出现在 `set` 里，而是经 `PCA_ENV_UNSET` 传给 runner wrapper / PTY payload 里的 `unset` 语句——是真 unset，不是空字符串，父环境的同名值不会泄漏。Loop/readOnly 受限 Session 无任何用户变量。`env` 参数仍是 TERM/COLORTERM/LANG 显示白名单（非秘密值）。
+- **API**（`src/routes/env-vars.mjs`，全部过 auth 守卫）：`GET /api/workspaces/:id/env`、`POST /api/workspaces/:id/env/:name {value}`、`POST .../env/:name/remove`、`GET /api/bots/:id/env`、`POST /api/bots/:id/env/:name {mode,value?}`。**值只写不读**；返回仅有 name / mode / masked / enabled / restricted。
+- **容量**：每 scope 最多 100 项，单值最多 8 KiB；变量名、值及分隔开销合计每 scope 最多 32 KiB，workspace + session 合并最多 64 KiB。PTY 支持单引号最坏膨胀后的 512 KiB base64 传输上限；超过保存预算原子拒绝。
+- **旧 runner / 恢复**：Agent 新执行在 prepare 前运行幂等 install（同时比较 version 与 SHA），不依赖先打开控制台。当前 runner 声明版本仍为 2，新增 unset 协议通过 SHA 差异升级；旧 run 重连不 install/prepare/start，也不解密当前配置，因此丢 key 不影响 status/wait/kill。新任务有存储配置但缺 key 则明确拒绝。
+- **生效边界**：只影响保存后新启动的进程（新 bash 命令、新控制台 run、新 PTY）；已运行服务或已开终端不追溯，需重启。不修改服务器 `process.env`、不写 Sprite 全局 shell 配置；预览继承其启动进程环境，无单独配置层。
+- **每调用 env 快照（并发安全）**：`createSpritesBash` 的 per-call env/payload 每次调用冻结成不可变快照显式传给每次 attempt——并发两调用不会互相覆盖 env，pre-open 重试也复用同一快照（Loop 的 `GH_TOKEN=""` 限制不会在重试丢）。
+- **隔离边界（用户已接受）**：同工作区 Session 共享一台 Sprite，用户变量可被同机其他进程读到（`/proc/*/environ`、ptrace、共用户），**不是强隔离**；用户程序自行 `echo $VAR` 无法拦截，文档不承诺绝对保密。

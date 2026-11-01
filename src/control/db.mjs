@@ -229,6 +229,29 @@ export const MIGRATIONS = [
   DROP TABLE github_deliveries;
   ALTER TABLE github_deliveries_new RENAME TO github_deliveries;
   `,
+  // v4: user-defined environment variables (ENV-DEMO). Workspace defaults and per-session overrides.
+  // `value` is AES-256-GCM ciphertext (base64, node:crypto; key derived from TARSBOT_ENV_KEY) — plaintext
+  // never touches the control db. Session mode `disabled` means "unset this name for this session".
+  `
+  CREATE TABLE env_vars (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    value        TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, name)
+  );
+
+  CREATE TABLE session_env_overrides (
+    conversation_id TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    mode            TEXT NOT NULL CHECK (mode IN ('set','disabled')),
+    value           TEXT,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, name)
+  );
+  `,
 ];
 
 export function migrate(db, migrations = MIGRATIONS) {

@@ -5,6 +5,7 @@
 //  - `ensure` creates only after a definite 404 from getSprite; any other error is rethrown (never create on doubt).
 //  - Errors are redacted; logs carry only op / duration / outcome, never commands or tokens.
 import { createHash } from "node:crypto";
+import { PassThrough } from "node:stream";
 import { createSpritesBash, redactMessage } from "../sandbox/sprites.mjs";
 import { initSprite } from "./sprites-init.mjs";
 
@@ -128,108 +129,153 @@ export function createSpritesProvider({
     return b;
   }
 
-  // ---- Interactive PTY (AMP13-PTY) --------------------------------------------------------------------------
-  // `pty(runtimeId)` returns a per-workspace factory: `await factory({cwd, cols, rows, env})` opens ONE live
-  // interactive shell (sprite.spawn with tty:true) and resolves to a handle:
-  //   handle.stdout            Readable — the merged PTY byte stream (tty mode has no separate stderr)
-  //   handle.write(string|Buf) user keystrokes/pasted text to the shell's stdin
-  //   handle.eof()             stdin EOF (Ctrl-D)
-  //   handle.resize(cols,rows) TTY resize control frame (clamped)
-  //   handle.signal(sig)       JSON control signal (e.g. "SIGINT")
-  //   handle.kill()            SIGKILL + socket close; idempotent, safe on an already-dead shell
-  //   handle.exit              Promise<{state:"exited"|"error", exit:number|null, message?}> — resolves once
-  //
-  // Deliberately NOT injected: GH_TOKEN (bash() injects it per exec because those commands are Bot-driven; an
-  // interactive shell where the user can run `env` must not carry it). `env` is filtered to a terminal-display
-  // allowlist — its values travel in the exec URL query, so anything sensitive must never be passed.
+  // SDK env is URL-encoded: application values travel only over stdin, after echo is disabled.
   const PTY_ENV_ALLOW = new Set(["TERM", "COLORTERM", "LANG", "LC_ALL", "LC_CTYPE"]);
   const PTY_MAX_COLS = 1000;
   const PTY_MAX_ROWS = 500;
+  // Two 32 KiB scopes, worst-case shell quoting (4x), base64 (4/3x), and per-entry checks.
+  const PTY_ENV_MAX_BYTES = 512 * 1024;
   const clampDim = (v, dflt, max) => (Number.isInteger(v) && v >= 2 ? Math.min(v, max) : dflt);
-
-  const spriteCache = new Map(); // runtimeId -> client.sprite(name); the handle itself is stateless
-  const spriteOf = (runtimeId) => {
-    let s = spriteCache.get(runtimeId);
-    if (!s) {
-      s = client.sprite(runtimeId);
-      spriteCache.set(runtimeId, s);
-    }
-    return s;
+  const spriteCache = new Map();
+  const spriteOf = (id) => {
+    if (!spriteCache.has(id)) spriteCache.set(id, client.sprite(id));
+    return spriteCache.get(id);
   };
 
-  /** One interactive shell on `sprite`. Rejects (redacted) when the exec connection cannot be opened. */
-  async function spawnPty(sprite, { cwd, cols, rows, env }) {
-    // `sh -c 'exec "${SHELL:-/bin/bash}" -il'`: a login interactive shell; exec replaces sh so the PTY's
-    // foreground process (and its exit status / signals) is exactly the user's shell.
-    const cmd = sprite.spawn("/bin/sh", ["-c", 'exec "${SHELL:-/bin/bash}" -il'], {
-      tty: true,
-      cwd,
-      cols,
-      rows,
-      ...(Object.keys(env).length ? { env } : {}),
-    });
-    let resolveExit;
-    const exit = new Promise((res) => {
-      resolveExit = res;
-    });
-    let settled = false;
-    const done = (v) => {
-      if (!settled) {
-        settled = true;
-        resolveExit(v);
-      }
+  function ptyBootstrapPayload(env, unset) {
+    const parts = [];
+    for (const [k, v] of Object.entries(env ?? {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k) || typeof v !== "string" || v.includes("\0")) throw new TypeError("invalid session env entry");
+      parts.push(`export ${k}='${v.replaceAll("'", "'\\''")}' || exit 125`);
+    }
+    for (const k of unset ?? []) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) throw new TypeError("invalid session env name");
+      parts.push(`unset ${k} || exit 125`);
+    }
+    if (!parts.length) return undefined;
+    const payload = Buffer.from(parts.join("\n")).toString("base64") + "\n";
+    if (payload.length > PTY_ENV_MAX_BYTES) throw new RangeError("session env payload exceeds the PTY bootstrap limit");
+    return payload;
+  }
+
+  const HANDSHAKE_SH = `stty -echo -icanon min 1 time 0 < /dev/tty 2>/dev/null || exit 125
+trap 'stty echo icanon < /dev/tty 2>/dev/null' EXIT
+IFS= read -r -t 30 _pca_probe < /dev/tty || exit 124
+[ "$_pca_probe" = PCA_ENV_1 ] || exit 125
+printf PCA_READY_1
+IFS= read -r -t 60 _pca_env_b64 < /dev/tty || exit 124
+case "$_pca_env_b64" in *[!A-Za-z0-9+/=]* | "") exit 125;; esac
+printf %s "$_pca_env_b64" | grep -Eq '^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$' || exit 125
+_pca_env_script=$(printf %s "$_pca_env_b64" | base64 -d 2>/dev/null) || exit 125
+eval "$_pca_env_script" 2>/dev/null || exit 125
+unset _pca_probe _pca_env_b64 _pca_env_script
+stty echo icanon < /dev/tty 2>/dev/null || exit 125
+trap - EXIT
+printf PCA_APPLIED_1
+exec "\${SHELL:-/bin/bash}" -i`;
+
+  async function spawnPty(sprite, { cwd, cols, rows, env, sessionEnv, sessionUnset }) {
+    const redactCall = (m) => redactMessage(m, [...secrets, ...Object.values(sessionEnv ?? {})]);
+    const payload = ptyBootstrapPayload(sessionEnv, sessionUnset);
+    let cmd;
+    try {
+      cmd = sprite.spawn("/bin/bash", ["-c", payload ? HANDSHAKE_SH : 'exec "${SHELL:-/bin/bash}" -il'], {
+        tty: true, cwd, cols, rows, ...(Object.keys(env).length ? { env } : {}),
+      });
+    } catch (e) {
+      throw new Error(redactCall(e?.message ?? e));
+    }
+    const stdout = new PassThrough();
+    const kill = () => {
+      try { cmd.kill("SIGKILL"); } catch { /* already dead */ }
+      try { cmd.close(); } catch { /* already closed */ }
     };
-    // The SDK synthesizes 'exit' on a tty WebSocket close without an exit frame (close code -> exit code),
-    // so `exit` still resolves on a dropped connection; an explicit 'error' reports the failure message.
-    cmd.on("exit", (code) => done({ state: "exited", exit: Number.isInteger(code) && code >= 0 ? code : null }));
-    cmd.on("error", (e) => done({ state: "error", exit: null, message: redact(e?.message ?? e) }));
+    let resolveExit;
+    const exit = new Promise((resolve) => { resolveExit = resolve; });
+    cmd.on("exit", (code) => resolveExit({ state: "exited", exit: Number.isInteger(code) && code >= 0 ? code : null }));
+    cmd.on("error", (e) => resolveExit({ state: "error", exit: null, message: redactCall(e?.message ?? e) }));
+    cmd.stdout.on("end", () => stdout.end());
     await new Promise((resolve, reject) => {
-      cmd.once("spawn", resolve);
-      cmd.once("error", () => reject(new Error("PTY exec connection failed"))); // detailed reason lands on `exit`
+      let marker = payload ? "PCA_READY_1" : "";
+      let pending = "";
+      let complete = false;
+      const timer = setTimeout(() => fail(new Error("PTY bootstrap timed out")), 90_000);
+      const cleanup = () => {
+        clearTimeout(timer);
+        cmd.off("spawn", onSpawn);
+        cmd.off("exit", onExit);
+        cmd.off("error", fail);
+      };
+      const fail = (e) => {
+        if (complete) return;
+        complete = true;
+        cleanup();
+        cmd.stdout.off("data", onData);
+        kill();
+        stdout.destroy();
+        reject(new Error(redactCall(e?.message ?? e)));
+      };
+      const finish = () => {
+        complete = true;
+        cleanup();
+        resolve();
+      };
+      const sendPayload = () => {
+        let offset = 0;
+        const write = () => {
+          if (complete) return;
+          try {
+            while (offset < payload.length) {
+              const chunk = payload.slice(offset, offset + 16 * 1024);
+              offset += chunk.length;
+              if (!cmd.stdin.write(chunk)) { cmd.stdin.once("drain", write); return; }
+            }
+          } catch (e) { fail(e); }
+        };
+        write();
+      };
+      const onData = (b) => {
+        if (!marker) {
+          if (!stdout.write(b)) cmd.stdout.pause();
+          return;
+        }
+        pending += b.toString("utf8");
+        const at = pending.indexOf(marker);
+        if (at < 0) {
+          // Only a suffix can be part of the next marker; discard probe echo / bootstrap chatter.
+          pending = pending.slice(-(marker.length - 1));
+          return;
+        }
+        pending = pending.slice(at + marker.length);
+        if (marker === "PCA_READY_1") {
+          marker = "PCA_APPLIED_1";
+          sendPayload();
+        } else {
+          marker = "";
+          if (pending) stdout.write(pending);
+          pending = "";
+          finish();
+        }
+      };
+      const onSpawn = () => {
+        if (!payload) return finish();
+        try { cmd.stdin.write("PCA_ENV_1\n"); } catch (e) { fail(e); }
+      };
+      const onExit = () => fail(new Error("PTY bootstrap exited before environment was applied"));
+      stdout.on("drain", () => cmd.stdout.resume());
+      // Install ALL listeners before the first write (including synchronous test/SDK responses).
+      cmd.stdout.on("data", onData);
+      cmd.once("spawn", onSpawn);
+      cmd.once("exit", onExit);
+      cmd.on("error", fail);
     });
     return {
-      stdout: cmd.stdout,
-      write(data) {
-        try {
-          const b = Buffer.isBuffer(data) ? data : Buffer.from(String(data), "utf8");
-          if (b.length) cmd.stdin.write(b);
-        } catch {
-          // dead stream: the exit promise already reports it
-        }
-      },
-      eof() {
-        try {
-          cmd.stdin.end();
-        } catch {
-          // already closed
-        }
-      },
-      resize(c, r) {
-        try {
-          cmd.resize(clampDim(c, cols, PTY_MAX_COLS), clampDim(r, rows, PTY_MAX_ROWS));
-        } catch {
-          // resize is best effort
-        }
-      },
-      signal(sig) {
-        try {
-          cmd.signal(String(sig).slice(0, 16));
-        } catch {
-          // dead stream
-        }
-      },
-      kill() {
-        try {
-          cmd.kill("SIGKILL");
-        } catch {
-          // best effort
-        }
-        try {
-          cmd.close();
-        } catch {
-          // already closed
-        }
-      },
+      stdout,
+      write(data) { cmd.stdin.write(data); },
+      eof() { cmd.stdin.end(); },
+      resize(c, r) { cmd.resize(clampDim(c, cols, PTY_MAX_COLS), clampDim(r, rows, PTY_MAX_ROWS)); },
+      signal(sig) { cmd.signal(String(sig).slice(0, 16)); },
+      kill,
       exit,
     };
   }
@@ -238,13 +284,15 @@ export function createSpritesProvider({
     // Interactive access is a delete-class capability: name-rule check before any SDK call, same as release.
     if (!isManaged(runtimeId)) throw new Error(`refusing interactive session on unmanaged Sprite ${String(runtimeId)}`);
     const sprite = spriteOf(runtimeId);
-    return async ({ cwd, cols, rows, env } = {}) => {
+    return async ({ cwd, cols, rows, env, sessionEnv, sessionUnset } = {}) => {
       if (typeof cwd !== "string" || !cwd.startsWith("/")) throw new TypeError("pty requires an absolute cwd");
       const safeEnv = {};
       for (const [k, v] of Object.entries(env ?? {})) {
         if (PTY_ENV_ALLOW.has(k) && typeof v === "string") safeEnv[k] = v.slice(0, 200);
       }
-      return timed("pty", () => spawnPty(sprite, { cwd, cols: clampDim(cols, 80, PTY_MAX_COLS), rows: clampDim(rows, 24, PTY_MAX_ROWS), env: safeEnv }));
+      return timed("pty", () =>
+        spawnPty(sprite, { cwd, cols: clampDim(cols, 80, PTY_MAX_COLS), rows: clampDim(rows, 24, PTY_MAX_ROWS), env: safeEnv, sessionEnv, sessionUnset }),
+      );
     };
   }
 

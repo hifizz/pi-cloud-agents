@@ -148,7 +148,7 @@ export function createExec(opts = {}) {
       }
       const resolved = await resolve({ conversationId });
       if (!resolved) return cannotRun(`会话 ${conversationId} 没有关联工作区（no workspace for this conversation）`);
-      const { store, runner, workspace, binding, execEnv } = resolved;
+      const { store, runner, workspace, binding, execEnv, execEnvUnset } = resolved;
       if (!store || !workspace || !runner || !binding) {
         return cannotRun(`工作区 ${workspace?.id ?? "(未知)"} 没有可用的运行环境绑定（no active runtime binding）`);
       }
@@ -251,8 +251,22 @@ export function createExec(opts = {}) {
           return unconfirmed(`runner 上该执行的状态为 ${st.state}`, { state: st.state === "lost" ? "lost" : "unknown" });
         }
       } else {
+        // Only a fresh execution needs current config or a runner upgrade. Replays only follow the pinned run.
+        let env;
         try {
-          const p = await runner.prepare({ id: runId, cwd: pinned.cwd, command, ...(execEnv ? { env: execEnv } : {}) });
+          env = resolved.resolveEnv ? await resolved.resolveEnv() : { set: execEnv, unset: execEnvUnset };
+          await runner.install();
+        } catch (e) {
+          throw new Error(`bash 未执行：执行环境准备失败（${brief(e)}）`);
+        }
+        try {
+          const p = await runner.prepare({
+            id: runId,
+            cwd: pinned.cwd,
+            command,
+            ...(env.set && Object.keys(env.set).length ? { env: env.set } : {}),
+            ...(env.unset?.length ? { unset: env.unset } : {}),
+          });
           if (p.prepared !== "new") {
             return unconfirmed("runner 上已存在同编号的执行（控制库记录与 runner 不一致）", { state: "unknown" });
           }

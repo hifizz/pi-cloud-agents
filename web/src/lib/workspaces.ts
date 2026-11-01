@@ -146,6 +146,23 @@ export interface ExecutionResult {
   reportedAt: string;
 }
 
+/** ENV-DEMO: a workspace default variable as the API exposes it (name + masked state only; values never leave the server). */
+export interface EnvVarEntry {
+  name: string;
+  masked: boolean;
+  updatedAt?: string;
+}
+
+/** ENV-DEMO: one effective entry of a session's env config. mode "inherit" = workspace default applies,
+ * "set" = this session overrides, "disabled" = unset for this session (not the empty string). */
+export interface SessionEnvEntry {
+  name: string;
+  mode: "set" | "disabled" | "inherit";
+  masked: boolean;
+  inherits?: boolean;
+  updatedAt?: string;
+}
+
 export interface CheckpointManifest {
   id: string | number;
   workspaceId?: string;
@@ -226,6 +243,15 @@ export const workspacesApi = {
   /** SPIKE-review-loop: report the human-written result of an execution session (feeds the issue's overview card). */
   reportResult: (id: string, botId: string, input: { summary: string; tests?: string; pr?: number }) =>
     request<{ result: ExecutionResult }>("POST", `/api/workspaces/${enc(id)}/sessions/${enc(botId)}/result`, input),
+  /** ENV-DEMO: workspace env-var defaults (masked; values are write-only). */
+  envList: (id: string) => request<{ enabled: boolean; vars: EnvVarEntry[] }>("GET", `/api/workspaces/${enc(id)}/env`),
+  envSet: (id: string, name: string, value: string) =>
+    request<{ name: string; masked: boolean; updatedAt: string }>("POST", `/api/workspaces/${enc(id)}/env/${enc(name)}`, { value }),
+  envRemove: (id: string, name: string) => request<{ removed: boolean }>("POST", `/api/workspaces/${enc(id)}/env/${enc(name)}/remove`, {}),
+  /** ENV-DEMO: per-session env overrides (workspace defaults + this session's mode per name). */
+  sessionEnvList: (botId: string) => request<{ enabled: boolean; restricted: boolean; entries: SessionEnvEntry[] }>("GET", `/api/bots/${enc(botId)}/env`),
+  sessionEnvSet: (botId: string, name: string, input: { mode: "set" | "disabled" | "inherit"; value?: string }) =>
+    request<{ name: string; mode: string; masked: boolean }>("POST", `/api/bots/${enc(botId)}/env/${enc(name)}`, input),
   saveCheckpoint: (id: string) => request<CheckpointManifest>("POST", `/api/workspaces/${enc(id)}/checkpoint`, {}),
   checkpoints: (id: string) => request<CheckpointManifest[]>("GET", `/api/workspaces/${enc(id)}/checkpoints`),
   rebuild: (id: string, input: { checkpointId: string | number; requestId?: string }) =>

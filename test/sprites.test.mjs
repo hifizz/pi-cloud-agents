@@ -236,15 +236,21 @@ test("late 'error' events after settling do not throw (listener stays attached)"
   assert.doesNotThrow(() => spawned[0].emit("error", new Error("late")));
 });
 
-test("GH_TOKEN goes only into the exec env option, never argv/logs/results", async () => {
+test("GH_TOKEN rides the stdin bootstrap payload, never the exec URL env/argv/logs/results", async () => {
   const logs = [];
   const { client, spawned } = fakeClient([(c) => (c.open(), c.exit(0))]);
   const bash = createSpritesBash(opts(client, { env: { GH_TOKEN: TOKEN }, log: (e) => logs.push(e) }));
   await bash("gh pr list");
   const c = spawned[0];
-  assert.deepEqual(c.options.env, { GH_TOKEN: TOKEN });
+  // Every value is secret-grade: removed from options.env so the SDK cannot put it in the URL query.
+  assert.equal(c.options.env, undefined);
   assert.ok(!JSON.stringify(c.args).includes(TOKEN));
   assert.ok(!JSON.stringify(logs).includes(TOKEN));
+  // It arrives as ONE base64 stdin line (the `export` statements the bootstrap script evals).
+  const chunks = [];
+  for await (const b of c.stdin) chunks.push(Buffer.from(b));
+  const decoded = Buffer.from(Buffer.concat(chunks).toString("utf8").trim(), "base64").toString("utf8");
+  assert.match(decoded, new RegExp(`export GH_TOKEN='${TOKEN}'`));
 });
 
 test("no env option when env is empty", async () => {
@@ -308,6 +314,41 @@ test("oversized command (exec URL would exceed the platform limit) fails fast, n
   await assert.rejects(bash("'".repeat(30_000)), /too large/);
   const r = await bash("a".repeat(MAX_EXEC_QUERY_CHARS - 1000)); // just below the limit still runs
   assert.equal(r.exitCode, 0);
+});
+
+test("interleaved calls each keep their own env snapshot — a retry can never pick up another call's env", async () => {
+  // Regression for the shared `callEnv` slot: call A's env used to live in a shared variable that call B
+  // could overwrite while A was between attempts, so A's retry would fire with B's env. The snapshot is
+  // frozen per call now; prove A's retry still carries A's payload (and never B's) after B interleaves.
+  const { client, spawned } = fakeClient([
+    (c) => c.fail("WebSocket error: A-first"), // A attempt 1 -> early error -> will retry
+    (c) => (c.open(), c.exit(0)),             // B
+    (c) => (c.open(), c.exit(0)),             // A attempt 2 (the retry)
+  ]);
+  const bash = createSpritesBash(opts(client, { retryDelayMs: 15 }));
+  const a = bash("echo A", { env: { A_VAR: "AAA" } });
+  const b = bash("echo B", { env: { B_VAR: "BBB" } });
+  await Promise.all([a, b]);
+  const payload = async (i) => {
+    const chunks = [];
+    for await (const buf of spawned[i].stdin) chunks.push(Buffer.from(buf));
+    return Buffer.from(Buffer.concat(chunks).toString("utf8").trim(), "base64").toString("utf8");
+  };
+  const aRetry = await payload(2);
+  assert.match(aRetry, /export A_VAR='AAA'/);
+  assert.ok(!aRetry.includes("BBB"), "A's retry must not carry B's env");
+});
+
+test("loop session GH_TOKEN strip rides stdin and cannot leak the real token into the URL", async () => {
+  const { client, spawned } = fakeClient([(c) => (c.open(), c.exit(0))]);
+  const bash = createSpritesBash(opts(client, { env: { GH_TOKEN: TOKEN } }));
+  await bash("echo hi", { env: { GH_TOKEN: "" } });
+  assert.equal(spawned[0].options.env, undefined, "a strip never reaches the URL env");
+  const chunks = [];
+  for await (const buf of spawned[0].stdin) chunks.push(Buffer.from(buf));
+  const decoded = Buffer.from(Buffer.concat(chunks).toString("utf8").trim(), "base64").toString("utf8");
+  assert.match(decoded, /export GH_TOKEN=''/);
+  assert.ok(!decoded.includes(TOKEN));
 });
 
 test("factory validates arguments", () => {

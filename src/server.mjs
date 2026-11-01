@@ -27,6 +27,7 @@ import { createRunnerClient } from "./runner/client.mjs";
 import { setExecResolver } from "./ext/exec.mjs";
 import { createLoops } from "./loops/index.mjs";
 import { authSettings } from "./auth.mjs";
+import { createEnvConfigService } from "./env-config.mjs";
 
 /** Dynamically import every src/routes/*.mjs (each exports register(app)). */
 export async function loadRoutes(dir = join(ROOT, "src", "routes")) {
@@ -75,6 +76,7 @@ export async function assemble({
   github: givenGithub,
   providers: givenProviders,
   runnerFor: givenRunnerFor,
+  envService: givenEnvService,
   harnessOptions = {},
   secrets = [],
   serviceOptions = {},
@@ -119,6 +121,8 @@ export async function assemble({
   setIntegrationsApplier(integrations.applyToBot);
 
   // 4. Exec resolver (conversation -> workspace -> current binding -> runner), workspace service, rebuild
+  // ENV-DEMO: user-defined env vars, encrypted in the control db (TARSBOT_ENV_KEY; disabled without it).
+  const envService = givenEnvService ?? createEnvConfigService({ store });
   setExecResolver(({ conversationId } = {}) => {
     if (conversationId === undefined || conversationId === null) return undefined;
     const workspace = store.links.workspaceOf(String(conversationId));
@@ -137,8 +141,22 @@ export async function assemble({
     const runner = isLoop
       ? createRunnerClient({ bash: provider.bash(binding.runtimeId, { env: { GH_TOKEN: "" } }) })
       : runnerFor(binding.runtimeId);
-    const execEnv = isLoop ? { GH_TOKEN: "" } : undefined;
-    return { store, runner, workspace, binding, ...(execEnv ? { execEnv } : {}) };
+    // ENV-DEMO: a normal session's effective env (workspace defaults + this conversation's own overrides)
+    // is staged by NAME at prepare and injected at start — values travel only inside the bash primitive's
+    // per-call env (the stdin bootstrap on Sprites), never in argv, staged files, the durable memo or runner
+    // state. A disabled name is a real unset. Restricted sessions (loop run, readOnly fork) get no user
+    // variables at all; the loop capability strip is unchanged. A decryption failure is a hard error here —
+    // a session with stored config must never run commands silently unconfigured.
+    const resolveEnv = () => isLoop || envService.isRestricted(bot)
+      ? { set: { GH_TOKEN: "" }, unset: [] }
+      : envService.effectiveEnv({ workspaceId: workspace.id, conversationId: String(conversationId) });
+    return {
+      store,
+      runner,
+      workspace,
+      binding,
+      resolveEnv,
+    };
   });
 
   const workspaces = createWorkspaceService({ store, github, providers, bots, ctx, runnerFor, secrets: redactList, ...serviceOptions });
@@ -192,7 +210,7 @@ export async function assemble({
         });
   if (loops) await loops.restore();
 
-  const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash, ptySession, integrations, loops };
+  const ctxForApi = { workspaces, github, control: store, checkpoints, rebuild, runtimeBash, ptySession, integrations, loops, envService };
 
   let closed = false;
   async function close() {

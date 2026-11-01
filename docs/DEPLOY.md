@@ -5,7 +5,8 @@
 - Fly app `pi-cloud-agents`，region `sin`，单台 Machine（`shared-cpu-1x` / 512 MB），常驻（不 auto-stop）。
 - Volume `pi_data`（1 GB）挂载到 `/data`：`alice.sqlite`、`auth.sqlite`、`bots.json`。存储只允许单写进程，所以只能 1 台 Machine；`fly.toml` 的 `[deploy] strategy = "immediate"` 原地替换机器（rolling / bluegreen 需要第二台机器，与单 volume 冲突）。
 - 镜像：`node:24-slim` 多阶段（`Dockerfile`）。入口脚本以 root 启动，`chown` `/data` 后用 `setpriv` 降权到 `node` 用户。
-- 非密钥配置在 `fly.toml` `[env]`；密钥在 Fly secrets（键名：`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`）。
+- 非密钥配置在 `fly.toml` `[env]`；密钥在 Fly secrets（键名：`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`TARSBOT_ENV_KEY`）。
+- `TARSBOT_ENV_KEY`（>=16 字符）是用户环境变量（ENV-DEMO）的存储主密钥：`control.sqlite` 里的 `env_vars` / `session_env_overrides` 值是它的 AES-256-GCM 密文。**缺失时功能显式禁用**（API 报 503，不回落明文）；**丢失或轮换会让已存变量无法解密**（接口报“解密失败”，需重新录入）——和其他 Fly secrets 一样保管/备份，它不写入任何文件、日志或 Sprite。
 - 健康检查：`GET /api/health`（grace 30s）。
 
 ## 首次上线

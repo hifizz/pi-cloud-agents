@@ -75,7 +75,8 @@ fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --
 
 - 所有 API 与 WebSocket 必须经鉴权（`src/routes/auth.mjs` 守卫）；不要新增绕过守卫的入口。
 - `TARSBOT_AUTH_DISABLED=1` 仅限本地 loopback 开发；`TARSBOT_HOST` 非 loopback 时必须启动即抛错，不得削弱这一检查。
-- 所有密钥（`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET` 等）只从 `process.env` / `.env` / Fly secrets 读取；禁止打印、写日志、写入 Sprite、测试快照或截图。不要读取或回显 `.env`。
+- 所有密钥（`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`TARSBOT_ENV_KEY` 等）只从 `process.env` / `.env` / Fly secrets 读取；禁止打印、写日志、写入 Sprite、测试快照或截图。不要读取或回显 `.env`。
+- 用户环境变量（ENV-DEMO，UI「工作区环境变量 / 本 Session 环境变量」面板）是上述规则的**唯一例外**：用户在面板中主动写入自己的应用变量，经 `src/env-config.mjs` 以 `TARSBOT_ENV_KEY` AES-GCM 加密后存 `control.sqlite`（`env_vars` / `session_env_overrides`），注入 Agent bash / 命令控制台 / PTY 的**新进程**。它们同样禁止回显、进日志、进测试快照；API 只暴露名字与 masked 状态。缺 `TARSBOT_ENV_KEY` 时功能显式禁用，不得回落明文存储。保留名（`PATH`/`HOME`/`SHELL`/`BASH_ENV`/`ENV`/`LD_*`/`DYLD_*`/`NODE_*`/`PCA_*`/`GH_TOKEN`/`GITHUB_TOKEN`/`TARSBOT_*`/`TOKEN_ROUTER_*`/`EXA_*`/`SPRITES_*`/`FLY_*`/`GIT_*`/`GOOGLE_*` 等）一律拒绝，防止覆盖控制环境或凭据。同工作区 Session 共享一台 Sprite，用户变量**不是强隔离边界**；用户程序自己输出值无法阻止。
 - Sprite 内 `bash` 是完全信任边界：能执行 bash 的主体拥有 Sprite 内全部登录态。危险操作走 `src/ext/approval.mjs` 审批。
 - 不要删除 Fly Volume `/data`、本地 `data/`，不要删除 Sprite `pi-cloud-agents`。
 - 远端资源只操作：旧共享 Sprite `pi-cloud-agents`；本应用按工作区创建的 Sprite（名称以 `pca-` 开头**且**带标签 `app:pi-cloud-agents`，代码里由 `provider.isManaged()` 判定，任何创建、删除路径都必须先过它）；Fly app `pi-cloud-agents`；测试仓库 `hifizz/tars-sandbox-playground`。org 下其他 Sprite 与 Fly app 一律不得改动。

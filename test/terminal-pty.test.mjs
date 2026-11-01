@@ -440,7 +440,7 @@ test("provider.pty: refuses unmanaged names; returns a per-workspace factory tha
   assert.equal(call.o.cols, 132);
   assert.equal(call.o.rows, 43);
   assert.deepEqual(call.o.env, { TERM: "xterm" }, "env is filtered to the display allowlist — no GH_TOKEN, no arbitrary vars");
-  assert.equal(call.cmd, "/bin/sh");
+  assert.equal(call.cmd, "/bin/bash");
   assert.match(call.args.join(" "), /SHELL:-\/bin\/bash/);
   // handle contract
   shell.write("pwd\n");

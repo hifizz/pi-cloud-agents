@@ -1,5 +1,5 @@
-import { useContext, useEffect, useState } from "react";
-import { WorkspaceContext, describeError, envName, modelLabel, shortSha, workspacesApi, type Workspace } from "../lib/workspaces";
+import { useCallback, useContext, useEffect, useState } from "react";
+import { WorkspaceContext, describeError, envName, modelLabel, shortSha, workspacesApi, type SessionEnvEntry, type Workspace } from "../lib/workspaces";
 import type { BotSummary, ConversationVM } from "../types";
 import { WorkspaceActions, WorkspaceStatus } from "./WorkspaceStatus";
 
@@ -109,6 +109,343 @@ function ResultForm({ workspaceId, botId, onReported, onCancel }: {
 
 const code = "rounded bg-[#1a1a1a] px-1.5 py-0.5 font-mono text-xs text-fg";
 
+// ---------------------------------------------------------------------------------------------------------------------
+// ENV-DEMO: workspace env defaults + per-session overrides. Values are write-only — the API never returns
+// plaintext; the UI only ever shows names, sources (继承/覆盖/禁用) and masked state.
+// ---------------------------------------------------------------------------------------------------------------------
+
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+
+function EnvRow({ name, detail, actions }: { name: string; detail: React.ReactNode; actions?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 py-1 text-sm">
+      <code className={code}>{name}</code>
+      <span className="min-w-0 flex-1 truncate text-xs text-fg-muted">{detail}</span>
+      {actions}
+    </div>
+  );
+}
+
+/** Workspace-level defaults editor: masked list + set/remove. The same `kind` input handles new vars and edits.
+ * `onVarsChanged` lets the parent tell the session panel to re-read its source list (the inherited names an
+ * override can act on changed). */
+function WorkspaceEnvVars({ workspaceId, onVarsChanged }: { workspaceId: string; onVarsChanged?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [vars, setVars] = useState<{ name: string; masked: boolean; updatedAt?: string }[]>([]);
+  const [enabled, setEnabled] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const refresh = useCallback(() => {
+    workspacesApi
+      .envList(workspaceId)
+      .then((r) => {
+        setVars(r.vars ?? []);
+        setEnabled(r.enabled !== false);
+        setLoaded(true);
+        setError(undefined);
+      })
+      .catch((e) => {
+        setLoaded(true);
+        setError(describeError(e)); // do NOT silently fall back to "enabled / empty list"
+      });
+  }, [workspaceId]);
+  useEffect(() => {
+    if (open && !loaded) refresh();
+  }, [open, loaded, refresh]);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        data-testid="open-ws-env"
+        onClick={() => setOpen(true)}
+        className="w-full rounded-lg border border-line bg-raised p-4 text-left text-xs font-medium text-fg hover:bg-hover"
+      >
+        工作区环境变量 <span className="font-normal text-fg-muted">（默认变量，所有普通 Session 继承）</span>
+      </button>
+    );
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = name.trim();
+    if (!ENV_NAME_RE.test(n)) {
+      setError("变量名须为 [A-Za-z_][A-Za-z0-9_]*");
+      return;
+    }
+    setBusy(true);
+    setError(undefined);
+    try {
+      await workspacesApi.envSet(workspaceId, n, value);
+      setName("");
+      setValue("");
+      refresh();
+      onVarsChanged?.();
+    } catch (err) {
+      setError(describeError(err)); // keep the draft: the user did not consent to losing it
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (n: string) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await workspacesApi.envRemove(workspaceId, n);
+      refresh();
+      onVarsChanged?.();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section aria-label="工作区环境变量" className="space-y-2 rounded-lg border border-line bg-raised p-4" data-testid="ws-env">
+      <p className="text-xs font-medium text-fg">
+        工作区环境变量
+        <button type="button" onClick={() => setOpen(false)} className="ml-2 font-normal text-fg-muted hover:text-fg">
+          收起
+        </button>
+      </p>
+      <p className="text-xs text-fg-muted">
+        普通 Session 的新命令与新终端继承这些值（加密保存，值不可回读；仅对新进程生效，已运行的服务需重启）。
+        {!enabled && <span className="text-bad"> 未配置 TARSBOT_ENV_KEY，功能已禁用。</span>}
+      </p>
+      {!loaded && !error && <p className="text-xs text-fg-faint">加载中…</p>}
+      {vars.map((v) => (
+        <EnvRow
+          key={v.name}
+          name={v.name}
+          detail="已设置（值不回显）"
+          actions={
+            <button
+              type="button"
+              disabled={busy || !enabled}
+              onClick={() => void remove(v.name)}
+              className="rounded-md border border-line-strong px-2 py-0.5 text-xs text-fg-dim hover:bg-hover disabled:opacity-40"
+            >
+              删除
+            </button>
+          }
+        />
+      ))}
+      <form onSubmit={submit} className="flex items-center gap-2">
+        <input
+          aria-label="变量名"
+          placeholder="NAME"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          disabled={!enabled}
+          className="w-40 rounded-md border border-line bg-field px-2.5 py-1 font-mono text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+        />
+        <input
+          aria-label="变量值"
+          type="password"
+          autoComplete="off"
+          placeholder="value（不回显，可为空字符串）"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          disabled={!enabled}
+          className="min-w-0 flex-1 rounded-md border border-line bg-field px-2.5 py-1 font-mono text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+        />
+        <button
+          type="submit"
+          disabled={busy || !enabled || !name.trim()}
+          className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40"
+        >
+          {vars.some((v) => v.name === name.trim()) ? "覆盖" : "保存"}
+        </button>
+      </form>
+      {error && (
+        <p role="alert" className="text-xs text-bad">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+const MODE_LABEL: Record<string, string> = { inherit: "继承工作区默认", set: "本 Session 覆盖", disabled: "已禁用（unset）" };
+
+/** Per-session overrides of the selected session: inherit / set / disable / restore. Restricted sessions
+ * (loop run, read-only fork) see a read-only note — they never carry user variables. */
+function SessionEnvVars({ botId, refreshKey = 0 }: { botId: string; refreshKey?: number }) {
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<{ enabled: boolean; restricted: boolean; entries: SessionEnvEntry[] }>();
+  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const refresh = useCallback(() => {
+    workspacesApi
+      .sessionEnvList(botId)
+      .then((r) => {
+        setState({ enabled: r?.enabled !== false, restricted: r?.restricted === true, entries: r?.entries ?? [] });
+        setError(undefined);
+      })
+      .catch((e) => setError(describeError(e))); // keep prior state; do NOT assume enabled/empty
+  }, [botId]);
+  // remount handled by the parent's `key`; also re-pull the source list when workspace vars change
+  useEffect(() => {
+    setState(undefined);
+    setOpen(false);
+  }, [botId]);
+  useEffect(() => {
+    if (refreshKey > 0 && open) refresh();
+  }, [refreshKey, open, refresh]);
+  useEffect(() => {
+    if (open && !state) refresh();
+  }, [open, state, refresh]);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        data-testid="open-session-env"
+        onClick={() => setOpen(true)}
+        className="w-full rounded-lg border border-line bg-raised p-4 text-left text-xs font-medium text-fg hover:bg-hover"
+      >
+        本 Session 环境变量 <span className="font-normal text-fg-muted">（覆盖 / 禁用 / 恢复继承）</span>
+      </button>
+    );
+  }
+
+  const apply = async (n: string, input: { mode: "set" | "disabled" | "inherit"; value?: string }) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await workspacesApi.sessionEnvSet(botId, n, input);
+      refresh();
+      return true;
+    } catch (err) {
+      setError(describeError(err));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = name.trim();
+    if (!ENV_NAME_RE.test(n)) {
+      setError("变量名须为 [A-Za-z_][A-Za-z0-9_]*");
+      return;
+    }
+    if (await apply(n, { mode: "set", value })) {
+      setName("");
+      setValue("");
+    }
+  };
+
+  if (!state) {
+    return (
+      <section aria-label="Session 环境变量" className="space-y-2 rounded-lg border border-line bg-raised p-4">
+        <p className="text-xs font-medium text-fg">本 Session 环境变量</p>
+        {error ? (
+          <>
+            <p role="alert" className="text-xs text-bad">{error}</p>
+            <button type="button" onClick={() => { setError(undefined); refresh(); }}>重试</button>
+          </>
+        ) : <p className="text-xs text-fg-faint">加载中…</p>}
+      </section>
+    );
+  }
+
+  return (
+    <section aria-label="Session 环境变量" className="space-y-2 rounded-lg border border-line bg-raised p-4" data-testid="session-env">
+      <p className="text-xs font-medium text-fg">
+        本 Session 环境变量
+        <button type="button" onClick={() => setOpen(false)} className="ml-2 font-normal text-fg-muted hover:text-fg">
+          收起
+        </button>
+      </p>
+      <p className="text-xs text-fg-muted">
+        覆盖或禁用只影响本 Session 的新命令/新终端；禁用是 unset，不是空字符串。Loop run 与只读 fork 不获得用户变量。
+        {!state.enabled && <span className="text-bad"> 未配置 TARSBOT_ENV_KEY，功能已禁用。</span>}
+      </p>
+      {state.restricted ? (
+        <p className="text-xs text-fg-faint">受限 Session（loop run / 只读 fork）：不使用工作区环境变量，也不可配置。</p>
+      ) : (
+        <>
+          {state.entries.length === 0 && <p className="text-xs text-fg-faint">工作区未设置默认变量。</p>}
+          {state.entries.map((en) => (
+            <EnvRow
+              key={en.name}
+              name={en.name}
+              detail={MODE_LABEL[en.mode] ?? en.mode}
+              actions={
+                <span className="flex gap-1">
+                  {en.mode !== "disabled" && (
+                    <button
+                      type="button"
+                      disabled={busy || !state.enabled}
+                      onClick={() => void apply(en.name, { mode: "disabled" })}
+                      className="rounded-md border border-line-strong px-2 py-0.5 text-xs text-fg-dim hover:bg-hover disabled:opacity-40"
+                    >
+                      禁用
+                    </button>
+                  )}
+                  {en.mode !== "inherit" && (
+                    <button
+                      type="button"
+                      disabled={busy || !state.enabled}
+                      onClick={() => void apply(en.name, { mode: "inherit" })}
+                      className="rounded-md border border-line-strong px-2 py-0.5 text-xs text-fg-dim hover:bg-hover disabled:opacity-40"
+                    >
+                      {en.mode === "disabled" && !en.inherits ? "移除覆盖" : "恢复继承"}
+                    </button>
+                  )}
+                </span>
+              }
+            />
+          ))}
+          <form onSubmit={submit} className="flex items-center gap-2">
+            <input
+              aria-label="覆盖变量名"
+              placeholder="NAME"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={!state.enabled}
+              className="w-40 rounded-md border border-line bg-field px-2.5 py-1 font-mono text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+            />
+            <input
+              aria-label="覆盖变量值"
+              type="password"
+              autoComplete="off"
+              placeholder="value（空字符串是有效值）"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              disabled={!state.enabled}
+              className="min-w-0 flex-1 rounded-md border border-line bg-field px-2.5 py-1 font-mono text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-40"
+            />
+            <button
+              type="submit"
+              disabled={busy || !state.enabled || !name.trim()}
+              className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40"
+            >
+              覆盖
+            </button>
+          </form>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="text-xs text-bad">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <>
@@ -126,6 +463,7 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
   const onChanged = props.onChanged ?? ctx?.onChanged;
   const { bot, vm } = props;
   const [resultFormOpen, setResultFormOpen] = useState(false);
+  const [wsEnvVersion, setWsEnvVersion] = useState(0);
   const onResultReported = props.onResultReported ?? ctx?.onChanged;
 
   // The panel is not keyed by bot: switching sessions while the result form is open must drop the draft —
@@ -268,6 +606,19 @@ export function EnvironmentPane(props: EnvironmentPaneProps) {
       {/* keyed: PR result, checkpoint list, request ids and dialogs are per workspace and must not leak to the next one.
           Issue-loop sessions are hidden: those workspace actions act on the old branch and main directory, not on this
           session’s own worktree (issue-loop spike: not extended, not offered). */}
+      {/* remount keys: switching workspace/session drops every draft + pending async reply so a value typed
+          for session A can never land in session B's override list. wsEnvVersion bumps when workspace vars
+          change so the session panel re-reads the source names it can override. */}
+      <WorkspaceEnvVars workspaceId={workspace.id} key={`ws-env-${workspace.id}`} onVarsChanged={() => setWsEnvVersion((v) => v + 1)} />
+      {bot && !bot.readOnly && !bot.loopRun?.runId && (
+        <SessionEnvVars key={`sess-env-${workspace.id}-${bot.id}`} botId={bot.id} refreshKey={wsEnvVersion} />
+      )}
+      {bot && (bot.readOnly || bot.loopRun?.runId) && (
+        <p className="rounded-lg border border-line bg-raised p-4 text-xs text-fg-muted" data-testid="session-env-restricted">
+          受限 Session（loop run / 只读 fork）：不继承工作区环境变量，也不可配置。
+        </p>
+      )}
+
       {!own && <WorkspaceActions key={workspace.id} workspace={workspace} onChanged={onChanged} />}
     </div>
   );
