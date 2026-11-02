@@ -428,3 +428,8 @@ export function createExec(opts = {}) {
 
 /** Production extension: install AFTER CodingTools (same-name override of the built-in bash) and BEFORE Approval. */
 export const Exec = createExec();
+
+/** The resolver currently installed via setExecResolver, for tools that share Exec's resolution (view-image). */
+export function execResolve(target) {
+  return currentResolver ? currentResolver(target) : undefined;
+}

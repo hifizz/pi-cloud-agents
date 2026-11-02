@@ -26,6 +26,11 @@ export function availableModelIds() {
   return MODEL_SPECS.map((s) => s.id);
 }
 
+/** Whether a model id accepts image input (MODEL_SPECS is the single source). Unknown ids: text-only. */
+export function acceptsImageInput(modelId) {
+  return MODEL_SPECS.some((s) => s.id === modelId && s.input.includes("image"));
+}
+
 export function tokenRouterProvider(extraModelIds = []) {
   const url = baseUrl();
   const specs = [...MODEL_SPECS];
