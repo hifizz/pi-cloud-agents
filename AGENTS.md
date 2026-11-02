@@ -63,6 +63,14 @@ fly logs                                          # 线上日志
 fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --regid=node --init-groups node /app/scripts/set-password.mjs <email>
 ```
 
+## 本地演示环境
+
+- 演示服务（后端 8092 + vite 5183）**只在固定 worktree `/Users/zilin/side/pca-wia-demo`（分支 `demo/wia`）里运行**，与主 checkout 隔离：主树切分支、改代码不影响演示。要更新演示内容：在 worktree 里把目标提交合进 `demo/wia`，再 restart。
+- 唯一操作入口：`node /Users/zilin/side/pca-wia-demo/scripts/demo.mjs`（`status` / `restart wia`）。重启命令只从这份清单读，**不凭记忆重构启动命令**。
+- 端口归属：8090 原服务（有定时 loops 在跑，**绝不主动重启**）；8091 env-demo（只看状态）；8092 + 5183 wia 演示（由 manifest 管理）。并行 worker 不占用这些端口。
+- `TARSBOT_ENV_KEY` 固化在 `/tmp/pca-wia-demo-data/env.key`（重启幂等）；进程日志在 `/tmp/pca-wia-demo.log` 与 `/tmp/pca-wia-vite.log`。
+- `/tmp/pca-wia-demo-data` 是一次性拷贝的演示数据副本；演示登录账号见 `docs/acceptance/`，不写入本文件。
+
 ## 开发规则
 
 - 新需求、新功能或行为变更的 PR 描述，默认先读取并遵循项目 skill：`.agents/skills/feature-pr-description/SKILL.md`。按「功能定义、具体例子、主要流程、对象与状态、接口与数据格式、生效时机/失败行为/限制」组织正文，手动验收和验证证据放附录；此项目约定优先于通用 PR 简短模板。
