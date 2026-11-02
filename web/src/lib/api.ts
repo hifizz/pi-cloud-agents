@@ -60,7 +60,7 @@ export const api = {
       requestId: opts.requestId ?? newRequestId(),
     }),
   abort: (botId: string, background = false) => request<{ ok: true }>("POST", `/api/bots/${enc(botId)}/abort`, background ? { background: true } : {}),
-  setApprovalPolicy: (botId: string, policy: "ask" | "auto") =>
+  setApprovalPolicy: (botId: string, policy: "ask" | "auto" | "bypass") =>
     request<{ bot: BotSummary }>("PATCH", `/api/bots/${enc(botId)}/approval-policy`, { policy }),
   setModel: (botId: string, modelId: string) =>
     request<{ bot: BotSummary }>("PATCH", `/api/bots/${enc(botId)}/model`, { modelId }),

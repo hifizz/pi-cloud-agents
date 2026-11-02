@@ -846,16 +846,25 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     const items: ContextStripItem[] = [];
     const cwd = bot?.worktree?.dir ?? bot?.issueLoop?.dir ?? bot?.review?.dir ?? bot?.loopRun?.dir ?? vm.agent.cwd;
     if (cwd) items.push({ icon: <HugeiconsIcon icon={FolderIcon} className="size-3.5" strokeWidth={1.8} />, label: cwd, title: cwd });
-    const binding = workspace.binding;
-    items.push({
-      icon: <HugeiconsIcon icon={AiCloudIcon} className="size-3.5" strokeWidth={1.8} />,
-      label: workspace.status === "ready" ? `Sprite 就绪 · ${binding?.runtimeId ?? ""}` : `沙箱状态：${workspace.status}`,
-      title: binding?.runtimeId,
-    });
     const branch = bot?.worktree?.branch ?? bot?.issueLoop?.branch ?? bot?.loopRun?.branch ?? null;
     if (branch) items.push({ icon: <HugeiconsIcon icon={GitBranchIcon} className="size-3.5" strokeWidth={1.8} />, label: branch, title: branch });
     return items;
   }, [workspace, bot, vm.agent.cwd]);
+
+  // Right end of the context strip: [Idle 状态, Sprite 沙箱] together, Idle immediately left of Sprite.
+  const spriteItem = useMemo(() => {
+    if (!workspace) return null;
+    const binding = workspace.binding;
+    const label = workspace.status === "ready" ? `Sprite 就绪 · ${binding?.runtimeId ?? ""}` : `沙箱状态：${workspace.status}`;
+    return (
+      <span title={binding?.runtimeId} className="flex min-w-0 items-center gap-1.5">
+        <span className="flex size-3.5 shrink-0 items-center justify-center [&_svg]:size-full">
+          <HugeiconsIcon icon={AiCloudIcon} className="size-3.5" strokeWidth={1.8} />
+        </span>
+        <span className="truncate whitespace-nowrap">{label}</span>
+      </span>
+    );
+  }, [workspace]);
 
   const onApprovalPolicyChange = (policy: ApprovalPolicy) => {
     if (!bot) return;
@@ -1071,7 +1080,12 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             approvalPolicy={bot.approvalPolicy ?? "ask"}
             onApprovalPolicyChange={onApprovalPolicyChange}
             contextItems={contextItems}
-            status={<StatusLine busy={vm.busy} queued={vm.inbox.length} status={status} />}
+            status={
+              <>
+                <StatusLine busy={vm.busy} queued={vm.inbox.length} status={status} />
+                {spriteItem}
+              </>
+            }
           />
         </>
       ) : workspace ? (

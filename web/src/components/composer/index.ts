@@ -21,6 +21,7 @@ export { ActionButton } from "./action-button";
 export { PermissionSelect, PERMISSION_MODES } from "./permission-select";
 export type { ApprovalPolicy, PermissionMode } from "./permission-select";
 export { ModelSelect } from "./model-select";
+export { ModelIcon } from "./model-icons";
 export { StatusIndicator } from "./status-indicator";
 export { SendButton } from "./send-button";
 export { ContextStrip } from "./context-strip";

@@ -81,11 +81,12 @@ export class BotRegistry {
    * the capability level {capabilities:{code,web,github}} integrations and scoped tools must respect.
    * `tools` narrows the model-callable tool whitelist (loop capability enforcement); omitted = the full toolset.
  * `approvalPolicy` is the session's human-approval mode: "ask" (default; records without the field behave as ask)
- * parks dangerous tool calls in the approval center, "auto" treats every classification as approved at the hook.
+ * parks dangerous tool calls in the approval center, "auto" auto-approves only recoverable classifications,
+ * "bypass" auto-approves every dangerous call.
    * `publishedFrom` (Issue14 Phase2) marks a Session created by the loop draft→publish route: {runId, loopId,
    * loopVersion, pinnedSha, branch, dir, entity} — provenance for the compose panel, NOT a permission context
    * (no loopRun, so the session never carries the run's capability snapshot or scoped tools).
-   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object, delegation?: object, loopRun?: {loopId:string, runId:string, version:number, dir?:string, pinnedSha?:string, branch?:string|null, capabilities?:object}, publishedFrom?: object, approvalPolicy?: "ask"|"auto" }} spec
+   * @param {{ name: string, model?: {provider:string, modelId:string}, instructions?: string, thinkingLevel?: string, cwd?: string, workspaceId?: string, extensions?: any[], tools?: any[], issueLoop?: {issue:number, baseBranch:string, pinnedSha:string, dir:string, branch?:string, sourceBotId?:string}, worktree?: {baseBranch:string, pinnedSha:string, dir:string}, status?: string, review?: {pr:number, title?:string, baseBranch?:string, headSha:string, dir:string}, executionResult?: object, delegation?: object, loopRun?: {loopId:string, runId:string, version:number, dir?:string, pinnedSha?:string, branch?:string|null, capabilities?:object}, publishedFrom?: object, approvalPolicy?: "ask"|"auto"|"bypass" }} spec
    */
   async createBot(spec) {
     if (!spec?.name) throw new Error("name is required");
@@ -166,12 +167,12 @@ export class BotRegistry {
   }
 
   /**
-   * The conversation's approval policy for the Approval extension's `getPolicy`: "ask" | "auto", or undefined
-   * when nothing is configured (missing record, missing field — the hook treats undefined as "ask").
+   * The conversation's approval policy for the Approval extension's `getPolicy`: "ask" | "auto" | "bypass",
+   * or undefined when nothing is configured (missing record, missing field — the hook treats undefined as "ask").
    */
   policyOf(conversationId) {
-    const bot = this.bots.find((b) => b.conversationId === conversationId);
-    return bot?.approvalPolicy === "auto" ? "auto" : bot?.approvalPolicy === "ask" ? "ask" : undefined;
+    const policy = this.bots.find((b) => b.conversationId === conversationId)?.approvalPolicy;
+    return policy === "auto" || policy === "ask" || policy === "bypass" ? policy : undefined;
   }
 
   /**
