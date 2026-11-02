@@ -211,11 +211,12 @@ describe("BotList search", () => {
     const bots = [bot(), bot({ id: "b2", name: "reviewer" }), bot({ id: "b3", name: "Builder" })];
     render(<BotList workspaces={workspaces} bots={bots} onSelectWorkspace={vi.fn()} onSelectBot={vi.fn()} onNewWorkspace={vi.fn()} />);
     await user.type(screen.getByLabelText("搜索工作区"), "rev");
-    expect(screen.getByText("reviewer")).toBeInTheDocument();
+    // The name appears on the workspace folder row and on its session row (both expanded by default).
+    expect(screen.getAllByText("reviewer").length).toBeGreaterThan(0);
     expect(screen.queryByText("tars")).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText("搜索工作区"));
     await user.type(screen.getByLabelText("搜索工作区"), "BUILD");
-    expect(screen.getByText("Builder")).toBeInTheDocument();
+    expect(screen.getAllByText("Builder").length).toBeGreaterThan(0);
     expect(screen.queryByText("reviewer")).not.toBeInTheDocument();
   });
 });

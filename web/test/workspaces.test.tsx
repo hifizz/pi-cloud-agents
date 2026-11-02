@@ -519,7 +519,8 @@ describe("App", () => {
     expect(screen.getByTestId("header-repo")).toHaveTextContent("demo");
     expect(screen.getByTestId("header-branch")).toHaveTextContent("tarsbot/fix-1a2b3c");
     expect(screen.getByTestId("header-env")).toHaveTextContent("sprites · abcdef");
-    expect(screen.getByRole("navigation", { name: "Workspaces" })).toHaveTextContent("hifizz/demo");
+    // The rail no longer renders the repo: a workspace folder row carries only its own name.
+    expect(screen.getByRole("navigation", { name: "Workspaces" })).toHaveTextContent("fix upload");
   });
 
   it("never requests /api/space or POST /api/bots", async () => {

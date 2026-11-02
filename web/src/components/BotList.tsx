@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary } from "../types";
-import { describeError, mapBotsToWorkspaces, repoName, workspacesApi, type Workspace } from "../lib/workspaces";
+import { describeError, mapBotsToWorkspaces, workspacesApi, type Workspace } from "../lib/workspaces";
 import { Icon } from "./Chat/primitives/Icon";
 import { StatusDot } from "./WorkspaceStatus";
 import { Badge } from "./ui/badge";
@@ -12,9 +12,6 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "./ui/input-group";
 import { Label } from "./ui/label";
 import {
   SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuBadge,
@@ -147,6 +144,13 @@ export function BotList({
   onSessionAdded,
 }: BotListProps) {
   const [query, setQuery] = useState("");
+  /** Workspaces whose session sub-list is expanded. The selected workspace starts expanded; clicking
+   * an expanded row collapses it (and re-fires onSelectWorkspace so the overview stays the target). */
+  /** Workspaces whose session sub-list is COLLAPSED. All workspaces start expanded so every session
+   * is visible by default; clicking an expanded row collapses it (and still selects the workspace),
+   * clicking a collapsed one expands it. Stored as a collapse set so newly-created workspaces expand
+   * automatically instead of requiring an explicit open. */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // SPIKE-add-session: the add dialog is for one workspace.
   const [addingTo, setAddingTo] = useState<Workspace>();
   const botWorkspace = useMemo(() => mapBotsToWorkspaces(bots, workspaces), [bots, workspaces]);
@@ -165,8 +169,13 @@ export function BotList({
     !q || [w.name, w.repo, w.branch, ...(botsOf.get(w.id) ?? []).map((b) => b.name)].some((t) => t?.toLowerCase().includes(q));
   const filtered = visibleWorkspaces.filter(matches);
 
-  const groups = new Map<string, Workspace[]>();
-  for (const w of filtered) groups.set(w.repo, [...(groups.get(w.repo) ?? []), w]);
+  const toggleCollapsed = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <nav aria-label="Workspaces" className="flex h-full min-h-0 flex-col">
@@ -205,102 +214,106 @@ export function BotList({
         )}
         {visibleWorkspaces.length > 0 && filtered.length === 0 && <p className="px-2 py-4 text-sm text-muted-foreground">没有匹配的工作区。</p>}
 
-        {[...groups].map(([repo, items]) => (
-          <SidebarGroup key={repo} aria-label={`项目 ${repo}`}>
-            <SidebarGroupLabel title={repo}>
-              <Icon name="folder" className="size-3" />
-              <span className="truncate">{repo}</span>
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {items.map((w) => {
-                  const selected = w.id === selectedWorkspaceId;
-                  const sessions = botsOf.get(w.id) ?? [];
-                  const pendingTotal = sessions.reduce((n, b) => n + (pendingApprovals[b.id] ?? 0), 0);
-                  const age = relativeTime(w.createdAt);
-                  return (
-                    <SidebarMenuItem key={w.id} className="group/menu-item">
-                      <SidebarMenuButton
-                        isActive={selected}
-                        aria-current={selected ? "true" : undefined}
-                        onClick={() => onSelectWorkspace(w.id)}
-                        className="h-auto py-2"
-                      >
-                        <StatusDot status={w.status} />
-                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                          <span className="flex items-center gap-2">
-                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{w.name}</span>
-                            {!selected && <ApprovalBadge count={pendingTotal} />}
-                            {age && <span className="shrink-0 font-mono text-[11px] text-sidebar-foreground/50">{age}</span>}
+        <SidebarMenu>
+          {filtered.map((w) => {
+            const selected = w.id === selectedWorkspaceId;
+            const sessions = botsOf.get(w.id) ?? [];
+            const pendingTotal = sessions.reduce((n, b) => n + (pendingApprovals[b.id] ?? 0), 0);
+            const age = relativeTime(w.createdAt);
+            const isExpanded = !collapsed.has(w.id);
+            return (
+              <SidebarMenuItem key={w.id} className="group/menu-item">
+                <SidebarMenuButton
+                  isActive={selected}
+                  aria-current={selected ? "true" : undefined}
+                  aria-expanded={isExpanded}
+                  onClick={() => {
+                    onSelectWorkspace(w.id);
+                    // Selecting toggles: expanded → collapse, collapsed → expand. A collapsed
+                    // selected workspace stays selected but its sessions fold away.
+                    toggleCollapsed(w.id);
+                  }}
+                  className="h-auto py-2"
+                  title={`${w.name} · ${w.repo} · ${w.branch}`}
+                >
+                  {/* Chevron rotates on expand/collapse; the dot keeps the status meaning. */}
+                  <span className={`flex size-3.5 shrink-0 items-center justify-center text-sidebar-foreground/60 transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`} aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3"><path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </span>
+                  <StatusDot status={w.status} />
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{w.name}</span>
+                    {!selected && <ApprovalBadge count={pendingTotal} />}
+                    {age && <span className="shrink-0 font-mono text-[11px] text-sidebar-foreground/50">{age}</span>}
+                  </span>
+                </SidebarMenuButton>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <SidebarMenuAction aria-label="更多操作" title="更多操作">
+                        <HugeiconsIcon icon={MoreHorizontalIcon} aria-hidden="true" />
+                      </SidebarMenuAction>
+                    }
+                  />
+                  <DropdownMenuContent align="start" aria-label={`${w.name} 的更多操作`}>
+                    <DropdownMenuItem disabled={w.status !== "ready"} onClick={() => setAddingTo(w)}>
+                      添加 Session
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {/* Session list slides open via grid-rows 0fr→1fr (no height measurement needed).
+                 * Always mounted so the transition can animate; collapsed has zero height. */}
+                {sessions.length > 0 && (
+                  <div
+                    data-expanded={isExpanded || undefined}
+                    className="grid transition-[grid-template-rows] duration-200 ease-in-out data-[expanded]:grid-rows-[1fr] grid-rows-[0fr]"
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <SidebarMenuSub aria-label={`${w.name} 的会话`}>
+                  {sessions.map((bot) => {
+                    const botSelected = bot.id === selectedBotId;
+                    const parentName = bot.parent ? (bots.find((b) => b.id === bot.parent?.botId)?.name ?? "unknown") : undefined;
+                    // Business status (human-set; defaults from origin). The busy/idle dot stays as run state.
+                    const sessionStatus = defaultSessionStatus(bot);
+                    return (
+                      <SidebarMenuSubItem key={bot.id}>
+                        <SidebarMenuSubButton isActive={botSelected} aria-current={botSelected ? "true" : undefined} onClick={() => onSelectBot(bot.id)}>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium" title={bot.name}>
+                              {bot.name}
+                              <span data-testid="session-status-label" className="ml-1.5 text-[11px] font-normal text-sidebar-foreground/60">
+                                {SESSION_STATUS_LABEL[sessionStatus]}
+                              </span>
+                            </span>
+                            {(parentName || bot.queued > 0 || bot.readOnly) && (
+                              <span className="block truncate text-[11px] text-sidebar-foreground/60">
+                                {parentName && <span title={`Forked from ${parentName}`}>↳ {parentName}</span>}
+                                {bot.readOnly && <span>{parentName ? " · 只读" : "只读"}</span>}
+                                {(parentName || bot.readOnly) && bot.queued > 0 && " · "}
+                                {bot.queued > 0 && <span>{bot.queued} queued</span>}
+                              </span>
+                            )}
                           </span>
-                          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-sidebar-foreground/60">
-                            <span className="shrink-0">{repoName(w.repo)}</span>
-                            <Icon name="branch" className="size-3" />
-                            <span className="truncate font-mono">{w.branch}</span>
-                          </span>
-                        </span>
-                      </SidebarMenuButton>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <SidebarMenuAction aria-label="更多操作" title="更多操作">
-                              <HugeiconsIcon icon={MoreHorizontalIcon} aria-hidden="true" />
-                            </SidebarMenuAction>
-                          }
-                        />
-                        <DropdownMenuContent align="start" aria-label={`${w.name} 的更多操作`}>
-                          <DropdownMenuItem disabled={w.status !== "ready"} onClick={() => setAddingTo(w)}>
-                            添加 Session
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      {selected && sessions.length > 0 && (
-                        <SidebarMenuSub aria-label={`${w.name} 的会话`}>
-                          {sessions.map((bot) => {
-                            const botSelected = bot.id === selectedBotId;
-                            const parentName = bot.parent ? (bots.find((b) => b.id === bot.parent?.botId)?.name ?? "unknown") : undefined;
-                            // Business status (human-set; defaults from origin). The busy/idle dot stays as run state.
-                            const sessionStatus = defaultSessionStatus(bot);
-                            return (
-                              <SidebarMenuSubItem key={bot.id}>
-                                <SidebarMenuSubButton isActive={botSelected} aria-current={botSelected ? "true" : undefined} onClick={() => onSelectBot(bot.id)}>
-                                  <span className="min-w-0 flex-1">
-                                    <span className="block truncate font-medium" title={bot.name}>
-                                      {bot.name}
-                                      <span data-testid="session-status-label" className="ml-1.5 text-[11px] font-normal text-sidebar-foreground/60">
-                                        {SESSION_STATUS_LABEL[sessionStatus]}
-                                      </span>
-                                    </span>
-                                    {(parentName || bot.queued > 0 || bot.readOnly) && (
-                                      <span className="block truncate text-[11px] text-sidebar-foreground/60">
-                                        {parentName && <span title={`Forked from ${parentName}`}>↳ {parentName}</span>}
-                                        {bot.readOnly && <span>{parentName ? " · 只读" : "只读"}</span>}
-                                        {(parentName || bot.readOnly) && bot.queued > 0 && " · "}
-                                        {bot.queued > 0 && <span>{bot.queued} queued</span>}
-                                      </span>
-                                    )}
-                                  </span>
-                                  <SidebarMenuBadge className="h-auto min-w-0 px-0 text-[11px]">
-                                    <ApprovalBadge count={pendingApprovals[bot.id] ?? 0} />
-                                  </SidebarMenuBadge>
-                                  <span
-                                    role="img"
-                                    aria-label={bot.busy ? "busy" : "idle"}
-                                    className={`size-2 shrink-0 rounded-full ${bot.busy ? "animate-pulse bg-warn" : "bg-muted-foreground"}`}
-                                  />
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            );
-                          })}
-                        </SidebarMenuSub>
-                      )}
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+                          <SidebarMenuBadge className="h-auto min-w-0 px-0 text-[11px]">
+                            <ApprovalBadge count={pendingApprovals[bot.id] ?? 0} />
+                          </SidebarMenuBadge>
+                          <span
+                            role="img"
+                            aria-label={bot.busy ? "busy" : "idle"}
+                            className={`size-2 shrink-0 rounded-full ${bot.busy ? "animate-pulse bg-warn" : "bg-muted-foreground"}`}
+                          />
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    );
+                  })}
+                      </SidebarMenuSub>
+                    </div>
+                  </div>
+                )}
+            </SidebarMenuItem>
+          );
+          })}
+        </SidebarMenu>
       </SidebarContent>
       {addingTo && (
         <AddSessionDialog
