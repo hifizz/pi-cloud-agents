@@ -9,22 +9,20 @@ import { withoutImageContent } from "../src/api.mjs";
 const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
-/** Resolver result double: execEnv.exec mirrors SandboxEnv's ok/err envelope. */
+/** Resolver result double: runtimeBash returns the raw provider primitive ({stdout, stderr, exitCode}). */
 function fakeEnv({ size = 100, b64 = TINY_PNG_BASE64, statError = "" } = {}) {
   const calls = [];
   return {
     calls,
     binding: { runtimeId: "pca-test", version: 1 },
-    execEnv: {
-      exec: async (command) => {
-        calls.push(command);
-        if (command.startsWith("stat ")) {
-          return statError
-            ? { ok: false, error: { message: statError } }
-            : { ok: true, value: { stdout: String(size), stderr: "", exitCode: 0 } };
-        }
-        return { ok: true, value: { stdout: b64, stderr: "", exitCode: 0 } };
-      },
+    runtimeBash: async () => async (command) => {
+      calls.push(command);
+      if (command.startsWith("stat ")) {
+        return statError
+          ? { stdout: "", stderr: statError, exitCode: 1 }
+          : { stdout: String(size), stderr: "", exitCode: 0 };
+      }
+      return { stdout: b64, stderr: "", exitCode: 0 };
     },
   };
 }
@@ -61,7 +59,7 @@ test("view_image: vision model gets an ImageContent block", async () => {
 test("view_image: text-only model (swe-2) gets a clear error, no bytes, no exec", async () => {
   let execCalled = false;
   const resolved = fakeEnv();
-  resolved.execEnv.exec = async () => {
+  resolved.runtimeBash = async () => {
     execCalled = true;
     throw new Error("should not exec");
   };
@@ -82,17 +80,17 @@ test("view_image: oversize image is rejected before the base64 read", async () =
   assert.ok(resolved.calls.every((c) => c.startsWith("stat ")), "no base64 exec for oversize files");
 });
 
+test("view_image: exec failure surfaces the primitive's stderr", async () => {
+  const resolved = {
+    binding: { runtimeId: "x", version: 1 },
+    runtimeBash: async () => async () => ({ stdout: "", stderr: "binding replaced", exitCode: 3 }),
+  };
+  await assert.rejects(run(resolved, { path: "/tmp/a.png" }), /exit 3.*binding replaced/);
+});
+
 test("view_image: missing workspace binding throws (no fallback)", async () => {
   const ext = createViewImage({ resolve: () => undefined });
   await assert.rejects(ext.tools[0].execute({ path: "/tmp/a.png" }, fakeApi("gpt-5.6-terra"), context), /no active runtime binding/);
-});
-
-test("view_image: exec failure (ok:false envelope) surfaces the error", async () => {
-  const resolved = {
-    binding: { runtimeId: "x", version: 1 },
-    execEnv: { exec: async () => ({ ok: false, error: { message: "binding replaced" } }) },
-  };
-  await assert.rejects(run(resolved, { path: "/tmp/a.png" }), /binding replaced/);
 });
 
 test("withoutImageContent: transcript serialization replaces image blocks with placeholders", () => {

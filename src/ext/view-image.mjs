@@ -57,13 +57,15 @@ export function createViewImage(opts = {}) {
       }
 
       const resolved = resolve({ conversationId: String(api.conversationId) });
-      if (!resolved?.execEnv || !resolved?.binding) {
+      if (!resolved?.binding) {
         throw new Error(`view_image 不可用：会话没有关联的工作区运行环境（no active runtime binding）`);
       }
+      const bashFn = await resolved.runtimeBash?.();
+      if (typeof bashFn !== "function") throw new Error("view_image 不可用：工作区运行环境不可达（no bash primitive）");
       const run = async (command, timeoutSec) => {
-        const r = await resolved.execEnv.exec(command, { timeout: timeoutSec }, context);
-        if (r?.ok) return r.value; // {stdout, stderr, exitCode, timedOut}
-        throw new Error(`view_image 执行失败：${String(r?.error?.message ?? r?.error ?? "unknown")}`);
+        const r = await bashFn(command, { timeoutMs: timeoutSec * 1000 });
+        if (r.exitCode !== 0) throw new Error(`view_image 执行失败（exit ${r.exitCode}）：${String(r.stderr ?? "").slice(0, 150)}`);
+        return r;
       };
 
       const quoted = path.replace(/'/g, `'\\''`);
