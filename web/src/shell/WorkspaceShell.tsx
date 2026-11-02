@@ -25,9 +25,6 @@ const RAIL_MIN_PX = 220;
 const MAIN_MIN_PX = 300;
 const PANEL_DEFAULT_PX = 480;
 const PANEL_MIN_PX = 320;
-// The right panel is an inspector, not a peer column: cap it near the pre-resize 560px so it never
-// squeezes the conversation below a readable width. Dragging wider just stops here.
-const PANEL_MAX_PX = 640;
 
 interface PersistedLayout {
   rail: number;
@@ -48,9 +45,7 @@ function loadLayout(): PersistedLayout | null {
     if (!raw) return null;
     const v = JSON.parse(raw) as { rail?: unknown; panel?: unknown } | null;
     if (!isFiniteNumber(v?.rail) || !isFiniteNumber(v?.panel)) return null;
-    // Clamp persisted widths into the live constraints; a stored width from before the panel cap
-    // (or dragged on a bigger monitor) must not reopen wider than the columns allow.
-    return { rail: Math.max(v.rail, 0), panel: Math.min(Math.max(v.panel, PANEL_MIN_PX), PANEL_MAX_PX) };
+    return { rail: Math.max(v.rail, 0), panel: Math.max(v.panel, PANEL_MIN_PX) };
   } catch {
     return null;
   }
@@ -156,7 +151,7 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenR
               id={PANEL_ID}
               defaultSize={widths.current.panel}
               minSize={panelInline ? PANEL_MIN_PX : 0}
-              maxSize={panelInline ? PANEL_MAX_PX : 0}
+              maxSize={panelInline ? "100%" : 0}
               disabled={!panelInline}
               groupResizeBehavior="preserve-pixel-size"
               className="h-full min-h-0 flex-col bg-background"

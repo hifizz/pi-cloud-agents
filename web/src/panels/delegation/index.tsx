@@ -164,7 +164,7 @@ function DelegationBody({ bot }: PanelContext) {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
-      <Card size="sm" className="gap-2 text-xs leading-5 text-muted-foreground">
+      <Card size="sm" className="gap-2 px-(--card-spacing) text-xs leading-5 text-muted-foreground">
         <div>
           委派会给当前会话创建一个<span className="text-foreground">独立 worktree + 独立会话</span>的子任务（默认 swe-2 / high，同工作区同一
           Sprite），<span className="text-foreground">不复制本会话历史</span>。子任务不 push、不开 PR。
@@ -175,7 +175,7 @@ function DelegationBody({ bot }: PanelContext) {
       </Card>
 
       {view.parent.canDelegate && !atChildLimit ? (
-        <Card size="sm">
+        <Card size="sm" className="px-(--card-spacing)">
           <form onSubmit={delegate} className="flex flex-col gap-2">
           <Textarea
             rows={3}
@@ -217,7 +217,7 @@ function DelegationBody({ bot }: PanelContext) {
           </form>
         </Card>
       ) : (
-        <Card size="sm" className="text-xs text-muted-foreground">
+        <Card size="sm" className="px-(--card-spacing) text-xs text-muted-foreground">
           {atChildLimit ? `子任务数已达上限（${view.parent.maxChildren}）。` : view.parent.depth >= view.parent.maxDepth ? "本会话已是子任务，不能继续委派（层级上限）。" : "工作区未就绪时不能委派。"}
         </Card>
       )}
@@ -228,7 +228,7 @@ function DelegationBody({ bot }: PanelContext) {
         {view.tasks.length === 0 && <li className="text-xs text-muted-foreground">还没有委派的子任务。</li>}
         {view.tasks.map((t) => (
           <li key={t.id}>
-            <Card size="sm" className="gap-2">
+            <Card size="sm" className="gap-2 px-(--card-spacing)">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate text-sm text-foreground">{t.task}</div>
