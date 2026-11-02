@@ -1,5 +1,61 @@
 // Pure layout: rail | main | panel. No business imports (docs/UI-PLAN.md U-D5).
+// One resizable group is always mounted with rail / main / panel in fixed positions, so every column
+// keeps a single mount identity across the md (768px) and xl (1280px) breakpoints.
+// Open/close still mounts/unmounts that column's Panel; unaffected siblings keep their state.
+// Breakpoints never change the tree: they only flip a column's
+// min/max size and whether its content sits inline or escapes as a fixed overlay drawer.
+import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../components/ui/resizable";
+import type { Layout, LayoutChangedMeta } from "../components/ui/resizable";
+import { useMediaQuery } from "./useMediaQuery";
+
+const LAYOUT_KEY = "pca.shell.layout.v1";
+
+// Pixel constraints for the three desktop columns. The rail keeps its old 272px default; the panel
+// gets a slightly narrower default now that it is resizable. Widths persist in pixels (not the
+// library's percentage layout) so a re-opened column returns to its previous pixel width instead of
+// re-absorbing freed space proportionally.
+const RAIL_ID = "shell-rail";
+const MAIN_ID = "shell-main";
+const PANEL_ID = "shell-panel";
+const RAIL_DEFAULT_PX = 272;
+const RAIL_MIN_PX = 220;
+const MAIN_MIN_PX = 300;
+const PANEL_DEFAULT_PX = 480;
+const PANEL_MIN_PX = 320;
+
+interface PersistedLayout {
+  rail: number;
+  panel: number;
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+/**
+ * Reads the persisted pixel widths; null on absent/corrupt storage so callers use defaults. Invoked
+ * once via a lazy useState initializer to seed the widths ref.
+ */
+function loadLayout(): PersistedLayout | null {
+  try {
+    const raw = globalThis.localStorage?.getItem(LAYOUT_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { rail?: unknown; panel?: unknown } | null;
+    return isFiniteNumber(v?.rail) && isFiniteNumber(v?.panel) ? { rail: v.rail, panel: v.panel } : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLayout(l: PersistedLayout) {
+  try {
+    globalThis.localStorage?.setItem(LAYOUT_KEY, JSON.stringify(l));
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 export interface WorkspaceShellProps {
   railOpen: boolean;
@@ -13,33 +69,120 @@ export interface WorkspaceShellProps {
 }
 
 export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onCloseRail }: WorkspaceShellProps) {
+  // Breakpoints: the rail is an inline resizable column at md+, and the panel at xl+. Below those
+  // breakpoints the same column (still mounted) collapses to a zero-width slot whose content escapes
+  // as a fixed overlay drawer, so it overlays main instead of squeezing it.
+  const md = useMediaQuery("(min-width: 768px)");
+  const xl = useMediaQuery("(min-width: 1280px)");
+  const railInline = railOpen && md;
+  const panelInline = panelOpen && xl;
+
+  const groupElRef = useRef<HTMLDivElement | null>(null);
+  // Last good persisted widths, seeded once from localStorage. A column that is closed or below its
+  // inline breakpoint is absent from the live layout (size ~0), so it keeps this value instead of
+  // being overwritten with ~0; `persist` updates it on each completed user resize.
+  const [initialWidths] = useState<PersistedLayout>(() => loadLayout() ?? { rail: RAIL_DEFAULT_PX, panel: PANEL_DEFAULT_PX });
+  const widths = useRef<PersistedLayout>(initialWidths);
+
+  const persist = useCallback(
+    (layout: Layout, meta: LayoutChangedMeta) => {
+      // Write once per completed user drag/keyboard resize, never per pointer move. Remounts and
+      // constraint recomputes also fire this callback but arrive with isUserInteraction=false.
+      if (!meta.isUserInteraction) return;
+      // Basis is the group's measured width, not a captured innerWidth that can go stale.
+      const groupWidth = groupElRef.current?.getBoundingClientRect().width || globalThis.innerWidth || 1;
+      const px = (id: string) => ((layout[id] ?? 0) * groupWidth) / 100;
+      const next: PersistedLayout = { ...widths.current };
+      // Only update a column's stored width when it is actually inline and present in the layout;
+      // a closed or overlay column (size ~0) keeps its previous value.
+      if (railInline && layout[RAIL_ID] !== undefined) next.rail = px(RAIL_ID);
+      if (panelInline && layout[PANEL_ID] !== undefined) next.panel = px(PANEL_ID);
+      widths.current = next;
+      saveLayout(next);
+    },
+    [railInline, panelInline],
+  );
+
   return (
-    <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
-      {railOpen && (
-        <>
-          {/* Below md the rail is a drawer: it overlays the conversation instead of squeezing it (390px phones
-           * keep the chat reachable and nothing overflows horizontally). md+ keeps the inline column. */}
-          <button
-            type="button"
-            aria-label="关闭侧边栏"
-            onClick={onCloseRail}
-            className="absolute inset-0 z-40 bg-black/50 md:hidden"
-          />
-          <aside className="absolute inset-y-0 left-0 z-50 flex w-[min(272px,85vw)] shrink-0 flex-col border-r border-border bg-sidebar md:static md:z-auto md:w-[272px]">
-            {rail}
-          </aside>
-        </>
+    <div className="relative h-dvh overflow-hidden bg-background text-foreground">
+      {/* Below md the open rail is a modal drawer; this is only the scrim (the column's own content
+       * escapes as the fixed overlay inside the rail Panel below). */}
+      {railOpen && !md && (
+        <button
+          type="button"
+          aria-label="关闭侧边栏"
+          onClick={onCloseRail}
+          className="absolute inset-0 z-40 bg-black/50"
+        />
       )}
-      <main className="flex min-w-0 flex-1 flex-col" aria-label="Chat">
-        {main}
-      </main>
-      {/* Below xl the panel overlays the conversation as a drawer instead of squeezing it; below md it covers the
-       * full width so controls stay reachable on 390px screens. */}
-      {panelOpen && (
-        <aside className="flex w-[min(560px,45vw)] shrink-0 flex-col border-l border-border bg-background max-xl:absolute max-xl:inset-y-0 max-xl:right-0 max-xl:z-30 max-xl:w-[min(560px,90vw)] max-xl:shadow-2xl max-xl:shadow-black/60 max-md:w-full max-md:border-l-0">
-          {panel}
-        </aside>
-      )}
+
+      <ResizablePanelGroup
+        orientation="horizontal"
+        className="flex h-full w-full"
+        elementRef={groupElRef}
+        onLayoutChanged={persist}
+      >
+        {/* Rail: inline resizable at md+; below md it collapses to a zero-width slot and its content
+         * escapes as a fixed left-edge drawer. It mounts only while open, and stays mounted across
+         * the md breakpoint via the disabled + zero-size slot (no tree change). */}
+        {railOpen && (
+          <ResizablePanel
+            id={RAIL_ID}
+            defaultSize={widths.current.rail}
+            minSize={railInline ? RAIL_MIN_PX : 0}
+            maxSize={railInline ? "100%" : 0}
+            disabled={!railInline}
+            groupResizeBehavior="preserve-pixel-size"
+            className="h-full min-h-0 flex-col bg-sidebar"
+            style={{ overflow: "visible" }}
+          >
+            <aside
+              className={
+                "flex h-full min-h-0 flex-col overflow-hidden border-r border-border bg-sidebar " +
+                "w-full max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[min(272px,85vw)]"
+              }
+            >
+              {rail}
+            </aside>
+          </ResizablePanel>
+        )}
+        {railOpen && <ResizableHandle aria-label="调整侧边栏宽度" disabled={!railInline} className="max-md:hidden" />}
+
+        <ResizablePanel id={MAIN_ID} minSize={md ? MAIN_MIN_PX : 0} className="h-full min-h-0 flex-col overflow-hidden">
+          <main className="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-label="Chat">
+            {main}
+          </main>
+        </ResizablePanel>
+
+        {panelOpen && <ResizableHandle aria-label="调整面板宽度" disabled={!panelInline} className="max-xl:hidden" />}
+        {/* Panel: inline resizable at xl+; below xl it collapses to a zero-width slot and its content
+         * escapes as a fixed right-edge drawer (md..xl) / full-width cover (<md). Stays mounted
+         * across the xl breakpoint so the PTY keeps running. */}
+        {panelOpen && (
+          <ResizablePanel
+            id={PANEL_ID}
+            defaultSize={widths.current.panel}
+            minSize={panelInline ? PANEL_MIN_PX : 0}
+            maxSize={panelInline ? "100%" : 0}
+            disabled={!panelInline}
+            groupResizeBehavior="preserve-pixel-size"
+            className="h-full min-h-0 flex-col bg-background"
+            style={{ overflow: "visible" }}
+          >
+            <aside
+              className={
+                "flex h-full min-h-0 flex-col overflow-hidden border-l border-border bg-background " +
+                "w-full max-md:border-l-0 " +
+                "max-xl:fixed max-xl:inset-y-0 max-xl:right-0 max-xl:z-30 max-xl:w-[min(560px,90vw)] max-xl:shadow-2xl max-xl:shadow-black/60 " +
+                // Below md the drawer covers the full width so controls stay reachable on phones.
+                "max-md:w-full"
+              }
+            >
+              {panel}
+            </aside>
+          </ResizablePanel>
+        )}
+      </ResizablePanelGroup>
     </div>
   );
 }

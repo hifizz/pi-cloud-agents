@@ -17,7 +17,7 @@
 //
 // What this is not:
 //   - It never writes to GitHub (no comments, approvals, merges). It never creates or deletes Sprites.
-//   - Only workspaces bound to the allowed test repository can enable sync (same guard as the issue-loop spike).
+//   - Any ready workspace with a valid bound repository can explicitly enable sync.
 //   - External event content is untrusted material: messages sent to sessions label it as such.
 //
 // State: one JSON file per workspace under `<dataDir>/github-events/<workspaceId>.json`, written atomically
@@ -27,7 +27,6 @@
 import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const EVENTS_REPO = "hifizz/tars-sandbox-playground";
 /** A comment body larger than this is truncated INSIDE the event text with an explicit marker (never silently cut:
  * the record keeps the full body, the session message notes the cut). */
 export const EVENT_TEXT_LIMIT = 4_000;
@@ -211,7 +210,6 @@ export function createGithubEventsService({ dataDir, control, bots, github, sess
 
   function assertEnabledWorkspace(ws) {
     if (!REPO_RE.test(ws.repo ?? "")) throw new EventsError("invalid", "workspace has no valid bound repo");
-    if (ws.repo !== EVENTS_REPO) throw new EventsError("conflict", `GitHub 事件同步仅在测试仓库 ${EVENTS_REPO} 上开放（当前工作区绑定 ${ws.repo}）`);
     if (ws.status !== "ready") throw new EventsError("conflict", `workspace is not ready (status: ${ws.status})`);
     return ws;
   }
@@ -469,8 +467,6 @@ export function createGithubEventsService({ dataDir, control, bots, github, sess
   }
 
   return {
-    EVENTS_REPO,
-
     /** Read the public state (no mutation). */
     getState(workspaceId) {
       workspaceOr404(workspaceId);
@@ -598,7 +594,7 @@ export function createGithubEventsService({ dataDir, control, bots, github, sess
         const state = readState(wsId);
         if (!state.enabled) continue;
         const ws = control.workspaces.get(wsId);
-        if (!ws || ws.status !== "ready" || ws.repo !== EVENTS_REPO) continue;
+        if (!ws || ws.status !== "ready" || !REPO_RE.test(ws.repo ?? "")) continue;
         schedulePoll(wsId, state);
         resumed.push(wsId);
       }

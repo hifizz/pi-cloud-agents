@@ -33,7 +33,7 @@ export function SelectPill({
   return (
     <button
       type="button"
-      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] whitespace-nowrap transition-[background-color,transform] duration-100 hover:bg-accent active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${TONES[tone]} ${className}`}
+      className={`flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] whitespace-nowrap transition-colors duration-100 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${TONES[tone]} ${className}`}
       {...props}
     >
       {icon}

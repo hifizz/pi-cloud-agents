@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { HelpCircleIcon, ZapIcon, ShieldIcon } from "@hugeicons/core-free-icons";
+import { HelpCircleIcon, ZapIcon, ShieldIcon, ShieldXIcon } from "@hugeicons/core-free-icons";
 import { SelectPill } from "./primitives";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PopoverMenu, PopoverMenuItem } from "@/components/ui/popover-menu";
 
-export type ApprovalPolicy = "ask" | "auto";
+export type ApprovalPolicy = "ask" | "auto" | "bypass";
 
 export type PermissionMode = {
   id: ApprovalPolicy;
@@ -14,7 +14,7 @@ export type PermissionMode = {
   icon: React.ReactNode;
 };
 
-/** 权限模式目录：对应后端 approval-policy（ask / auto）。 */
+/** 权限模式目录：对应后端 approval-policy（ask / auto / bypass）。 */
 export const PERMISSION_MODES: readonly PermissionMode[] = [
   {
     id: "ask",
@@ -25,8 +25,14 @@ export const PERMISSION_MODES: readonly PermissionMode[] = [
   {
     id: "auto",
     label: "自动批准",
-    description: "危险操作不再停车",
+    description: "常规危险操作放行，破坏性操作仍需审批",
     icon: <HugeiconsIcon icon={ZapIcon} className="size-[15px]" strokeWidth={1.6} />,
+  },
+  {
+    id: "bypass",
+    label: "全部放行",
+    description: "包括破坏性操作，不再停车",
+    icon: <HugeiconsIcon icon={ShieldXIcon} className="size-[15px]" strokeWidth={1.6} />,
   },
 ];
 

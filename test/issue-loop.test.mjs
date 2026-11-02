@@ -25,7 +25,7 @@ const OTHER_SHA = "b".repeat(40);
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
 /** GitHub REST double: repo meta, branches, the issue and its comments, /issues list, PR list and PR detail/diff. */
-function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [], issues, pulls } = {}) {
+function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [], issues, pulls, repo = REPO } = {}) {
   const st = { calls: [] };
   const reply = (status, data) => ({ status, headers: { get: () => null }, text: async () => (data === undefined ? "" : JSON.stringify(data)) });
   const rawReply = (status, text) => ({ status, headers: { get: () => null }, text: async () => text });
@@ -34,7 +34,7 @@ function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [],
     st.calls.push(`${init.method} ${u.pathname}${u.search}`);
     let m;
     if ((m = /^\/repos\/([^/]+\/[^/]+)$/.exec(u.pathname))) {
-      return m[1] === REPO ? reply(200, { full_name: REPO, default_branch: defaultBranch }) : reply(404, { message: "Not Found" });
+      return m[1] === repo ? reply(200, { full_name: repo, default_branch: defaultBranch }) : reply(404, { message: "Not Found" });
     }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/branches$/.exec(u.pathname))) {
       return reply(200, Object.entries(branches).map(([name, sha]) => ({ name, commit: { sha } })));
@@ -147,21 +147,21 @@ function fakeRuntimeBash() {
   return { calls, bash };
 }
 
-async function makeEnv({ branches, issue, comments, defaultBranch, issues, pulls } = {}) {
+async function makeEnv({ branches, issue, comments, defaultBranch, issues, pulls, repo = REPO } = {}) {
   const store = openControlStore({ path: null });
-  const gh = fakeGithubApi({ branches, issue, comments, defaultBranch, issues, pulls });
+  const gh = fakeGithubApi({ branches, issue, comments, defaultBranch, issues, pulls, repo });
   const github = createGithubClient({ token: TOKEN, fetch: gh.fetch });
   const bots = fakeBots();
   const rt = fakeRuntimeBash();
 
-  const project = store.projects.upsert({ repo: REPO, defaultBranch: defaultBranch ?? "main" });
+  const project = store.projects.upsert({ repo, defaultBranch: defaultBranch ?? "main" });
   const { workspace } = store.workspaces.create({
     requestId: "seed-il",
     projectId: project.id,
     name: "issue-loop ws",
     baseBranch: defaultBranch ?? "main",
     branch: "tarsbot/ws-abc123",
-    cwd: "/home/sprite/workspace/tars-sandbox-playground",
+    cwd: `/home/sprite/workspace/${repo.split("/")[1]}`,
     model: FAUX,
   });
   store.workspaces.update(workspace.id, { status: "ready" });
@@ -586,27 +586,12 @@ test("add session: a blank session in the same Sprite, its own detached worktree
   }
 });
 
-test("add session: refuses a non-test repo and a workspace that is not ready, with no worktree and no Bot", async () => {
+test("add session: refuses a workspace that is not ready, with no worktree and no Bot", async () => {
   const env = await makeEnv({ defaultBranch: "main", branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [] });
   try {
     env.store.workspaces.update(env.ws.id, { status: "preparing" });
     const notReady = await env.post(`/api/workspaces/${env.ws.id}/sessions`, { name: "x" });
     assert.equal(notReady.status, 409, "a not-ready workspace cannot get a session");
-    // a ready workspace of ANOTHER repo: the store fixes `repo`, so it is created as such, not mutated
-    const otherProject = env.store.projects.upsert({ repo: "someone/else", defaultBranch: "main" });
-    const { workspace: foreign } = env.store.workspaces.create({
-      requestId: "seed-foreign",
-      projectId: otherProject.id,
-      name: "foreign ws",
-      baseBranch: "main",
-      branch: "tarsbot/foreign",
-      cwd: "/home/sprite/workspace/else",
-      model: FAUX,
-    });
-    env.store.workspaces.update(foreign.id, { status: "ready" });
-    env.store.bindings.bind(foreign.id, { provider: "sprites", runtimeId: "pca-other00000" });
-    const otherRepo = await env.post(`/api/workspaces/${foreign.id}/sessions`, { name: "x" });
-    assert.equal(otherRepo.status, 409, "a workspace outside the test repo gets no fake success");
     assert.equal(env.bots.created.length, 0, "nothing was created");
     assert.equal(env.rt.calls.filter((c) => c.includes("worktree add")).length, 0, "no worktree was added");
   } finally {
@@ -956,5 +941,21 @@ test("result: an execution session reports a human result; the PR is verified ag
     assert.equal(issueResults.length, 2, "multiple results per issue are kept");
   } finally {
     await env.close();
+  }
+});
+
+test("issue-loop accepts any ready workspace's bound repository without an allowlist", async () => {
+  for (const repo of ["hifizz/thread-chatbot", "another-owner/another-repo"]) {
+    const env = await makeEnv({ repo, branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [] });
+    try {
+      const r = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
+      assert.equal(r.status, 200, r.json?.error);
+      assert.equal(env.bots.created[0].issueLoop.issue, 12);
+      assert.ok(env.gh.st.calls.some((c) => c.includes(`/repos/${repo}/`)));
+      const manual = await env.post(`/api/workspaces/${env.ws.id}/sessions`, { name: "manual" });
+      assert.equal(manual.status, 200, manual.json?.error);
+    } finally {
+      await env.close();
+    }
   }
 });

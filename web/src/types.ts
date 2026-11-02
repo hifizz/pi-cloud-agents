@@ -21,6 +21,8 @@ export interface BotSummary {
   name: string;
   conversationId: number | string;
   model: { provider: string; modelId: string };
+  /** Configured thinking level of this session (e.g. "high"); absent = provider default (pi reports "off"). */
+  thinkingLevel?: string;
   instructions?: string;
   createdAt?: string | number;
   busy: boolean;
@@ -35,8 +37,8 @@ export interface BotSummary {
   integrationError?: string;
   /** Working directory of the session inside the sandbox (from agent info). */
   cwd?: string;
-  /** Approval policy of this session: "ask" holds dangerous ops for approval; "auto" lets them run. */
-  approvalPolicy?: "ask" | "auto";
+  /** Approval policy of this session: "ask" holds dangerous ops for approval; "auto" lets common dangerous ops run; "bypass" runs everything without approval. */
+  approvalPolicy?: "ask" | "auto" | "bypass";
   /** SPIKE-add-session: a session added by hand from the workspace menu runs in its own detached worktree.
    * Also the shared session-worktree shape delegation children declare (AMP13): `branch` is the child's
    * own tarsbot/task-* branch (absent on a detached add-session). */
