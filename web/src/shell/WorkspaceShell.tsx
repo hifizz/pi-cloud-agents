@@ -1,5 +1,6 @@
 // Pure layout: rail | main | panel. No business imports (docs/UI-PLAN.md U-D5).
 import type { ReactNode } from "react";
+import { Sidebar, SidebarProvider } from "../components/ui/sidebar";
 
 export interface WorkspaceShellProps {
   railOpen: boolean;
@@ -7,29 +8,17 @@ export interface WorkspaceShellProps {
   rail: ReactNode;
   main: ReactNode;
   panel: ReactNode;
-  /** AMP13-collaboration: the rail closes when the scrim below md is tapped. Optional so pure layout tests stay
-   * unaffected; App always passes it. */
-  onCloseRail?: () => void;
+  /** Feeds SidebarProvider.onOpenChange (Sheet scrim/Escape closes the rail on mobile, SidebarTrigger
+   * toggles it). Optional so pure layout tests stay unaffected; App always passes it. */
+  onOpenRail?: (open: boolean) => void;
 }
 
-export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onCloseRail }: WorkspaceShellProps) {
+export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenRail }: WorkspaceShellProps) {
   return (
-    <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
-      {railOpen && (
-        <>
-          {/* Below md the rail is a drawer: it overlays the conversation instead of squeezing it (390px phones
-           * keep the chat reachable and nothing overflows horizontally). md+ keeps the inline column. */}
-          <button
-            type="button"
-            aria-label="关闭侧边栏"
-            onClick={onCloseRail}
-            className="absolute inset-0 z-40 bg-black/50 md:hidden"
-          />
-          <aside className="absolute inset-y-0 left-0 z-50 flex w-[min(272px,85vw)] shrink-0 flex-col border-r border-border bg-sidebar md:static md:z-auto md:w-[272px]">
-            {rail}
-          </aside>
-        </>
-      )}
+    <SidebarProvider open={railOpen} onOpenChange={onOpenRail} className="h-dvh overflow-hidden bg-background text-foreground">
+      {/* Below md the rail is a Sheet drawer overlaying the conversation; md+ it is an inline column
+       * (see components/ui/sidebar). */}
+      <Sidebar>{rail}</Sidebar>
       <main className="flex min-w-0 flex-1 flex-col" aria-label="Chat">
         {main}
       </main>
@@ -40,6 +29,6 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onClose
           {panel}
         </aside>
       )}
-    </div>
+    </SidebarProvider>
   );
 }

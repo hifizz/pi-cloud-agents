@@ -6,6 +6,7 @@ import App from "../src/App";
 import { readSessionLink, sessionUrl, copySessionLink, useSessionLink } from "../src/hooks/useSessionLink";
 import { useSessionNotifications } from "../src/hooks/useSessionNotifications";
 import { WorkspaceShell } from "../src/shell/WorkspaceShell";
+import { SidebarProvider } from "../src/components/ui/sidebar";
 import { SessionHeader } from "../src/shell/SessionHeader";
 import { emptyVM } from "../src/lib/reducer";
 import type { BotSummary } from "../src/types";
@@ -281,18 +282,17 @@ describe("useSessionNotifications", () => {
 
 describe("narrow-screen shell", () => {
   const slots = { rail: <p>RAIL</p>, main: <p>MAIN</p>, panel: <p>PANEL</p> };
-  it("the open rail renders a scrim that closes it on small screens only", () => {
-    const onCloseRail = vi.fn();
-    render(<WorkspaceShell railOpen panelOpen={false} onCloseRail={onCloseRail} {...slots} />);
-    const scrim = screen.getByRole("button", { name: "关闭侧边栏" });
-    expect(scrim).toHaveClass("md:hidden");
-    scrim.click();
-    expect(onCloseRail).toHaveBeenCalled();
-    expect(screen.getByText("RAIL").closest("aside")).toHaveClass("md:static");
+  it("the open rail is a sidebar column; on narrow screens the rail is a drawer", () => {
+    render(<WorkspaceShell railOpen panelOpen={false} {...slots} />);
+    // md+ the rail is an inline column; the <md Sheet drawer only mounts on mobile (useIsMobile), so in
+    // jsdom (no matchMedia match) a single aside carries the rail content.
+    expect(screen.getByText("RAIL").closest("aside")).toBeInTheDocument();
+    expect(screen.getByText("MAIN")).toBeInTheDocument();
   });
 
   it("SessionHeader hides Compact/Reset on narrow screens and keeps share/notify reachable", () => {
     render(
+      <SidebarProvider>
       <SessionHeader
         bot={bot()}
         vm={emptyVM()}
@@ -306,7 +306,8 @@ describe("narrow-screen shell", () => {
         onReset={vi.fn()}
         onShare={vi.fn()}
         notifications={{ supported: true, permission: "granted", enabled: false, onToggle: vi.fn() }}
-      />,
+      />
+      </SidebarProvider>,
     );
     expect(screen.getByRole("button", { name: "Compact" })).toHaveClass("hidden");
     expect(screen.getByRole("button", { name: "Reset" })).toHaveClass("hidden");

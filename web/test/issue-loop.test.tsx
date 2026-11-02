@@ -184,7 +184,7 @@ describe("add session (SPIKE-add-session): workspace menu", () => {
     expect(more.parentElement?.closest("button")).toBeNull();
     expect(screen.queryByRole("menuitem", { name: "添加 Session" })).toBeNull();
     await user.click(more);
-    await user.click(screen.getByRole("menuitem", { name: "添加 Session" }));
+    await user.click(await screen.findByRole("menuitem", { name: "添加 Session" }));
 
     // in-page dialog, not a native prompt
     const dialog = screen.getByRole("dialog", { name: "添加 Session" });
@@ -435,7 +435,7 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
     // open the overview, then collapse the rail while on it
     await user.click(await screen.findByRole("button", { name: /issue-loop ws/ }));
     await screen.findByTestId("workspace-overview");
-    await user.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    await user.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
     // rail is collapsed: the workspace row is gone, the overview itself offers the expand control
     expect(screen.queryByRole("button", { name: /issue-loop ws/ })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Expand sidebar" }));

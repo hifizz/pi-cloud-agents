@@ -6,8 +6,27 @@ import { StatusDot } from "./WorkspaceStatus";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { Input } from "./ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "./ui/input-group";
 import { Label } from "./ui/label";
+import {
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSkeleton,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+} from "./ui/sidebar";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { MoreHorizontalIcon } from "@hugeicons/core-free-icons";
 
 // swe-2 stays first: it is the default model (src/config.mjs).
 export const MODEL_OPTIONS = ["swe-2", "glm-5.3-flash", "glm-5.3", "claude-sonnet-5-5", "gpt-5.6-terra"];
@@ -40,8 +59,6 @@ export function relativeTime(value: string | number | undefined, now = Date.now(
   if (s < 86_400 * 30) return `${Math.floor(s / 86_400)}d`;
   return `${Math.floor(s / (86_400 * 30))}mo`;
 }
-
-const focusRing = "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring";
 
 /** In-page name form for a manually added session (SPIKE-add-session). Not a native prompt. */
 export function AddSessionDialog({
@@ -130,8 +147,7 @@ export function BotList({
   onSessionAdded,
 }: BotListProps) {
   const [query, setQuery] = useState("");
-  // SPIKE-add-session: one open ⋯ menu at a time; the add dialog is for one workspace.
-  const [menuOf, setMenuOf] = useState<string>();
+  // SPIKE-add-session: the add dialog is for one workspace.
   const [addingTo, setAddingTo] = useState<Workspace>();
   const botWorkspace = useMemo(() => mapBotsToWorkspaces(bots, workspaces), [bots, workspaces]);
   const botsOf = useMemo(() => {
@@ -154,152 +170,138 @@ export function BotList({
 
   return (
     <nav aria-label="Workspaces" className="flex h-full min-h-0 flex-col">
-      <div className="space-y-2 px-3 py-2.5">
+      <div className="space-y-2 p-2 pb-0">
         <Button type="button" onClick={onNewWorkspace} size="lg" className="w-full gap-2 text-[13px]">
           <Icon name="plus" className="size-3.5" />
           新建工作区
         </Button>
-        <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-input px-2 text-muted-foreground focus-within:border-ring dark:bg-input/30">
-          <Icon name="search" className="size-3.5" />
-          <input
+        <InputGroup>
+          <InputGroupAddon>
+            <Icon name="search" className="size-3.5" />
+          </InputGroupAddon>
+          <InputGroupInput
             type="search"
             aria-label="搜索工作区"
             placeholder="搜索工作区"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="text-[12.5px]"
           />
-        </label>
+        </InputGroup>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-2">
-        {loading && visibleWorkspaces.length === 0 && <p className="px-2 py-4 text-sm text-muted-foreground">加载中…</p>}
+      <SidebarContent className="gap-3 px-1">
+        {loading && visibleWorkspaces.length === 0 && (
+          <SidebarMenu aria-hidden="true">
+            {Array.from({ length: 3 }, (_, i) => (
+              <li key={i} style={{ "--skeleton-width": `${85 - i * 10}%` } as React.CSSProperties}>
+                <SidebarMenuSkeleton showIcon />
+              </li>
+            ))}
+          </SidebarMenu>
+        )}
         {!loading && visibleWorkspaces.length === 0 && (
           <p className="px-2 py-4 text-sm text-muted-foreground">还没有工作区。点击上方「新建工作区」，选择一个仓库开始。</p>
         )}
         {visibleWorkspaces.length > 0 && filtered.length === 0 && <p className="px-2 py-4 text-sm text-muted-foreground">没有匹配的工作区。</p>}
 
         {[...groups].map(([repo, items]) => (
-          <section key={repo} aria-label={`项目 ${repo}`}>
-            <h3 className="flex items-center gap-1.5 truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground" title={repo}>
+          <SidebarGroup key={repo} aria-label={`项目 ${repo}`}>
+            <SidebarGroupLabel title={repo}>
               <Icon name="folder" className="size-3" />
               <span className="truncate">{repo}</span>
-            </h3>
-            <ul className="space-y-1">
-              {items.map((w) => {
-                const selected = w.id === selectedWorkspaceId;
-                const sessions = botsOf.get(w.id) ?? [];
-                const pendingTotal = sessions.reduce((n, b) => n + (pendingApprovals[b.id] ?? 0), 0);
-                const age = relativeTime(w.createdAt);
-                const menuOpen = menuOf === w.id;
-                return (
-                  <li key={w.id} className="relative">
-                    {/* The row and its ⋯ menu are siblings: a button cannot hold another button. */}
-                    <div className="flex items-start gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onSelectWorkspace(w.id)}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {items.map((w) => {
+                  const selected = w.id === selectedWorkspaceId;
+                  const sessions = botsOf.get(w.id) ?? [];
+                  const pendingTotal = sessions.reduce((n, b) => n + (pendingApprovals[b.id] ?? 0), 0);
+                  const age = relativeTime(w.createdAt);
+                  return (
+                    <SidebarMenuItem key={w.id} className="group/menu-item">
+                      <SidebarMenuButton
+                        isActive={selected}
                         aria-current={selected ? "true" : undefined}
-                        data-active={selected || undefined}
-                        className={`flex min-w-0 flex-1 flex-col gap-0.5 rounded-[10px] border px-2.5 py-2 text-left ${focusRing} ${
-                          selected ? "border-border bg-accent" : "border-transparent hover:bg-muted"
-                        }`}
+                        onClick={() => onSelectWorkspace(w.id)}
+                        className="h-auto py-2"
                       >
-                        <span className="flex items-center gap-2">
-                          <StatusDot status={w.status} />
-                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{w.name}</span>
-                          {!selected && <ApprovalBadge count={pendingTotal} />}
-                          {age && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{age}</span>}
+                        <StatusDot status={w.status} />
+                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                          <span className="flex items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{w.name}</span>
+                            {!selected && <ApprovalBadge count={pendingTotal} />}
+                            {age && <span className="shrink-0 font-mono text-[11px] text-sidebar-foreground/50">{age}</span>}
+                          </span>
+                          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-sidebar-foreground/60">
+                            <span className="shrink-0">{repoName(w.repo)}</span>
+                            <Icon name="branch" className="size-3" />
+                            <span className="truncate font-mono">{w.branch}</span>
+                          </span>
                         </span>
-                        <span className="flex min-w-0 items-center gap-1.5 pl-4 text-[11.5px] text-muted-foreground">
-                          <span className="shrink-0">{repoName(w.repo)}</span>
-                          <Icon name="branch" className="size-3" />
-                          <span className="truncate font-mono">{w.branch}</span>
-                        </span>
-                      </button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label="更多操作"
-                        title="更多操作"
-                        aria-haspopup="menu"
-                        aria-expanded={menuOpen}
-                        onClick={() => setMenuOf(menuOpen ? undefined : w.id)}
-                        className="mt-2 text-muted-foreground"
-                      >
-                        <span aria-hidden="true">⋯</span>
-                      </Button>
-                    </div>
-                    {menuOpen && (
-                      <div role="menu" aria-label={`${w.name} 的更多操作`} className="absolute right-1 top-9 z-10 min-w-32 rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          disabled={w.status !== "ready"}
-                          onClick={() => {
-                            setMenuOf(undefined);
-                            setAddingTo(w);
-                          }}
-                          className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm outline-none focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-                        >
-                          添加 Session
-                        </button>
-                      </div>
-                    )}
-                    {selected && sessions.length > 0 && (
-                      <ul aria-label={`${w.name} 的会话`} className="mb-1 ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
-                        {sessions.map((bot) => {
-                          const botSelected = bot.id === selectedBotId;
-                          const parentName = bot.parent ? (bots.find((b) => b.id === bot.parent?.botId)?.name ?? "unknown") : undefined;
-                          // Business status (human-set; defaults from origin). The busy/idle dot stays as run state.
-                          const sessionStatus = defaultSessionStatus(bot);
-                          return (
-                            <li key={bot.id}>
-                              <button
-                                type="button"
-                                onClick={() => onSelectBot(bot.id)}
-                                aria-current={botSelected ? "true" : undefined}
-                                data-active={botSelected || undefined}
-                                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${focusRing} ${
-                                  botSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-muted"
-                                }`}
-                              >
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate font-medium" title={bot.name}>
-                                    {bot.name}
-                                    <span data-testid="session-status-label" className="ml-1.5 text-[11px] font-normal text-muted-foreground">
-                                      {SESSION_STATUS_LABEL[sessionStatus]}
+                      </SidebarMenuButton>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <SidebarMenuAction aria-label="更多操作" title="更多操作">
+                              <HugeiconsIcon icon={MoreHorizontalIcon} aria-hidden="true" />
+                            </SidebarMenuAction>
+                          }
+                        />
+                        <DropdownMenuContent align="start" aria-label={`${w.name} 的更多操作`}>
+                          <DropdownMenuItem disabled={w.status !== "ready"} onClick={() => setAddingTo(w)}>
+                            添加 Session
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      {selected && sessions.length > 0 && (
+                        <SidebarMenuSub aria-label={`${w.name} 的会话`}>
+                          {sessions.map((bot) => {
+                            const botSelected = bot.id === selectedBotId;
+                            const parentName = bot.parent ? (bots.find((b) => b.id === bot.parent?.botId)?.name ?? "unknown") : undefined;
+                            // Business status (human-set; defaults from origin). The busy/idle dot stays as run state.
+                            const sessionStatus = defaultSessionStatus(bot);
+                            return (
+                              <SidebarMenuSubItem key={bot.id}>
+                                <SidebarMenuSubButton isActive={botSelected} aria-current={botSelected ? "true" : undefined} onClick={() => onSelectBot(bot.id)}>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate font-medium" title={bot.name}>
+                                      {bot.name}
+                                      <span data-testid="session-status-label" className="ml-1.5 text-[11px] font-normal text-sidebar-foreground/60">
+                                        {SESSION_STATUS_LABEL[sessionStatus]}
+                                      </span>
                                     </span>
+                                    {(parentName || bot.queued > 0 || bot.readOnly) && (
+                                      <span className="block truncate text-[11px] text-sidebar-foreground/60">
+                                        {parentName && <span title={`Forked from ${parentName}`}>↳ {parentName}</span>}
+                                        {bot.readOnly && <span>{parentName ? " · 只读" : "只读"}</span>}
+                                        {(parentName || bot.readOnly) && bot.queued > 0 && " · "}
+                                        {bot.queued > 0 && <span>{bot.queued} queued</span>}
+                                      </span>
+                                    )}
                                   </span>
-                                  {(parentName || bot.queued > 0 || bot.readOnly) && (
-                                    <span className="block truncate text-[11px] text-muted-foreground">
-                                      {parentName && <span title={`Forked from ${parentName}`}>↳ {parentName}</span>}
-                                      {bot.readOnly && <span>{parentName ? " · 只读" : "只读"}</span>}
-                                      {(parentName || bot.readOnly) && bot.queued > 0 && " · "}
-                                      {bot.queued > 0 && <span>{bot.queued} queued</span>}
-                                    </span>
-                                  )}
-                                </span>
-                                <ApprovalBadge count={pendingApprovals[bot.id] ?? 0} />
-                                <span
-                                  role="img"
-                                  aria-label={bot.busy ? "busy" : "idle"}
-                                  className={`size-2 shrink-0 rounded-full ${bot.busy ? "animate-pulse bg-warn" : "bg-muted-foreground"}`}
-                                />
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
+                                  <SidebarMenuBadge className="h-auto min-w-0 px-0 text-[11px]">
+                                    <ApprovalBadge count={pendingApprovals[bot.id] ?? 0} />
+                                  </SidebarMenuBadge>
+                                  <span
+                                    role="img"
+                                    aria-label={bot.busy ? "busy" : "idle"}
+                                    className={`size-2 shrink-0 rounded-full ${bot.busy ? "animate-pulse bg-warn" : "bg-muted-foreground"}`}
+                                  />
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            );
+                          })}
+                        </SidebarMenuSub>
+                      )}
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         ))}
-      </div>
+      </SidebarContent>
       {addingTo && (
         <AddSessionDialog
           workspaceName={addingTo.name}
