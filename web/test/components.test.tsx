@@ -149,6 +149,42 @@ describe("Composer", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText("Message")).toHaveValue("keep me");
   });
+
+  it("thinking selector lists only the model's levels and reports the pick", async () => {
+    const user = userEvent.setup();
+    const onThinkingLevelChange = vi.fn();
+    render(
+      <Composer
+        busy={false}
+        onSend={() => {}}
+        onAbort={() => {}}
+        thinkingLevels={["medium", "high", "max"]}
+        thinkingLevel="high"
+        onThinkingLevelChange={onThinkingLevelChange}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "思考强度：高" });
+    await user.click(trigger);
+    // swe-2 levels only: 默认 + 中/高/最大, no 低/最小.
+    expect(screen.getByRole("option", { name: /默认/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^中/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^高/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^最大/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /^低/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: /^最大/ }));
+    expect(onThinkingLevelChange).toHaveBeenCalledWith("max");
+  });
+
+  it("thinking selector is disabled (not hidden) when the model offers no levels", async () => {
+    render(<Composer busy={false} onSend={() => {}} onAbort={() => {}} thinkingLevels={[]} thinkingLevel="off" />);
+    const trigger = screen.getByRole("button", { name: /思考强度/ });
+    expect(trigger).toBeDisabled();
+  });
+
+  it("hides the thinking selector until capabilities are loaded (undefined)", () => {
+    render(<Composer busy={false} onSend={() => {}} onAbort={() => {}} />);
+    expect(screen.queryByRole("button", { name: /思考强度/ })).not.toBeInTheDocument();
+  });
 });
 
 describe("BotList / UsageBadge", () => {
