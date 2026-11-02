@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { createViewImage } from "../src/ext/view-image.mjs";
 import { acceptsImageInput } from "../src/models.mjs";
 import { withoutImageContent } from "../src/api.mjs";
+import { convertMessages } from "@earendil-works/pi-ai/api/openai-completions";
 
 // 1x1 transparent PNG.
 const TINY_PNG_BASE64 =
@@ -41,7 +42,7 @@ async function run(resolved, args, { modelId = "gpt-5.6-terra" } = {}) {
 test("acceptsImageInput: catalog is the source of truth", () => {
   assert.equal(acceptsImageInput("gpt-5.6-terra"), true);
   assert.equal(acceptsImageInput("claude-sonnet-5-5"), true);
-  assert.equal(acceptsImageInput("swe-2"), false);
+  assert.equal(acceptsImageInput("swe-2"), true); // TokenRouter catalog: SWE-2 has imageInput
   assert.equal(acceptsImageInput("glm-5.3"), false);
   assert.equal(acceptsImageInput("totally-unknown"), false);
 });
@@ -56,16 +57,56 @@ test("view_image: vision model gets an ImageContent block", async () => {
   assert.equal(image.data, TINY_PNG_BASE64);
 });
 
-test("view_image: text-only model (swe-2) gets a clear error, no bytes, no exec", async () => {
+// The real failure mode: a catalog that forgot "image" for swe-2 would still run view_image, but
+// openai-completions would serialize the tool result text-only and the model would guess. This test
+// drives the actual serializer with the swe-2 catalog entry and asserts the image_url block survives.
+test("swe-2 catalog entry serializes view_image output to an image_url request block", () => {
+  const model = {
+    id: "swe-2",
+    api: "openai-completions",
+    provider: "tokenrouter",
+    input: ["text", "image"],
+    reasoning: true,
+    compat: {},
+  };
+  const ctx = {
+    messages: [
+      { role: "user", content: "describe this image" },
+      { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "view_image", arguments: {} }] },
+      {
+        role: "toolResult",
+        toolCallId: "c1",
+        toolName: "view_image",
+        content: [
+          { type: "text", text: "image /a.png (image/png, 0.1KB) attached" },
+          { type: "image", data: TINY_PNG_BASE64, mimeType: "image/png" },
+        ],
+      },
+    ],
+  };
+  const params = convertMessages(model, ctx, {}, {});
+  const imageBlock = params.flatMap((p) => (Array.isArray(p.content) ? p.content : [])).find((c) => c.type === "image_url");
+  assert.ok(imageBlock, "serializer must emit image_url for swe-2");
+  assert.equal(imageBlock.image_url.url, `data:image/png;base64,${TINY_PNG_BASE64}`);
+});
+
+test("view_image: swe-2 is vision-capable and receives the image bytes", async () => {
+  const out = await run(fakeEnv(), { path: "/home/sprite/workspace/shot.png" }, { modelId: "swe-2" });
+  assert.equal(out.isError, undefined);
+  const image = out.output.find((p) => p.type === "image");
+  assert.equal(image.data, TINY_PNG_BASE64);
+});
+
+test("view_image: text-only model gets a clear error, no bytes, no exec", async () => {
   let execCalled = false;
   const resolved = fakeEnv();
   resolved.runtimeBash = async () => {
     execCalled = true;
     throw new Error("should not exec");
   };
-  const out = await run(resolved, { path: "/home/sprite/workspace/shot.png" }, { modelId: "swe-2" });
+  const out = await run(resolved, { path: "/home/sprite/workspace/shot.png" }, { modelId: "glm-5.3" });
   assert.equal(out.isError, true);
-  assert.match(out.output, /swe-2 不支持图像输入/);
+  assert.match(out.output[0].text, /glm-5\.3 不支持图像输入/);
   assert.equal(execCalled, false);
 });
 
