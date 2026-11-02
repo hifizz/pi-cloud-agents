@@ -22,9 +22,15 @@ const MAIN_ID = "shell-main";
 const PANEL_ID = "shell-panel";
 const RAIL_DEFAULT_PX = 272;
 const RAIL_MIN_PX = 220;
-const MAIN_MIN_PX = 300;
+// Each sidebar gets its own pixel cap so dragging one can't squeeze main to nothing and then start
+// pushing the other sidebar — a handle only ever resizes the column directly beside it.
+const RAIL_MAX_PX = 480;
 const PANEL_DEFAULT_PX = 480;
 const PANEL_MIN_PX = 320;
+const PANEL_MAX_PX = 720;
+// Main has NO minSize: it is the flexible middle that absorbs whichever edge is dragged. A minSize
+// would make a rail drag at main's floor push the far panel (and vice versa); leaving it at 0 keeps
+// each handle strictly tied to its own column.
 
 interface PersistedLayout {
   rail: number;
@@ -45,7 +51,12 @@ function loadLayout(): PersistedLayout | null {
     if (!raw) return null;
     const v = JSON.parse(raw) as { rail?: unknown; panel?: unknown } | null;
     if (!isFiniteNumber(v?.rail) || !isFiniteNumber(v?.panel)) return null;
-    return { rail: Math.max(v.rail, 0), panel: Math.max(v.panel, PANEL_MIN_PX) };
+    // Clamp persisted widths into the live min/max so an old out-of-range value can't reopen past
+    // a column's cap (e.g. a rail stored before RAIL_MAX existed).
+    return {
+      rail: Math.min(Math.max(v.rail, RAIL_MIN_PX), RAIL_MAX_PX),
+      panel: Math.min(Math.max(v.panel, PANEL_MIN_PX), PANEL_MAX_PX),
+    };
   } catch {
     return null;
   }
@@ -123,7 +134,7 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenR
               id={RAIL_ID}
               defaultSize={widths.current.rail}
               minSize={railInline ? RAIL_MIN_PX : 0}
-              maxSize={railInline ? "100%" : 0}
+              maxSize={railInline ? RAIL_MAX_PX : 0}
               disabled={!railInline}
               groupResizeBehavior="preserve-pixel-size"
               className="h-full min-h-0 flex-col bg-sidebar"
@@ -136,7 +147,7 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenR
           )}
           {railOpen && <ResizableHandle aria-label="调整侧边栏宽度" disabled={!railInline} className="max-md:hidden" />}
 
-          <ResizablePanel id={MAIN_ID} minSize={md ? MAIN_MIN_PX : 0} className="h-full min-h-0 flex-col overflow-hidden">
+          <ResizablePanel id={MAIN_ID} minSize={0} className="h-full min-h-0 flex-col overflow-hidden">
             <main className="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-label="Chat">
               {main}
             </main>
@@ -151,7 +162,7 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenR
               id={PANEL_ID}
               defaultSize={widths.current.panel}
               minSize={panelInline ? PANEL_MIN_PX : 0}
-              maxSize={panelInline ? "100%" : 0}
+              maxSize={panelInline ? PANEL_MAX_PX : 0}
               disabled={!panelInline}
               groupResizeBehavior="preserve-pixel-size"
               className="h-full min-h-0 flex-col bg-background"
