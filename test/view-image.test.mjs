@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createViewImage } from "../src/ext/view-image.mjs";
-import { acceptsImageInput } from "../src/models.mjs";
+import { acceptsImageInput, tokenRouterProvider } from "../src/models.mjs";
 import { withoutImageContent } from "../src/api.mjs";
 import { convertMessages } from "@earendil-works/pi-ai/api/openai-completions";
 
@@ -59,16 +59,13 @@ test("view_image: vision model gets an ImageContent block", async () => {
 
 // The real failure mode: a catalog that forgot "image" for swe-2 would still run view_image, but
 // openai-completions would serialize the tool result text-only and the model would guess. This test
-// drives the actual serializer with the swe-2 catalog entry and asserts the image_url block survives.
+// drives the actual serializer with the model object the real tokenRouterProvider catalog emits, so
+// a MODEL_SPECS regression back to input:["text"] fails here, not in production.
 test("swe-2 catalog entry serializes view_image output to an image_url request block", () => {
-  const model = {
-    id: "swe-2",
-    api: "openai-completions",
-    provider: "tokenrouter",
-    input: ["text", "image"],
-    reasoning: true,
-    compat: {},
-  };
+  process.env.TOKEN_ROUTER_BASE_URL ??= "https://router.invalid";
+  process.env.TOKEN_ROUTER_API_KEY ??= "test-key";
+  const model = tokenRouterProvider().getModels().find((m) => m.id === "swe-2");
+  assert.ok(model, "swe-2 must be in the catalog");
   const ctx = {
     messages: [
       { role: "user", content: "describe this image" },
