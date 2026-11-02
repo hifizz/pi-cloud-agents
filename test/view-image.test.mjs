@@ -1,4 +1,4 @@
-// view_image tool behavior tests (offline): fake resolver + fake runner exec; no real Sprite, model or router.
+// view_image tool behavior tests (offline): fake resolver + fake execEnv; no real Sprite, model or router.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createViewImage } from "../src/ext/view-image.mjs";
@@ -9,18 +9,23 @@ import { withoutImageContent } from "../src/api.mjs";
 const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
-function fakeRunner({ size = 100, b64 = TINY_PNG_BASE64, statError = "" } = {}) {
+/** Resolver result double: execEnv.exec mirrors SandboxEnv's ok/err envelope. */
+function fakeEnv({ size = 100, b64 = TINY_PNG_BASE64, statError = "" } = {}) {
   const calls = [];
   return {
     calls,
-    runner: {
+    binding: { runtimeId: "pca-test", version: 1 },
+    execEnv: {
       exec: async (command) => {
         calls.push(command);
-        if (command.startsWith("stat ")) return { stdout: statError ? "" : String(size), stderr: statError, exitCode: statError ? 1 : 0 };
-        return { stdout: b64, stderr: "", exitCode: 0 };
+        if (command.startsWith("stat ")) {
+          return statError
+            ? { ok: false, error: { message: statError } }
+            : { ok: true, value: { stdout: String(size), stderr: "", exitCode: 0 } };
+        }
+        return { ok: true, value: { stdout: b64, stderr: "", exitCode: 0 } };
       },
     },
-    binding: { runtimeId: "pca-test", version: 1 },
   };
 }
 
@@ -30,10 +35,9 @@ const fakeApi = (modelId) => ({
 });
 const context = { abortSignal: undefined };
 
-async function run(exec, args, { modelId = "gpt-5.6-terra" } = {}) {
-  const ext = createViewImage({ resolve: () => exec });
-  const tool = ext.tools[0];
-  return tool.execute(args, fakeApi(modelId), context);
+async function run(resolved, args, { modelId = "gpt-5.6-terra" } = {}) {
+  const ext = createViewImage({ resolve: () => resolved });
+  return ext.tools[0].execute(args, fakeApi(modelId), context);
 }
 
 test("acceptsImageInput: catalog is the source of truth", () => {
@@ -45,7 +49,7 @@ test("acceptsImageInput: catalog is the source of truth", () => {
 });
 
 test("view_image: vision model gets an ImageContent block", async () => {
-  const out = await run(fakeRunner(), { path: "/home/sprite/workspace/shot.png" });
+  const out = await run(fakeEnv(), { path: "/home/sprite/workspace/shot.png" });
   assert.equal(out.isError, undefined);
   const text = out.output.find((p) => p.type === "text");
   const image = out.output.find((p) => p.type === "image");
@@ -56,8 +60,8 @@ test("view_image: vision model gets an ImageContent block", async () => {
 
 test("view_image: text-only model (swe-2) gets a clear error, no bytes, no exec", async () => {
   let execCalled = false;
-  const resolved = fakeRunner();
-  resolved.runner.exec = async () => {
+  const resolved = fakeEnv();
+  resolved.execEnv.exec = async () => {
     execCalled = true;
     throw new Error("should not exec");
   };
@@ -68,21 +72,27 @@ test("view_image: text-only model (swe-2) gets a clear error, no bytes, no exec"
 });
 
 test("view_image: rejects unsupported extensions and non-absolute paths", async () => {
-  await assert.rejects(run(fakeRunner(), { path: "/tmp/clip.mp4" }), /unsupported image type/i);
-  await assert.rejects(run(fakeRunner(), { path: "relative.png" }), /absolute/i);
+  await assert.rejects(run(fakeEnv(), { path: "/tmp/clip.mp4" }), /unsupported image type/i);
+  await assert.rejects(run(fakeEnv(), { path: "relative.png" }), /absolute/i);
 });
 
 test("view_image: oversize image is rejected before the base64 read", async () => {
-  const resolved = fakeRunner({ size: 5 * 1024 * 1024 });
-  const ext = createViewImage({ resolve: () => resolved });
-  const tool = ext.tools[0];
-  await assert.rejects(tool.execute({ path: "/tmp/big.png" }, fakeApi("gpt-5.6-terra"), context), /超过 .*MB 上限/);
+  const resolved = fakeEnv({ size: 5 * 1024 * 1024 });
+  await assert.rejects(run(resolved, { path: "/tmp/big.png" }), /超过 .*MB 上限/);
   assert.ok(resolved.calls.every((c) => c.startsWith("stat ")), "no base64 exec for oversize files");
 });
 
 test("view_image: missing workspace binding throws (no fallback)", async () => {
   const ext = createViewImage({ resolve: () => undefined });
   await assert.rejects(ext.tools[0].execute({ path: "/tmp/a.png" }, fakeApi("gpt-5.6-terra"), context), /no active runtime binding/);
+});
+
+test("view_image: exec failure (ok:false envelope) surfaces the error", async () => {
+  const resolved = {
+    binding: { runtimeId: "x", version: 1 },
+    execEnv: { exec: async () => ({ ok: false, error: { message: "binding replaced" } }) },
+  };
+  await assert.rejects(run(resolved, { path: "/tmp/a.png" }), /binding replaced/);
 });
 
 test("withoutImageContent: transcript serialization replaces image blocks with placeholders", () => {
@@ -97,6 +107,5 @@ test("withoutImageContent: transcript serialization replaces image blocks with p
   assert.equal(out.content[1].type, "text");
   assert.match(out.content[1].text, /\[image image\/png .*KB/);
   assert.ok(!JSON.stringify(out).includes(TINY_PNG_BASE64), "no base64 reaches the UI");
-  // non-image values pass through untouched
   assert.deepEqual(withoutImageContent({ a: [1, "x", null] }), { a: [1, "x", null] });
 });
