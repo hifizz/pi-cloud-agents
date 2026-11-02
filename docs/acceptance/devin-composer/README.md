@@ -37,3 +37,7 @@ DOM 契约全部保留：`#composer-input`、两个 placeholder、Send/Steer/Abo
 ## 追加：全局排版打磨（05/06）
 
 面板 tab 条改 `no-scrollbar` 横滚（Environment 不再截断、无可见滚动条，11 个 tab 全显）；composer 上下文条与输入卡对齐（图标统一 3.5 号盒、cwd title 全路径）；首页三个 section 节奏统一（space-y-2）；PR 卡第二行右对齐 Review 按钮；侧栏行 12px + title 提示；Dialog 表单 Label 统一 `mb-1.5 block`；七个面板空态统一到 Empty/EmptyDescription 基准。验证：235/235、tsc 0、build ok；EGO 复验见 05-panel-tabs-polish.png、06-overview-polish.png。
+
+## 追加：Composer 模型切换（08-model-menu.png）
+
+静态模型 pill 升级为 `ModelSelect`（结构对齐 PermissionSelect）：下拉列出全部 5 个白名单模型（`availableModelIds()`），当前项勾选。`PATCH /api/bots/:id/model`（`src/routes/bots-model.mjs`）：`bots.setModel` 先 `conv.configure` 再落盘 bots.json，进行中回合用旧模型跑完、下一次提交用新模型（conv.configure 语义）；400 非白名单 / 404 未知，鉴权守卫内。未传 onModelChange 的调用方保留静态 pill 兜底。EGO 实测：swe-2 → glm-5.3 → 刷新持久 → 切回，全程 pill 与 bots.json 一致。后端 598 pass / 1 skip（+4）；前端 235/235、tsc 0、build ok。

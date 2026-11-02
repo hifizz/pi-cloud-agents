@@ -8,3 +8,4 @@ scratch/*.png
 .DS_Store
 logs/
 vendor-ref/
+.claude/

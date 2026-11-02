@@ -148,6 +148,24 @@ export class BotRegistry {
   }
 
   /**
+   * Switch a Bot's model: durable agent change first (applies at the next model request; a running round keeps its
+   * model), then the persisted record. The record updates only after configure succeeds, so a failed configure leaves
+   * record and conversation aligned. Returns the updated record, or undefined when the Bot (or its conversation) does
+   * not exist.
+   */
+  async setModel(id, modelId) {
+    const bot = this.get(id);
+    if (!bot) return undefined;
+    const model = { provider: bot.model?.provider ?? config.provider, modelId };
+    const conv = await this.conversation(id);
+    if (!conv) return undefined;
+    await conv.configure({ model }, ctx);
+    bot.model = model;
+    this.#save();
+    return bot;
+  }
+
+  /**
    * The conversation's approval policy for the Approval extension's `getPolicy`: "ask" | "auto", or undefined
    * when nothing is configured (missing record, missing field — the hook treats undefined as "ask").
    */

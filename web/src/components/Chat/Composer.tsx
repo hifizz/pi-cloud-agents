@@ -8,6 +8,7 @@ import {
   ComposerRoot,
   ComposerToolbar,
   ContextStrip,
+  ModelSelect,
   PermissionSelect,
   SendButton,
   StatusIndicator,
@@ -22,6 +23,10 @@ export interface ComposerProps {
   disabled?: boolean;
   /** Shown as a pill in the toolbar (e.g. "tokenrouter/glm-5.3"); display only, no switching. */
   model?: string;
+  /** Current model id; with `onModelChange` the pill becomes a model picker. */
+  modelId?: string;
+  /** Called when the user picks a different model. Absent → static pill. */
+  onModelChange?: (modelId: string) => void;
   /** Messages waiting in the bot's inbox. */
   queued?: number;
   onSend: (text: string, mode: SendMode) => void | Promise<void>;
@@ -45,6 +50,8 @@ export function Composer({
   busy,
   disabled,
   model,
+  modelId,
+  onModelChange,
   queued = 0,
   onSend,
   onAbort,
@@ -89,17 +96,20 @@ export function Composer({
               left={
                 <>
                   {approvalPolicy && <PermissionSelect value={approvalPolicy} onChange={onApprovalPolicyChange} />}
-                  {model && (
-                    <span
-                      title={model}
-                      className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] whitespace-nowrap text-foreground/80"
-                    >
-                      <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center rounded bg-muted text-[8px] font-semibold text-foreground">
-                        {abbr(model)}
+                  {model &&
+                    (onModelChange ? (
+                      <ModelSelect value={modelId} display={model} onChange={onModelChange} />
+                    ) : (
+                      <span
+                        title={model}
+                        className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] whitespace-nowrap text-foreground/80"
+                      >
+                        <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center rounded bg-muted text-[8px] font-semibold text-foreground">
+                          {abbr(model)}
+                        </span>
+                        <span className="max-w-56 truncate">{model}</span>
                       </span>
-                      <span className="max-w-56 truncate">{model}</span>
-                    </span>
-                  )}
+                    ))}
                 </>
               }
               right={

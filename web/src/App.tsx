@@ -865,6 +865,14 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     }).catch(() => {});
   };
 
+  const onModelChange = (modelId: string) => {
+    if (!bot) return;
+    void guard(async () => {
+      const { bot: updated } = await api.setModel(bot.id, modelId);
+      setBots((list) => list.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)));
+    }).catch(() => {});
+  };
+
   // SPIKE-review-loop: the session status is a human-set business label persisted on the Bot record.
   const onSetStatus = async (status: SessionStatus) => {
     if (!workspace || !bot) return;
@@ -1055,6 +1063,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             busy={vm.busy}
             disabled={workspace?.status !== "ready"}
             model={model}
+            modelId={bot.model.modelId}
+            onModelChange={onModelChange}
             queued={vm.inbox.length}
             onSend={onSend}
             onAbort={() => void guard(() => api.abort(bot.id)).catch(() => {})}

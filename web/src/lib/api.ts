@@ -62,6 +62,8 @@ export const api = {
   abort: (botId: string, background = false) => request<{ ok: true }>("POST", `/api/bots/${enc(botId)}/abort`, background ? { background: true } : {}),
   setApprovalPolicy: (botId: string, policy: "ask" | "auto") =>
     request<{ bot: BotSummary }>("PATCH", `/api/bots/${enc(botId)}/approval-policy`, { policy }),
+  setModel: (botId: string, modelId: string) =>
+    request<{ bot: BotSummary }>("PATCH", `/api/bots/${enc(botId)}/model`, { modelId }),
   compact: (botId: string, instructions?: string) =>
     request<{ taskId: unknown }>("POST", `/api/bots/${enc(botId)}/compact`, instructions ? { instructions } : {}),
   reset: (botId: string, note?: string) => request<{ ok: true }>("POST", `/api/bots/${enc(botId)}/reset`, note ? { note } : {}),
