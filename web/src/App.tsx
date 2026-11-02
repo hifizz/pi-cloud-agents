@@ -1056,6 +1056,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             disabled={workspace?.status !== "ready"}
             model={model}
             queued={vm.inbox.length}
+            usage={vm.usage}
             onSend={onSend}
             onAbort={() => void guard(() => api.abort(bot.id)).catch(() => {})}
             approvalPolicy={bot.approvalPolicy ?? "ask"}

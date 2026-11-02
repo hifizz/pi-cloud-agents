@@ -37,3 +37,7 @@ DOM 契约全部保留：`#composer-input`、两个 placeholder、Send/Steer/Abo
 ## 追加：全局排版打磨（05/06）
 
 面板 tab 条改 `no-scrollbar` 横滚（Environment 不再截断、无可见滚动条，11 个 tab 全显）；composer 上下文条与输入卡对齐（图标统一 3.5 号盒、cwd title 全路径）；首页三个 section 节奏统一（space-y-2）；PR 卡第二行右对齐 Review 按钮；侧栏行 12px + title 提示；Dialog 表单 Label 统一 `mb-1.5 block`；七个面板空态统一到 Empty/EmptyDescription 基准。验证：235/235、tsc 0、build ok；EGO 复验见 05-panel-tabs-polish.png、06-overview-polish.png。
+
+## 追加：Composer token 用量统计（07-usage-pill.png）
+
+工具条右侧新增 `ComposerUsagePill`（`usage?: Usage` prop，App 传 `vm.usage` 流式数据）：等宽字体 pill 显示本会话累计 `N tok · $cost`，悬停 title 与 aria-label 给出输入/输出/缓存读/缓存写/费用明细。实测：回合前 `0 tok · $0`，真实发送一条最短消息并完成后实时跳到 `4.0k tok · $0`（输入 3.9k · 输出 68）。235/235、tsc 0、build ok。
