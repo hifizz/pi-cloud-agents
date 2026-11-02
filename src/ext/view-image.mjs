@@ -52,7 +52,12 @@ export function createViewImage(opts = {}) {
       if (!acceptsImageInput(modelId)) {
         return {
           isError: true,
-          output: `当前模型 ${modelId} 不支持图像输入（文本模型）。图片无法被查看；请改用视觉模型（claude-sonnet-5-5、gpt-5.6-terra），或让用户描述图片内容。文件仍在沙箱：${path}`,
+          output: [
+            {
+              type: "text",
+              text: `当前模型 ${modelId} 不支持图像输入（文本模型）。图片无法被查看；请改用视觉模型，或让用户描述图片内容。文件仍在沙箱：${path}`,
+            },
+          ],
         };
       }
 
