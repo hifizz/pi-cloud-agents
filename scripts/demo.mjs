@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "no
 import { resolve } from "node:path";
 
 const WT = resolve(import.meta.dirname, "..");
-const DATA = "/tmp/pca-wia-demo-data";
+const DATA = resolve(WT, "../pca-wia-demo-state");
 
 const demos = {
   wia: {
@@ -51,7 +51,7 @@ function envKey() {
   const f = `${DATA}/env.key`;
   if (existsSync(f)) return readFileSync(f, "utf8").trim();
   const key = `wia-demo-${[...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
-  writeFileSync(f, key);
+  writeFileSync(f, key, { mode: 0o600 });
   return key;
 }
 

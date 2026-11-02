@@ -1,13 +1,13 @@
-// Workspace-IA demo launcher: one-shot copy of the loops-acceptance data (sqlite backup API, sources opened
-// read-only so the running 8090 service is untouched), then the CURRENT working tree's server on 127.0.0.1:8092.
-// No secrets are printed; the server itself loads the original .env via its normal dotenv path.
+// WIA demo runs from its fixed worktree using a durable, isolated data copy.
+// Source databases are opened read-only and copied only on first initialization.
+// No secrets are printed; the server loads credentials through its normal dotenv path.
 import { DatabaseSync, backup } from 'node:sqlite';
 import { cpSync, existsSync, mkdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const root = '/Users/zilin/side/pca-wia-demo';
-const src = '/tmp/pca-loops-acceptance';
-const dir = '/tmp/pca-wia-demo-data';
+const src = '/Users/zilin/side/pi-cloud-agents/data';
+const dir = '/Users/zilin/side/pca-wia-demo-state';
 mkdirSync(dir, { recursive: true });
 
 for (const name of ['auth.sqlite', 'control.sqlite', 'alice.sqlite']) {
