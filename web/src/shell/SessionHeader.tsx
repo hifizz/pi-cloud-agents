@@ -37,6 +37,16 @@ export interface SessionHeaderProps {
 
 const hbtn = "text-xs font-medium";
 
+/**
+ * Hide the session toolbar's secondary actions (usage badge, share, notifications,
+ * Compact, Reset) while keeping their components, handlers and props intact.
+ * To restore the controls, flip this to `true` — that is the only change needed.
+ * The `hidden` attribute (not a `hidden` class) hides the items at every breakpoint:
+ * per-element `md:inline-flex` overrides cannot undo an ancestor's `display:none`,
+ * and hidden elements stay out of tab order.
+ */
+const SHOW_SESSION_TOOLBAR_ACTIONS = false;
+
 export function SessionHeader({
   bot,
   vm,
@@ -175,45 +185,47 @@ export function SessionHeader({
         </span>
       )}
       {vm.compacting > 0 && <span className="text-xs text-muted-foreground">Compacting…</span>}
-      <UsageBadge usage={vm.usage} />
-      {/* AMP13-collaboration: the deep link opens this session for any signed-in whitelist member. */}
-      {onShare && (
-        <Button type="button" variant="outline" size="sm" className={hbtn} disabled={!bot} onClick={onShare} title="复制此会话的深链接（仅已登录白名单成员可打开）">
-          <Icon name="copy" className="size-3" />
-          <span className="hidden sm:inline">分享</span>
+      <div hidden={!SHOW_SESSION_TOOLBAR_ACTIONS} className="contents">
+        <UsageBadge usage={vm.usage} />
+        {/* AMP13-collaboration: the deep link opens this session for any signed-in whitelist member. */}
+        {onShare && (
+          <Button type="button" variant="outline" size="sm" className={hbtn} disabled={!bot} onClick={onShare} title="复制此会话的深链接（仅已登录白名单成员可打开）">
+            <Icon name="copy" className="size-3" />
+            <span className="hidden sm:inline">分享</span>
+          </Button>
+        )}
+        {shareFeedback && (
+          <span role="status" data-testid="share-feedback" className="shrink-0 text-[11px] text-muted-foreground">
+            {shareFeedback}
+          </span>
+        )}
+        {notifications?.supported && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={`${hbtn} ${notifications.permission === "denied" ? "border-destructive/40 text-destructive" : ""}`}
+            disabled={!bot || notifications.permission === "denied"}
+            aria-pressed={notifications.enabled}
+            onClick={notifications.onToggle}
+            title={
+              notifications.permission === "denied"
+                ? "浏览器已拒绝通知权限；需在浏览器设置中允许"
+                : notifications.enabled
+                  ? "会话运行结束时通知（页面需保持打开，不是后台推送）"
+                  : "开启会话完成通知"
+            }
+          >
+            {notifications.permission === "denied" ? "通知被拒" : notifications.enabled ? "通知开" : "通知"}
+          </Button>
+        )}
+        <Button type="button" variant="outline" size="sm" className={`${hbtn} hidden md:inline-flex`} disabled={!bot || vm.busy} onClick={onCompact}>
+          Compact
         </Button>
-      )}
-      {shareFeedback && (
-        <span role="status" data-testid="share-feedback" className="shrink-0 text-[11px] text-muted-foreground">
-          {shareFeedback}
-        </span>
-      )}
-      {notifications?.supported && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={`${hbtn} ${notifications.permission === "denied" ? "border-destructive/40 text-destructive" : ""}`}
-          disabled={!bot || notifications.permission === "denied"}
-          aria-pressed={notifications.enabled}
-          onClick={notifications.onToggle}
-          title={
-            notifications.permission === "denied"
-              ? "浏览器已拒绝通知权限；需在浏览器设置中允许"
-              : notifications.enabled
-                ? "会话运行结束时通知（页面需保持打开，不是后台推送）"
-                : "开启会话完成通知"
-          }
-        >
-          {notifications.permission === "denied" ? "通知被拒" : notifications.enabled ? "通知开" : "通知"}
+        <Button type="button" variant="outline" size="sm" className={`${hbtn} hidden md:inline-flex`} disabled={!bot} onClick={onReset}>
+          Reset
         </Button>
-      )}
-      <Button type="button" variant="outline" size="sm" className={`${hbtn} hidden md:inline-flex`} disabled={!bot || vm.busy} onClick={onCompact}>
-        Compact
-      </Button>
-      <Button type="button" variant="outline" size="sm" className={`${hbtn} hidden md:inline-flex`} disabled={!bot} onClick={onReset}>
-        Reset
-      </Button>
+      </div>
       <Button
         type="button"
         variant="ghost"

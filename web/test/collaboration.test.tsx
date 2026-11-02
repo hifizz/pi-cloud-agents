@@ -6,6 +6,7 @@ import App from "../src/App";
 import { readSessionLink, sessionUrl, copySessionLink, useSessionLink } from "../src/hooks/useSessionLink";
 import { useSessionNotifications } from "../src/hooks/useSessionNotifications";
 import { WorkspaceShell } from "../src/shell/WorkspaceShell";
+import { setMockViewportWidth } from "./helpers/viewport";
 import { SessionHeader } from "../src/shell/SessionHeader";
 import { emptyVM } from "../src/lib/reducer";
 import type { BotSummary } from "../src/types";
@@ -210,12 +211,33 @@ describe("share link", () => {
     // userEvent.installs its own clipboard stub on navigator during setup; spy on it afterwards.
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window.navigator, "clipboard", { configurable: true, get: () => ({ writeText }) });
-    boot([ws()], [bot()]);
-    render(<App />);
-    await screen.findByRole("button", { name: /分享/ });
-    await user.click(screen.getByRole("button", { name: /分享/ }));
-    expect(await screen.findByTestId("share-feedback")).toHaveTextContent("已复制链接");
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("?bot=b1"));
+    window.history.replaceState(null, "", "/?bot=b1");
+    // The share entry point is hidden in the toolbar (SHOW_SESSION_TOOLBAR_ACTIONS in SessionHeader),
+    // so render the header directly and click the hidden control to prove the wiring still works.
+    const props = {
+      bot: bot(),
+      vm: emptyVM(),
+      status: "open" as const,
+      workspace: ws(),
+      railOpen: true,
+      panelOpen: false,
+      onExpandRail: vi.fn(),
+      onTogglePanel: vi.fn(),
+      onCompact: vi.fn(),
+      onReset: vi.fn(),
+      onShare: () => void copySessionLink("b1"),
+    };
+    const view = render(<SessionHeader {...props} />);
+    const shareBtn = document.querySelector<HTMLButtonElement>("button[title*='深链接']");
+    expect(shareBtn).not.toBeNull();
+    expect(shareBtn!.closest("[hidden]")).not.toBeNull();
+    await user.click(shareBtn!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining("?bot=b1")));
+    // …and the feedback prop still renders (hidden with the cluster, like App passes it).
+    view.rerender(<SessionHeader {...props} shareFeedback="已复制链接" />);
+    const feedback = screen.getByTestId("share-feedback");
+    expect(feedback).toHaveTextContent("已复制链接");
+    expect(feedback.closest("[hidden]")).not.toBeNull();
   });
 });
 
@@ -282,16 +304,18 @@ describe("useSessionNotifications", () => {
 describe("narrow-screen shell", () => {
   const slots = { rail: <p>RAIL</p>, main: <p>MAIN</p>, panel: <p>PANEL</p> };
   it("the open rail renders a scrim that closes it on small screens only", () => {
+    // Below md the rail is an overlay drawer with a scrim; above md it is a resizable column.
+    setMockViewportWidth(390);
     const onCloseRail = vi.fn();
     render(<WorkspaceShell railOpen panelOpen={false} onCloseRail={onCloseRail} {...slots} />);
     const scrim = screen.getByRole("button", { name: "关闭侧边栏" });
-    expect(scrim).toHaveClass("md:hidden");
+    expect(scrim).toBeInTheDocument();
     scrim.click();
     expect(onCloseRail).toHaveBeenCalled();
-    expect(screen.getByText("RAIL").closest("aside")).toHaveClass("md:static");
+    expect(screen.getByText("RAIL").closest("aside")).toHaveClass("max-md:fixed");
   });
 
-  it("SessionHeader hides Compact/Reset on narrow screens and keeps share/notify reachable", () => {
+  it("SessionHeader hides the toolbar action cluster (usage/share/notify/Compact/Reset) at every width", () => {
     render(
       <SessionHeader
         bot={bot()}
@@ -308,10 +332,22 @@ describe("narrow-screen shell", () => {
         notifications={{ supported: true, permission: "granted", enabled: false, onToggle: vi.fn() }}
       />,
     );
-    expect(screen.getByRole("button", { name: "Compact" })).toHaveClass("hidden");
-    expect(screen.getByRole("button", { name: "Reset" })).toHaveClass("hidden");
-    expect(screen.getByRole("button", { name: /分享/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "通知" })).toBeInTheDocument();
+    // The five items live in one `hidden` container: not in the accessibility tree, not tabbable,
+    // and the `hidden` attribute beats the `md:inline-flex`/`sm:inline` per-item overrides.
+    const cluster = document.querySelector("header div[hidden]");
+    expect(cluster).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Compact" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /分享/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "通知" })).toBeNull();
+    const usageBadge = document.querySelector("[aria-label^='Usage:']");
+    expect(usageBadge).not.toBeNull();
+    expect(usageBadge!.closest("[hidden]")).toBe(cluster);
+    expect(usageBadge).not.toBeVisible();
+    // …while the rest of the header chrome is untouched.
+    expect(screen.getByRole("heading", { name: "main" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Toggle side panel" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "会话状态" })).toBeInTheDocument();
   });
 });
