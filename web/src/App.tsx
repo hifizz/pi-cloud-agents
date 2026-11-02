@@ -4,7 +4,6 @@ import { useBotStream } from "./hooks/useBotStream";
 import { BotList } from "./components/BotList";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 import { WorkspaceStatus } from "./components/WorkspaceStatus";
-import { WorkspaceEnvSettings } from "./components/WorkspaceEnvSettings";
 import { ApprovalBar } from "./components/ApprovalBar";
 import { ForkDialog } from "./components/ForkDialog";
 import { useApprovals } from "./hooks/useApprovals";
@@ -25,10 +24,8 @@ import { useSessionLink, copySessionLink, readSessionLink, readWorkspaceLink, re
 import { useSessionNotifications } from "./hooks/useSessionNotifications";
 import { PANELS } from "./panels";
 import {
-  STATUS_LABEL,
   WorkspaceContext,
   describeError,
-  formatTime,
   mapBotsToWorkspaces,
   mergeWorkspaceList,
   upsertWorkspace,
@@ -37,19 +34,16 @@ import {
   type LocalWorkspace,
   type Workspace,
   type WorkspaceContextValue,
-  type WorkspaceOverview,
 } from "./lib/workspaces";
-import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary, type ForkInput, type SessionStatus } from "./types";
+import { type BotSummary, type ForkInput, type SessionStatus } from "./types";
 import { LoopsList } from "./components/LoopsList";
 import { LoopEditor } from "./components/LoopEditor";
 import { LoopRuns } from "./components/LoopRuns";
-import { loopsApi, triggerLabel, RUN_STATUS_LABEL, type Loop } from "./lib/loops";
-import { Badge } from "./components/ui/badge";
+import { loopsApi, type Loop } from "./lib/loops";
+import { WorkspaceHome, type HomeDrawer } from "./home/WorkspaceHome";
 import { Button } from "./components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Label } from "./components/ui/label";
 import { Textarea } from "./components/ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "./components/ui/toggle-group";
 
 /** Small publish-task form for an issue-loop discussion session. Empty input; the human writes the task explicitly. */
 function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; error?: string; onPublish: (task: string) => void; onCancel: () => void }) {
@@ -93,7 +87,6 @@ function PublishTaskForm({ busy, error, onPublish, onCancel }: { busy: boolean; 
   );
 }
 
-const ACTIVE_RUN = new Set(["queued", "starting", "running", "needs_approval"]);
 
 /** URL encoding of the loops surface: list / new / <loopId> (runs), edit=1 marks the editor of an existing loop. */
 function loopsLinkOf(view: { mode: "list" | "edit" | "runs"; loopId?: string } | undefined): LoopsLink | undefined {
@@ -108,415 +101,6 @@ function loopsViewOf(link: LoopsLink | undefined): { mode: "list" | "edit" | "ru
   if (link.mode === "list") return { mode: "list" };
   if (link.mode === "new") return { mode: "edit" };
   return { mode: link.mode, loopId: link.loopId };
-}
-
-/** Central workspace overview — the workspace's home page (workspace-IA demo). One load on open + manual 刷新:
- * Loops of this workspace (active loops and their latest runs), GitHub issues (expandable rows with explicit actions,
- * never a hidden session creation), PRs with an open/closed filter, and the settings cards (env vars are real,
- * Skills / MCP are placeholders marking the open granularity question). Execution sessions stay grouped under their
- * issue as result cards; clicking a name opens that session. */
-function WorkspaceOverview({
-  workspace,
-  railOpen,
-  bots,
-  onExpandRail,
-  onOpenIssue,
-  onOpenSession,
-  onReview,
-  onOpenLoops,
-  onOpenLoopRuns,
-}: {
-  workspace: Workspace;
-  railOpen: boolean;
-  /** All sessions; execution bots of THIS workspace are grouped under their issue below. */
-  bots: BotSummary[];
-  onExpandRail: () => void;
-  /** Issue 讨论 action: reuse the existing discussion or create one via the discuss flow. */
-  onOpenIssue: (wsId: string, issue: number) => Promise<void>;
-  /** Open an existing session (e.g. an execution session named on a result card). */
-  onOpenSession: (botId: string) => void;
-  /** PR row 打开 Review Session action; resolves when the review session is created/reused and opened. */
-  onReview: (wsId: string, pr: number) => Promise<void>;
-  /** Open the workspace's Loops management surface (list / editor). */
-  onOpenLoops: () => void;
-  /** Open one loop's run history directly from the overview card. */
-  onOpenLoopRuns: (loopId: string) => void;
-}) {
-  const [data, setData] = useState<WorkspaceOverview>();
-  const [loops, setLoops] = useState<Loop[]>();
-  const [err, setErr] = useState<string>();
-  const [loading, setLoading] = useState(true);
-  /** Issue row expanded into its detail + actions panel (click toggles; it never starts a session by itself). */
-  const [expandedIssue, setExpandedIssue] = useState<number>();
-  /** Issue currently being opened via the discuss flow; disables every issue action until it resolves. */
-  const [opening, setOpening] = useState<number>();
-  /** PR whose review request is in flight; disables every Review button until it resolves. */
-  const [reviewing, setReviewing] = useState<number>();
-  const [prFilter, setPrFilter] = useState<"open" | "closed" | "all">("open");
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const errors: string[] = [];
-    const [ov, lp] = await Promise.allSettled([
-      workspacesApi.overview(workspace.id, { allPrs: true }),
-      loopsApi.list(workspace.id),
-    ]);
-    if (ov.status === "fulfilled") setData(ov.value);
-    else errors.push(describeError(ov.reason));
-    if (lp.status === "fulfilled") setLoops(Array.isArray(lp.value) ? lp.value : []);
-    else {
-      setLoops([]);
-      errors.push(`Loops：${describeError(lp.reason)}`);
-    }
-    setErr(errors.length > 0 ? errors.join("；") : undefined);
-    setLoading(false);
-  }, [workspace.id]);
-  useEffect(() => {
-    setExpandedIssue(undefined);
-    void load();
-  }, [load]);
-
-  // Execution sessions of this workspace, grouped by issue. A bot is an execution only when issueLoop carries a
-  // sourceBotId; discussions and review/manual sessions are never listed here.
-  const executionsByIssue = useMemo(() => {
-    const map = new Map<number, BotSummary[]>();
-    for (const b of bots) {
-      if (b.workspaceId !== workspace.id) continue;
-      const issue = b.issueLoop?.sourceBotId ? b.issueLoop.issue : b.loopRun ? b.executionResult?.issue : undefined;
-      if (!issue) continue;
-      const list = map.get(issue) ?? [];
-      list.push(b);
-      map.set(issue, list);
-    }
-    return map;
-  }, [bots, workspace.id]);
-
-  const openIssue = async (issueNo: number) => {
-    if (opening !== undefined) return;
-    setOpening(issueNo);
-    try {
-      await onOpenIssue(workspace.id, issueNo);
-    } finally {
-      setOpening(undefined);
-    }
-  };
-
-  const startReview = async (pr: number) => {
-    if (reviewing !== undefined) return;
-    setReviewing(pr);
-    try {
-      await onReview(workspace.id, pr);
-    } finally {
-      setReviewing(undefined);
-    }
-  };
-
-  const openPulls = (data?.pulls ?? []).filter((p) => p.state === "open" && !p.merged);
-  const closedPulls = (data?.pulls ?? []).filter((p) => !(p.state === "open" && !p.merged));
-  const shownPulls = prFilter === "open" ? openPulls : prFilter === "closed" ? closedPulls : (data?.pulls ?? []);
-  const prStateLabel = (p: { state?: string; merged?: boolean }) => (p.merged ? "已合并" : p.state === "closed" ? "已关闭" : "开放");
-  const enabledLoops = (loops ?? []).filter((l) => l.enabled);
-  const recentRuns = (loops ?? [])
-    .filter((l) => l.latestRun)
-    .sort((a, b) => String(b.latestRun!.enqueuedAt).localeCompare(String(a.latestRun!.enqueuedAt)))
-    .slice(0, 5);
-
-  const row = "flex w-full items-center gap-2 rounded-lg border border-border px-3 py-2 text-left text-[13px] text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring";
-  const listCard = "rounded-lg border border-border bg-card";
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col" data-testid="workspace-overview">
-      {!railOpen && (
-        <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Expand sidebar"
-            title="Expand sidebar"
-            onClick={onExpandRail}
-            className="shrink-0"
-          >
-            <Icon name="sidebar" className="size-4" />
-          </Button>
-        </div>
-      )}
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-3xl space-y-6">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="truncate text-base font-semibold text-foreground">{workspace.name}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {workspace.repo} · {STATUS_LABEL[workspace.status]}
-              </p>
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading} className="shrink-0">
-              {loading ? "加载中…" : "刷新"}
-            </Button>
-          </div>
-
-          {err && (
-            <p role="alert" className="text-sm text-destructive">
-              {err}
-            </p>
-          )}
-          {loading && !data && !err && <p className="text-sm text-muted-foreground">加载中…</p>}
-
-          <section aria-label="Loops 概览" className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Loops（自动运行）</h3>
-              <Button type="button" variant="link" size="sm" onClick={onOpenLoops} data-testid="open-loops" className="h-auto p-0">
-                管理全部 Loops →
-              </Button>
-            </div>
-            {loops === undefined && <p className="text-sm text-muted-foreground">加载中…</p>}
-            {loops?.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                还没有 Loop。Loop 可以按定时计划、Webhook 或 GitHub 事件自动运行任务，
-                <Button type="button" variant="link" size="sm" onClick={onOpenLoops} className="h-auto p-0 align-baseline">
-                  新建一个 →
-                </Button>
-              </p>
-            )}
-            {enabledLoops.length > 0 && (
-              <ul className="space-y-1">
-                {enabledLoops.slice(0, 4).map((loop) => (
-                  <li key={loop.id} className={`${listCard} px-3 py-2 text-[13px]`}>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="link"
-                        onClick={() => onOpenLoopRuns(loop.id)}
-                        className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-[13px] font-medium text-foreground"
-                      >
-                        {loop.name}
-                      </Button>
-                      <span className="shrink-0 text-[11px] text-muted-foreground" title={JSON.stringify(loop.trigger)}>
-                        {triggerLabel(loop.trigger)}
-                      </span>
-                    </div>
-                    {loop.description && <p className="mt-0.5 truncate text-xs text-muted-foreground">{loop.description}</p>}
-                    <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`overview-loop-last-${loop.id}`}>
-                      {loop.latestRun
-                        ? `最近：${RUN_STATUS_LABEL[loop.latestRun.status]} · ${formatTime(loop.latestRun.endedAt ?? loop.latestRun.enqueuedAt)}`
-                        : "从未运行"}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {recentRuns.length > 0 && (
-              <div className={`${listCard} px-3 py-2`}>
-                <p className="pb-1 text-[11px] font-medium text-muted-foreground">最近运行</p>
-                <ul className="space-y-1 text-xs text-muted-foreground">
-                  {recentRuns.map((loop) => {
-                    const run = loop.latestRun!;
-                    return (
-                      <li key={`${loop.id}-${run.id}`} className="flex items-center gap-2">
-                        <span className={`shrink-0 font-medium ${ACTIVE_RUN.has(run.status) ? "text-warn" : run.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>
-                          {RUN_STATUS_LABEL[run.status]}
-                        </span>
-                        <Button type="button" variant="link" onClick={() => onOpenLoopRuns(loop.id)} className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-xs font-normal text-foreground">
-                          {loop.name}
-                        </Button>
-                        <span className="shrink-0 text-[11px] text-muted-foreground">{formatTime(run.endedAt ?? run.enqueuedAt)}</span>
-                        {run.botId && (
-                          <Button type="button" variant="link" onClick={() => onOpenSession(run.botId!)} className="h-auto shrink-0 p-0 text-[11px]">
-                            打开会话
-                          </Button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-            {loops !== undefined && loops.length > enabledLoops.length && (
-              <p className="text-[11px] text-muted-foreground">另有 {loops.length - enabledLoops.length} 个已停用的 Loop，在管理页查看。</p>
-            )}
-          </section>
-
-          {data && (
-            <>
-              <section aria-label="Issues" className="space-y-2">
-                <h3 className="pb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Issues（未解决）</h3>
-                {data.issues.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">没有未解决的 issue。</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {data.issues.map((issue) => {
-                      const executions = executionsByIssue.get(issue.number) ?? [];
-                      const expanded = expandedIssue === issue.number;
-                      return (
-                        <li key={issue.number}>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedIssue(expanded ? undefined : issue.number)}
-                            aria-expanded={expanded}
-                            className={row}
-                            data-testid={`issue-row-${issue.number}`}
-                          >
-                            <span className="shrink-0 font-mono text-xs text-muted-foreground">#{issue.number}</span>
-                            <span className="min-w-0 flex-1 truncate">{issue.title}</span>
-                            {issue.author && <span className="shrink-0 text-[11px] text-muted-foreground">@{issue.author}</span>}
-                            {typeof issue.comments === "number" && issue.comments > 0 && (
-                              <span className="shrink-0 text-[11px] text-muted-foreground">💬 {issue.comments}</span>
-                            )}
-                            {issue.discussionBotId && <span className="shrink-0 text-[11px] text-muted-foreground">已有讨论</span>}
-                            <span className="shrink-0 text-[11px] text-muted-foreground" aria-hidden="true">{expanded ? "▾" : "▸"}</span>
-                          </button>
-                          {expanded && (
-                            <div className="mt-1 rounded-lg border border-border bg-card px-3 py-2 text-xs" data-testid={`issue-detail-${issue.number}`}>
-                              <p className="text-muted-foreground">
-                                #{issue.number} · {issue.state === "open" ? "开放" : (issue.state ?? "未知状态")}
-                                {issue.author ? ` · 作者 @${issue.author}` : ""}
-                                {typeof issue.comments === "number" ? ` · ${issue.comments} 条评论` : ""}
-                                {issue.updatedAt ? ` · 更新于 ${formatTime(issue.updatedAt)}` : ""}
-                              </p>
-                              <p className="mt-1 text-muted-foreground">先看信息再决定动作；点击本行不会创建任何会话。</p>
-                              <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={() => void openIssue(issue.number)}
-                                  disabled={opening !== undefined}
-                                  data-testid={`issue-discuss-${issue.number}`}
-                                >
-                                  {opening === issue.number ? "创建讨论中…" : issue.discussionBotId ? "打开讨论 Session" : "开始讨论 Session"}
-                                </Button>
-                                {issue.url && (
-                                  <a href={issue.url} target="_blank" rel="noreferrer" className="text-primary hover:underline focus-visible:outline-2 focus-visible:outline-ring">
-                                    在 GitHub 查看 ↗
-                                  </a>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                          {executions.length > 0 && (
-                            <ul className="ml-4 mt-1 space-y-1" aria-label={`issue #${issue.number} 执行结果`}>
-                              {executions.map((exec) => {
-                                const result = exec.executionResult;
-                                const st = defaultSessionStatus(exec);
-                                return (
-                                  <li key={exec.id} className={`${listCard} px-3 py-2 text-[13px]`} data-testid={`exec-card-${exec.id}`}>
-                                    <div className="flex items-center gap-2">
-                                      <Button type="button" variant="link" onClick={() => onOpenSession(exec.id)} className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-[13px] font-medium text-foreground">
-                                        {exec.name}
-                                      </Button>
-                                      {/* Business status; 待确认 is a pending human decision, not an approval state. */}
-                                      <Badge variant="secondary" className="shrink-0">{SESSION_STATUS_LABEL[st]}</Badge>
-                                    </div>
-                                    <p className="mt-1 text-muted-foreground">{result?.summary ?? "未记录"}</p>
-                                    <p className="mt-0.5 text-xs text-muted-foreground">
-                                      {result?.testsReportedByHuman ? <>测试记录（人工填写）: {result.testsReportedByHuman}</> : "测试记录: 未记录"}
-                                    </p>
-                                    {result?.pull && (
-                                      <a href={result.pull.url} target="_blank" rel="noreferrer" className="mt-0.5 inline-block text-xs text-primary underline">
-                                        #{result.pull.number} {result.pull.title}
-                                        {result.pull.state && <span className="ml-1 text-muted-foreground no-underline">{result.pull.state}</span>}
-                                      </a>
-                                    )}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
-
-              <section aria-label="Pull requests" className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pull requests</h3>
-                  <ToggleGroup
-                    value={[prFilter]}
-                    onValueChange={(v: string[]) => v[0] && setPrFilter(v[0] as "open" | "closed" | "all")}
-                    size="sm"
-                    spacing={1}
-                    className="flex items-center gap-1"
-                    aria-label="PR 状态筛选"
-                  >
-                    {([
-                      ["open", `开放 ${openPulls.length}`],
-                      ["closed", `已关闭 ${closedPulls.length}`],
-                      ["all", `全部 ${(data?.pulls ?? []).length}`],
-                    ] as const).map(([key, label]) => (
-                      <ToggleGroupItem key={key} value={key} className="h-auto px-2 py-0.5 text-[11px] font-medium">
-                        {label}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </div>
-                {shownPulls.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{prFilter === "open" ? "没有开放的 PR。" : "没有符合条件的 PR。"}</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {shownPulls.map((pr) => (
-                      <li key={pr.number} className={`${listCard} px-3 py-2 text-[13px]`}>
-                        <div className="flex items-center gap-2">
-                          <span className="shrink-0 font-mono text-xs text-muted-foreground">#{pr.number}</span>
-                          <a href={pr.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring">
-                            {pr.title ?? ""}
-                          </a>
-                          <Badge variant={pr.merged ? "secondary" : pr.state === "closed" ? "destructive" : "outline"} className="shrink-0">
-                            {prStateLabel(pr)}
-                          </Badge>
-                        </div>
-                        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
-                          {pr.headRef && <span className="min-w-0 truncate font-mono">{pr.headRef}</span>}
-                          {pr.updatedAt && <span className="shrink-0">更新于 {formatTime(pr.updatedAt)}</span>}
-                          <span className="ml-auto flex shrink-0 items-center gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void startReview(pr.number)}
-                              disabled={reviewing !== undefined}
-                              data-testid={`pr-review-${pr.number}`}
-                            >
-                              {reviewing === pr.number ? "创建 Review Session 中…" : "打开 Review Session"}
-                            </Button>
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            </>
-          )}
-
-          <section aria-label="工作区设置" className="space-y-2">
-            <h3 className="pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">设置</h3>
-            <div className="space-y-2">
-              <WorkspaceEnvSettings workspaceId={workspace.id} />
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Card size="sm">
-                  <CardHeader>
-                    <CardTitle className="text-[13px]">Skills（规划中）</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-[11px] text-muted-foreground">粒度三级待定：整个 pi（部署配置）、工作区（面板）、项目仓库（.pi/skills 走 git）；pipeline 安装入口待设计。</p>
-                  </CardContent>
-                </Card>
-                <Card size="sm">
-                  <CardHeader>
-                    <CardTitle className="text-[13px]">MCP（规划中）</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-[11px] text-muted-foreground">粒度同 Skills；项目 .mcp.json 跟仓库走；凭据计划引用环境变量加密存储。</p>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 export default function App({ email, onLoggedOut }: { email?: string; onLoggedOut?: () => void } = {}) {
@@ -539,6 +123,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   // Issue14: the Loops surface inside a workspace. list = the loops list, edit = editor, runs = run history.
   const [loopsView, setLoopsView] = useState<{ mode: "list" | "edit" | "runs"; loopId?: string } | undefined>();
   const [loopsViewLoop, setLoopsViewLoop] = useState<Loop>();
+  // Workspace-home drawer (Events / Integrations / Routines / Issues / PRs / Settings detail surfaces).
+  const [homeDrawer, setHomeDrawer] = useState<HomeDrawer | undefined>();
   const [forkAt, setForkAt] = useState<number | string>();
   const rail = useRailState();
   const panels = usePanelState(PANELS[0]?.id);
@@ -579,6 +165,9 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   useEffect(() => {
     if (selectedWorkspaceId) globalThis.localStorage?.setItem("pca.workspace", selectedWorkspaceId);
+    // Any workspace switch (rail click, deep link, popstate, auto-select) closes the home drawer so a detail
+    // surface open for workspace A can never show workspace B's data.
+    setHomeDrawer(undefined);
   }, [selectedWorkspaceId]);
 
   const workspace = useMemo(() => workspaces.find((w) => w.id === selectedWorkspaceId), [workspaces, selectedWorkspaceId]);
@@ -591,6 +180,10 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     if (hit) setPickedBotId(hit.id);
     setDeepLinked(true);
   }, [deepLinked, workspace, bots]);
+  // Opening the Loops surface unmounts the home; clear the drawer so returning to the home starts closed.
+  useEffect(() => {
+    if (loopsView !== undefined) setHomeDrawer(undefined);
+  }, [loopsView]);
   // Opening the loops surface keeps the picked session but replaces the main pane.
   const loopsOpen = Boolean(workspace) && loopsView !== undefined;
   const botWorkspace = useMemo(() => mapBotsToWorkspaces(bots, workspaces), [bots, workspaces]);
@@ -727,6 +320,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
     setError(undefined);
     setSelectedWorkspaceId(id);
     setLoopsView(undefined);
+    setHomeDrawer(undefined);
     // null = open the workspace overview, not the primary session.
     setPickedBotId(null);
     // AMP13-collaboration: on phones the rail is an overlay; dismiss it after picking so the content is visible.
@@ -735,6 +329,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
   const pickBot = useCallback(
     (id: string) => {
       setLoopsView(undefined);
+      setHomeDrawer(undefined);
       setPickedBotId(id);
       if (isNarrow()) rail.close();
     },
@@ -1030,7 +625,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         </div>
       ) : overviewOpen && workspace ? (
         // Keyed by workspace.id: switching workspaces remounts it, so stale rows of the previous repo can't linger.
-        <WorkspaceOverview
+        <WorkspaceHome
           key={workspace.id}
           workspace={workspace}
           railOpen={rail.open}
@@ -1044,6 +639,8 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             setPickedBotId(null);
             setLoopsView({ mode: "runs", loopId });
           }}
+          drawer={homeDrawer}
+          onDrawerChange={setHomeDrawer}
         />
       ) : bot ? (
         <>

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { mapBotsToWorkspaces, type Workspace } from "../src/lib/workspaces";
 import { BotList } from "../src/components/BotList";
@@ -260,14 +260,14 @@ describe("add session (SPIKE-add-session): workspace menu", () => {
     });
     localStorage.setItem("pca.workspace", "w1");
     render(<App />);
-    // the workspace's sessions are listed under its row: pick each one by name
+    // the workspace's sessions are listed under its row: pick each one by name (wait for the committed chat)
     await user.click(await screen.findByRole("button", { name: /^研究 Session/ }));
-    await screen.findByLabelText("Message");
+    await waitFor(() => expect(screen.getByLabelText("Message")).toBeInTheDocument());
     expect(screen.queryByTestId("open-publish-task")).toBeNull();
     expect(screen.queryByRole("button", { name: "发布任务" })).toBeNull();
     // the discussion does show the publish action
     await user.click(screen.getByRole("button", { name: /^issue-12-discuss/ }));
-    expect(await screen.findByTestId("open-publish-task")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("open-publish-task")).toBeInTheDocument());
   });
 });
 
@@ -314,15 +314,16 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
     localStorage.setItem("pca.workspace", "w1");
     render(<App />);
 
-    // clicking the workspace row opens the overview
+    // clicking the workspace row opens the home page: six summary cards, no chat/composer
     await user.click(await screen.findByRole("button", { name: /issue-loop ws/ }));
     const ov = await screen.findByTestId("workspace-overview");
     expect(ov).toHaveTextContent("#12");
     expect(ov).toHaveTextContent("Fix upload");
     expect(ov).toHaveTextContent("#7");
     expect(ov).toHaveTextContent("WIP feature");
-    // no chat input or messages on the overview
-    expect(screen.queryByLabelText("Message")).toBeNull();
+    // no chat input or messages on the overview (assert the settled state — a boot-time primary-session
+    // resolution can briefly mount a composer before the workspace-row click commits pickedBotId=null)
+    await waitFor(() => expect(screen.queryByLabelText("Message")).toBeNull());
     // the session chrome is hidden too: no SessionHeader (Compact/Reset), no usage, no approval bar
     expect(screen.queryByRole("button", { name: "Compact" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
@@ -335,21 +336,26 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
     await screen.findByTestId("workspace-overview");
     expect(overviewGets()).toHaveLength(2);
 
-    // PR rows link to GitHub and carry an explicitly named Review-session action (not a diff viewer)
+    // PR rows link to GitHub; the Review-session action lives in the pulls drawer (not a diff viewer)
     const prLink = screen.getByRole("link", { name: /WIP feature/ });
     expect(prLink).toHaveAttribute("href", "https://github.com/hifizz/tars-sandbox-playground/pull/7");
     expect(prLink).toHaveAttribute("target", "_blank");
-    await user.click(screen.getByRole("button", { name: /打开 Review Session/ }));
+    await user.click(screen.getByTestId("open-pulls"));
+    await user.click(await within(await screen.findByTestId("drawer-pulls")).findByRole("button", { name: /打开 Review Session/ }));
     await waitFor(() => expect(calls.some((c) => c.path === "/api/workspaces/w1/review" && c.method === "POST")).toBe(true));
     expect(calls.find((c) => c.path === "/api/workspaces/w1/review")?.body).toEqual({ pr: 7 });
+    // the review POST stubbed 404, so we stay on the home page; close the drawer and open the issues one
+    await user.keyboard("{Escape}");
 
     // Workspace-IA demo: clicking an issue row only expands it; the discuss flow starts from the explicit action
     // button. While that request is in flight every issue action button is disabled (no repeated creation clicks).
-    await user.click(screen.getByRole("button", { name: /Fix upload/ }));
-    await user.click(screen.getByRole("button", { name: /Fresh bug/ }));
-    expect(screen.getByTestId("issue-detail-10")).toBeInTheDocument();
+    await user.click(screen.getByTestId("open-issues"));
+    const issuesDrawer = await screen.findByTestId("drawer-issues");
+    await user.click(within(issuesDrawer).getByRole("button", { name: /Fix upload/ }));
+    await user.click(within(issuesDrawer).getByRole("button", { name: /Fresh bug/ }));
+    expect(within(issuesDrawer).getByTestId("issue-detail-10")).toBeInTheDocument();
     expect(calls.some((c) => c.path === "/api/workspaces/w1/issue-loop/discuss")).toBe(false);
-    const freshBugAction = screen.getByTestId("issue-discuss-10");
+    const freshBugAction = within(issuesDrawer).getByTestId("issue-discuss-10");
     await user.click(freshBugAction);
     await waitFor(() => expect(freshBugAction).toBeDisabled());
     const discusses = () => calls.filter((c) => c.path === "/api/workspaces/w1/issue-loop/discuss");

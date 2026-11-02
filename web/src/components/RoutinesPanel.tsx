@@ -25,8 +25,11 @@ export function formatNext(nextAt: number | undefined): string {
 // Native <select> stays: the shadcn Select is not a form control tests can drive with selectOptions.
 const field = "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
 
-/** `embedded`: rendered as a panel body — no collapsible header, loads and polls from mount. */
-export function RoutinesPanel({ bots, embedded = false }: { bots: BotSummary[]; embedded?: boolean }) {
+/** `embedded`: rendered as a panel body — no collapsible header, loads and polls from mount.
+ * `botIds`: when given, BOTH the routine list and the new-routine Bot select are scoped to these ids (workspace
+ * home passes this workspace's sessions, so foreign routines are never shown, cancellable, or selectable).
+ * Omitting it keeps the global view; the scope is enforced inside the component, not by what callers pass in `bots`. */
+export function RoutinesPanel({ bots, embedded = false, botIds }: { bots: BotSummary[]; embedded?: boolean; botIds?: Set<string> }) {
   const [expanded, setOpen] = useState(false);
   const open = embedded || expanded;
   const [routines, setRoutines] = useState<RoutineItem[]>([]);
@@ -52,7 +55,9 @@ export function RoutinesPanel({ bots, embedded = false }: { bots: BotSummary[]; 
     return () => clearInterval(t);
   }, [open, load]);
 
-  const chosenBot = bots.some((b) => b.id === botId) ? botId : (bots[0]?.id ?? "");
+  const scopedBots = botIds ? bots.filter((b) => botIds.has(b.id)) : bots;
+  const chosenBot = scopedBots.some((b) => b.id === botId) ? botId : (scopedBots[0]?.id ?? "");
+  const active = routines.filter((r) => r.enabled && (!botIds || (r.botId !== null && botIds.has(r.botId))));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -82,8 +87,6 @@ export function RoutinesPanel({ bots, embedded = false }: { bots: BotSummary[]; 
     }
   };
 
-  const active = routines.filter((r) => r.enabled);
-
   return (
     <section aria-label="Routines" className={embedded ? undefined : "border-t border-border"}>
       {!embedded && (
@@ -105,7 +108,11 @@ export function RoutinesPanel({ bots, embedded = false }: { bots: BotSummary[]; 
               {error}
             </p>
           )}
-          {active.length === 0 && <p className="text-xs text-muted-foreground">No routines.</p>}
+          {active.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              {botIds ? (scopedBots.length === 0 ? "此工作区还没有可挂 routine 的会话。" : "本工作区的会话没有 routine。") : "No routines."}
+            </p>
+          )}
           <ul className="space-y-2">
             {active.map((r) => (
               <li key={r.id} data-testid="routine-item" className="rounded-lg border border-border bg-card p-3 text-xs">
@@ -128,7 +135,7 @@ export function RoutinesPanel({ bots, embedded = false }: { bots: BotSummary[]; 
                   Bot
                 </Label>
                 <select id="routine-bot" value={chosenBot} onChange={(e) => setBotId(e.target.value)} className={field}>
-                  {bots.map((b) => (
+                  {scopedBots.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.name}
                     </option>
@@ -157,7 +164,7 @@ export function RoutinesPanel({ bots, embedded = false }: { bots: BotSummary[]; 
               </div>
             </form>
           ) : (
-            <Button type="button" variant="outline" size="xs" onClick={() => setShowForm(true)} disabled={bots.length === 0}>
+            <Button type="button" variant="outline" size="xs" onClick={() => setShowForm(true)} disabled={scopedBots.length === 0}>
               New routine
             </Button>
           )}
