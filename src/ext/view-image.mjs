@@ -57,20 +57,23 @@ export function createViewImage(opts = {}) {
       }
 
       const resolved = resolve({ conversationId: String(api.conversationId) });
-      if (!resolved?.runner || !resolved?.binding) {
+      if (!resolved?.execEnv || !resolved?.binding) {
         throw new Error(`view_image 不可用：会话没有关联的工作区运行环境（no active runtime binding）`);
       }
-      const exec = resolved.runner.exec ?? resolved.runner.bash;
-      if (typeof exec !== "function") throw new Error("view_image 不可用：runner 缺少 exec 原语");
+      const run = async (command, timeoutSec) => {
+        const r = await resolved.execEnv.exec(command, { timeout: timeoutSec }, context);
+        if (r?.ok) return r.value; // {stdout, stderr, exitCode, timedOut}
+        throw new Error(`view_image 执行失败：${String(r?.error?.message ?? r?.error ?? "unknown")}`);
+      };
 
       const quoted = path.replace(/'/g, `'\\''`);
-      const stat = await exec(`stat -c %s '${quoted}'`, { timeoutMs: 15_000 });
+      const stat = await run(`stat -c %s '${quoted}'`, 15);
       const size = Number((stat.stdout ?? "").trim());
       if (!Number.isFinite(size) || size <= 0) throw new Error(`不是可读的文件（stat: ${String(stat.stdout ?? "").trim() || stat.stderr || "?"}）：${path}`);
       if (size > MAX_IMAGE_BYTES) {
         throw new Error(`图片 ${path} 为 ${(size / 1048576).toFixed(1)}MB，超过 ${MAX_IMAGE_BYTES / 1048576}MB 上限。请先用 bash 缩小（例如重新截图或降低分辨率）再查看。`);
       }
-      const read = await exec(`base64 -w0 '${quoted}'`, { timeoutMs: 60_000 });
+      const read = await run(`base64 -w0 '${quoted}'`, 60);
       const data = (read.stdout ?? "").replace(/\s+/g, "");
       if (!data) throw new Error(`base64 读取为空：${path}${read.stderr ? `（${read.stderr.slice(0, 120)}）` : ""}`);
       const kb = Math.round((size / 1024) * 10) / 10;
