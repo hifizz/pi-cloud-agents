@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MessageList } from "../src/components/Chat/MessageList";
 import { Composer } from "../src/components/Chat/Composer";
 import { BotList } from "../src/components/BotList";
+import { ModelSelect } from "../src/components/composer/model-select";
 import { UsageBadge } from "../src/components/UsageBadge";
 import type { ChatMessage } from "../src/types";
 
@@ -19,6 +20,22 @@ const messages: ChatMessage[] = [
     ],
   },
 ];
+
+describe("ModelSelect", () => {
+  it("shows the selected model without its provider before and after selection", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<ModelSelect value="swe-2" display="tokenrouter/swe-2" onChange={onChange} />);
+    expect(screen.getByRole("button", { name: "模型：swe-2" })).toHaveTextContent("swe-2");
+    expect(screen.queryByText(/tokenrouter/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "模型：swe-2" }));
+    await user.click(screen.getByText("gpt-5.6-terra"));
+    expect(onChange).toHaveBeenCalledWith("gpt-5.6-terra");
+    rerender(<ModelSelect value="gpt-5.6-terra" display="tokenrouter/gpt-5.6-terra" onChange={onChange} />);
+    expect(screen.getByRole("button", { name: "模型：gpt-5.6-terra" })).toHaveTextContent("gpt-5.6-terra");
+    expect(screen.queryByText(/tokenrouter/)).toBeNull();
+  });
+});
 
 describe("MessageList", () => {
   it("renders user text, markdown (GFM), collapsed thinking and a tool card", async () => {

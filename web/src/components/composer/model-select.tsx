@@ -13,12 +13,12 @@ export function ModelSelect({
 }: {
   /** 当前模型 id（受控）。 */
   value?: string;
-  /** 触发器上的完整显示串（如 "tokenrouter/swe-2"），缺省用 value。 */
+  /** 没有模型 id 时的显示回退；不展示 provider 前缀。 */
   display?: string;
   onChange?: (modelId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const label = display ?? value ?? "";
+  const label = value ?? (display ?? "").replace(/^[^/]+\//, "");
   const options = value && !MODEL_OPTIONS.includes(value) ? [value, ...MODEL_OPTIONS] : MODEL_OPTIONS;
 
   const pick = (modelId: string) => {
