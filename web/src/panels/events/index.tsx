@@ -199,7 +199,7 @@ export function EventsPanel({ bots }: PanelContext) {
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">
-          后台轮询 <code className="font-mono">{workspace.repo}</code> 的认证事件 feed（仅限测试仓库；默认每 60 秒一次，也可点「立即同步」手动触发）。不是 webhook；不写 GitHub。外部内容视为不可信材料。
+          后台轮询 <code className="font-mono">{workspace.repo}</code> 的认证事件 feed（默认每 60 秒一次，也可点「立即同步」手动触发）。不是 webhook；不写 GitHub。外部内容视为不可信材料。
         </p>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
           <dt className="text-muted-foreground">轮询</dt>

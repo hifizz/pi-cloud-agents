@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MessageList } from "../src/components/Chat/MessageList";
 import { Composer } from "../src/components/Chat/Composer";
 import { BotList } from "../src/components/BotList";
+import { ModelSelect } from "../src/components/composer/model-select";
 import { UsageBadge } from "../src/components/UsageBadge";
 import type { ChatMessage } from "../src/types";
 
@@ -19,6 +20,22 @@ const messages: ChatMessage[] = [
     ],
   },
 ];
+
+describe("ModelSelect", () => {
+  it("shows the selected model without its provider before and after selection", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<ModelSelect value="swe-2" display="tokenrouter/swe-2" onChange={onChange} />);
+    expect(screen.getByRole("button", { name: "模型：swe-2" })).toHaveTextContent("swe-2");
+    expect(screen.queryByText(/tokenrouter/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "模型：swe-2" }));
+    await user.click(screen.getByText("gpt-5.6-terra"));
+    expect(onChange).toHaveBeenCalledWith("gpt-5.6-terra");
+    rerender(<ModelSelect value="gpt-5.6-terra" display="tokenrouter/gpt-5.6-terra" onChange={onChange} />);
+    expect(screen.getByRole("button", { name: "模型：gpt-5.6-terra" })).toHaveTextContent("gpt-5.6-terra");
+    expect(screen.queryByText(/tokenrouter/)).toBeNull();
+  });
+});
 
 describe("MessageList", () => {
   it("renders user text, markdown (GFM), collapsed thinking and a tool card", async () => {
@@ -148,6 +165,42 @@ describe("Composer", () => {
     await user.type(screen.getByLabelText("Message"), "keep me{Enter}");
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText("Message")).toHaveValue("keep me");
+  });
+
+  it("thinking selector lists only the model's levels and reports the pick", async () => {
+    const user = userEvent.setup();
+    const onThinkingLevelChange = vi.fn();
+    render(
+      <Composer
+        busy={false}
+        onSend={() => {}}
+        onAbort={() => {}}
+        thinkingLevels={["medium", "high", "max"]}
+        thinkingLevel="high"
+        onThinkingLevelChange={onThinkingLevelChange}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "思考强度：高" });
+    await user.click(trigger);
+    // swe-2 levels only: 默认 + 中/高/最大, no 低/最小.
+    expect(screen.getByRole("option", { name: /默认/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^中/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^高/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^最大/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /^低/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: /^最大/ }));
+    expect(onThinkingLevelChange).toHaveBeenCalledWith("max");
+  });
+
+  it("thinking selector is disabled (not hidden) when the model offers no levels", async () => {
+    render(<Composer busy={false} onSend={() => {}} onAbort={() => {}} thinkingLevels={[]} thinkingLevel="off" />);
+    const trigger = screen.getByRole("button", { name: /思考强度/ });
+    expect(trigger).toBeDisabled();
+  });
+
+  it("hides the thinking selector until capabilities are loaded (undefined)", () => {
+    render(<Composer busy={false} onSend={() => {}} onAbort={() => {}} />);
+    expect(screen.queryByRole("button", { name: /思考强度/ })).not.toBeInTheDocument();
   });
 });
 

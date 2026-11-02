@@ -20,6 +20,21 @@ import { watchEvents, ConversationBusy } from "@earendil-works/pi-durable";
 import { config } from "./config.mjs";
 import { ctx } from "./harness.mjs";
 
+/** Replace image content blocks with a text placeholder (transcript serialization for the UI). */
+export function withoutImageContent(value) {
+  if (Array.isArray(value)) return value.map(withoutImageContent);
+  if (value && typeof value === "object") {
+    if (value.type === "image" && typeof value.data === "string") {
+      const kb = Math.round((value.data.length * 0.75) / 102.4) / 10;
+      return { type: "text", text: `[image ${value.mimeType ?? "?"} ${kb}KB — 已作为图像附件发给模型，页面上不展示]` };
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = withoutImageContent(v);
+    return out;
+  }
+  return value;
+}
+
 export class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -250,7 +265,9 @@ export function createApi({ harness, bots, routes = [], staticDir, extraCtx = {}
     if (!Number.isInteger(raw) || raw < 1) throw new HttpError(400, "limit must be a positive integer");
     const conv = await convOf(bot);
     const page = await conv.entries({}, Math.min(raw, 1000), undefined, ctx);
-    return [...page.items].reverse();
+    // The UI transcript is text: image content blocks (view_image results) are replaced with a size placeholder —
+    // the model still receives the real image; the browser never downloads megabytes of base64.
+    return [...page.items].reverse().map(withoutImageContent);
   });
 
   app.get("/api/usage", async () => {

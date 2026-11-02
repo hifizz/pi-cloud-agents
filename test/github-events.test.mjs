@@ -171,11 +171,16 @@ test("describeEvent and eventMessage label external content as untrusted and cli
 });
 
 // ---- service: enable / seed / sync ---------------------------------------------------------------------------------
-test("configure on a non-test repo or non-ready workspace is refused; enable seeds history without replaying", async () => {
+test("configure accepts any bound repo, still refuses non-ready workspaces, and seeds without replaying", async () => {
   const { service, store, ws: other } = await makeService({ ws: null });
   // reseed with a foreign repo in the SAME store the service uses
   const foreign = seedWorkspace(store, { repo: "acme/other" });
-  await assert.rejects(service.configure(foreign.id, { enabled: true }), (e) => e.code === "conflict" && /仅在测试仓库/.test(e.message));
+  const enabled = await service.configure(foreign.id, { enabled: true });
+  assert.equal(enabled.enabled, true);
+  assert.equal((await service.sync(foreign.id)).repo, "acme/other");
+  service.close();
+  assert.deepEqual(service.startPolling(), [foreign.id], "restart resumes arbitrary bound repositories too");
+  service.close();
 
   const prep = seedWorkspace(store, { status: "preparing" });
   await assert.rejects(service.configure(prep.id, { enabled: true }), (e) => e.code === "conflict" && /not ready/.test(e.message));
@@ -192,6 +197,7 @@ test("configure on a non-test repo or non-ready workspace is refused; enable see
   // sync with nothing new
   const after = await svc.sync(w.id);
   assert.equal(after.lastResult.events, 0);
+  svc.close();
   store.close();
 });
 

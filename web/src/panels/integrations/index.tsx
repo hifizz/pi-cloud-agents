@@ -44,7 +44,7 @@ interface SkillFile {
 
 const enc = encodeURIComponent;
 
-const integrationsApi = {
+export const integrationsApi = {
   info: () => request<IntegrationsInfo>("GET", "/api/integrations"),
   list: (wsId: string) => request<{ installs: IntegrationInstall[] }>("GET", `/api/workspaces/${enc(wsId)}/integrations`),
   installSkill: (wsId: string, input: { name?: string; description?: string; content: string }) =>
@@ -291,7 +291,7 @@ function InstallMcpForm({ wsId, onDone, onCancel }: { wsId: string; onDone: () =
 
 type FormKind = "skill" | "skill-file" | "mcp" | undefined;
 
-function IntegrationsPanel({ bot }: PanelContext) {
+function IntegrationsPanel({ bot, bots }: PanelContext) {
   const ctx = useContext(WorkspaceContext);
   const ws = ctx?.workspace;
   const [info, setInfo] = useState<IntegrationsInfo>();
@@ -301,23 +301,33 @@ function IntegrationsPanel({ bot }: PanelContext) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  // The skill-file install scans one session's cwd. On the workspace home there is no selected session, so the
+  // user picks one explicitly — never silently reuse whatever chat happened to be open. Bots arriving through
+  // ctx are already scoped to this workspace by the App's own selection, except none on the home page.
+  const sessions = bots.filter((b) => b.workspaceId === ws?.id || (ws?.botId !== undefined && b.id === ws.botId));
+  const [pickedBotId, setPickedBotId] = useState<string>();
+  const effectiveBot = bot ?? sessions.find((b) => b.id === pickedBotId);
 
+  const wsId = ws?.id;
   const load = useCallback(async () => {
-    if (!ws) return;
+    if (!wsId) return;
     try {
-      const [i, l] = await Promise.all([integrationsApi.info(), integrationsApi.list(ws.id)]);
+      const [i, l] = await Promise.all([integrationsApi.info(), integrationsApi.list(wsId)]);
       setInfo(i);
       setInstalls(l.installs);
     } catch (e) {
       setError(describeError(e));
     }
-  }, [ws]);
+    // wsId, not ws: the App refreshes the workspace object every few seconds; depending on the object would
+    // reset the user's explicit session pick (pickedBotId) and any open form on every poll tick.
+  }, [wsId]);
 
   useEffect(() => {
     setInstalls(undefined);
     setPreview(undefined);
     setError(undefined);
     setNotice(undefined);
+    setPickedBotId(undefined);
     void load();
   }, [load]);
 
@@ -401,20 +411,44 @@ function IntegrationsPanel({ bot }: PanelContext) {
         <h3 className="font-semibold text-foreground">安装</h3>
         <p className="text-muted-foreground">Skill 与 MCP 供 Pi Agent 使用：skill 进系统上下文并由 load_skill 加载；MCP 工具以 mcp__ 前缀进工具集，每次调用需审批。</p>
         {!form && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={!ws || busy} onClick={() => setForm("skill")}>
-              安装 Skill（粘贴）
-            </Button>
-            <Button type="button" variant="outline" size="sm" disabled={!ws || !bot || busy} onClick={() => setForm("skill-file")}>
-              从工作区 SKILL.md 安装
-            </Button>
-            <Button type="button" variant="outline" size="sm" disabled={!ws || busy} onClick={() => setForm("mcp")}>
-              添加 MCP 服务端
-            </Button>
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={!ws || busy} onClick={() => setForm("skill")}>
+                安装 Skill（粘贴）
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={!ws || !effectiveBot || busy} onClick={() => setForm("skill-file")}>
+                从工作区 SKILL.md 安装
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={!ws || busy} onClick={() => setForm("mcp")}>
+                添加 MCP 服务端
+              </Button>
+            </div>
+            {!bot && ws && (
+              sessions.length === 0 ? (
+                <p className="text-muted-foreground">此工作区还没有会话；「从工作区 SKILL.md 安装」需要一个会话目录来扫描。</p>
+              ) : (
+                <label className="flex items-center gap-2">
+                  <span className="text-muted-foreground">扫描会话</span>
+                  <select
+                    aria-label="选择要扫描 SKILL.md 的会话"
+                    className="h-7 rounded border border-input bg-transparent px-1.5 text-xs text-foreground"
+                    value={pickedBotId ?? ""}
+                    onChange={(e) => setPickedBotId(e.target.value || undefined)}
+                  >
+                    <option value="">选择一个会话…</option>
+                    {sessions.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            )}
           </div>
         )}
         {form === "skill" && ws && <InstallSkillForm wsId={ws.id} onDone={() => { setForm(undefined); void load(); setNotice("Skill 已安装"); }} onCancel={() => setForm(undefined)} />}
-        {form === "skill-file" && ws && <InstallSkillFileForm wsId={ws.id} bot={bot} onDone={() => { setForm(undefined); void load(); setNotice("Skill 已安装"); }} onCancel={() => setForm(undefined)} />}
+        {form === "skill-file" && ws && <InstallSkillFileForm wsId={ws.id} bot={effectiveBot} onDone={() => { setForm(undefined); void load(); setNotice("Skill 已安装"); }} onCancel={() => setForm(undefined)} />}
         {form === "mcp" && ws && <InstallMcpForm wsId={ws.id} onDone={() => { setForm(undefined); void load(); setNotice("MCP 服务端已安装"); }} onCancel={() => setForm(undefined)} />}
       </Card></section>
 
