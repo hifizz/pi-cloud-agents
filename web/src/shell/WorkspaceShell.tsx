@@ -128,7 +128,9 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenR
               className="h-full min-h-0 flex-col bg-sidebar"
               style={{ overflow: "visible" }}
             >
-              <Sidebar className="h-full border-r border-border bg-sidebar max-md:w-[min(272px,85vw)]">{rail}</Sidebar>
+              {/* w-full: the ResizablePanel is the width authority here; Sidebar's own
+               * --sidebar-width would leave a gap whenever the resized column is wider. */}
+              <Sidebar className="h-full w-full border-r border-border bg-sidebar max-md:w-[min(272px,85vw)]">{rail}</Sidebar>
             </ResizablePanel>
           )}
           {railOpen && <ResizableHandle aria-label="调整侧边栏宽度" disabled={!railInline} className="max-md:hidden" />}
