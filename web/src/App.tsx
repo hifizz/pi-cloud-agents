@@ -10,7 +10,9 @@ import { useApprovals } from "./hooks/useApprovals";
 import { MessageList } from "./components/Chat/MessageList";
 import { Icon } from "./components/Chat/primitives/Icon";
 import { Composer, type SendMode } from "./components/Chat/Composer";
-import type { ApprovalPolicy, ContextStripItem } from "./components/composer";
+import type { ApprovalPolicy, ContextStripItem, ThinkingLevelId } from "./components/composer";
+
+const THINKING_LEVEL_IDS: Readonly<Record<string, true>> = { off: true, low: true, medium: true, high: true, max: true };
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AiCloudIcon, FolderIcon, GitBranchIcon } from "@hugeicons/core-free-icons";
 import { WorkspaceShell } from "./shell/WorkspaceShell";
@@ -435,6 +437,38 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
 
   const model = vm.agent.modelId ? `${vm.agent.provider ?? ""}/${vm.agent.modelId}` : bot ? `${bot.model.provider}/${bot.model.modelId}` : "";
 
+  // Thinking-level capability comes from the backend (GET /thinking-levels reads the durable agent itself),
+  // so the selector shows exactly what the next request can take. The effect re-runs whenever the selected
+  // session or its model changes; every async continuation (initial GET, PATCH+GET save, finally) checks the
+  // generation counter so a response from session A can never land on session B. A failed load stays a
+  // retryable error — never a fake "model unsupported" state.
+  const [thinkingCap, setThinkingCap] = useState<{ levels: ThinkingLevelId[]; current: ThinkingLevelId } | undefined>(undefined);
+  const [thinkingSaving, setThinkingSaving] = useState(false);
+  const [thinkingLoadError, setThinkingLoadError] = useState(false);
+  const thinkingSeq = useRef(0);
+  const thinkingBotId = bot?.id;
+  const thinkingModelId = vm.agent.modelId ?? bot?.model.modelId;
+  const [thinkingRetry, setThinkingRetry] = useState(0);
+  useEffect(() => {
+    const seq = ++thinkingSeq.current;
+    setThinkingCap(undefined);
+    setThinkingSaving(false);
+    setThinkingLoadError(false);
+    if (!thinkingBotId) return;
+    api
+      .thinkingLevels(thinkingBotId)
+      .then((res) => {
+        if (thinkingSeq.current !== seq) return;
+        setThinkingCap({
+          levels: res.levels.filter((l): l is ThinkingLevelId => l in THINKING_LEVEL_IDS),
+          current: res.current in THINKING_LEVEL_IDS ? (res.current as ThinkingLevelId) : "off",
+        });
+      })
+      .catch(() => {
+        if (thinkingSeq.current === seq) setThinkingLoadError(true);
+      });
+  }, [thinkingBotId, thinkingModelId, thinkingRetry]);
+
   // Composer context strip: session cwd, cloud sandbox, and the session's own branch (detached sessions show no branch).
   const contextItems = useMemo<ContextStripItem[]>(() => {
     if (!workspace) return [];
@@ -475,6 +509,33 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
       const { bot: updated } = await api.setModel(bot.id, modelId);
       setBots((list) => list.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)));
     }).catch(() => {});
+  };
+
+  const onThinkingLevelChange = (level: ThinkingLevelId) => {
+    if (!bot || thinkingSaving) return;
+    // Capture the session this save belongs to; every continuation is dropped once the user switches away
+    // (the effect's seq bump), so session A's save can never overwrite session B's selector.
+    const seq = thinkingSeq.current;
+    const botId = bot.id;
+    setThinkingSaving(true);
+    void guard(async () => {
+      const { bot: updated } = await api.setThinkingLevel(botId, level);
+      setBots((list) =>
+        list.map((b) => (b.id === updated.id ? { ...b, ...updated, thinkingLevel: updated.thinkingLevel } : b)),
+      );
+      // Refresh from the durable agent: the PATCH returns the record, the GET reports what the next
+      // request will actually use.
+      const res = await api.thinkingLevels(botId);
+      if (thinkingSeq.current !== seq) return;
+      setThinkingCap({
+        levels: res.levels.filter((l): l is ThinkingLevelId => l in THINKING_LEVEL_IDS),
+        current: res.current in THINKING_LEVEL_IDS ? (res.current as ThinkingLevelId) : "off",
+      });
+    })
+      .catch(() => {})
+      .finally(() => {
+        if (thinkingSeq.current === seq) setThinkingSaving(false);
+      });
   };
 
   // SPIKE-review-loop: the session status is a human-set business label persisted on the Bot record.
@@ -671,6 +732,12 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
             model={model}
             modelId={bot.model.modelId}
             onModelChange={onModelChange}
+            thinkingLevels={thinkingCap?.levels}
+            thinkingLevel={thinkingCap?.current}
+            onThinkingLevelChange={onThinkingLevelChange}
+            thinkingLevelSaving={thinkingSaving}
+            thinkingLevelsLoadFailed={thinkingLoadError}
+            onThinkingLevelsRetry={() => setThinkingRetry((n) => n + 1)}
             queued={vm.inbox.length}
             onSend={onSend}
             onAbort={() => void guard(() => api.abort(bot.id)).catch(() => {})}

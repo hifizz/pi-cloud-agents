@@ -13,8 +13,10 @@ import {
   PermissionSelect,
   SendButton,
   StatusIndicator,
+  ThinkingSelect,
   type ApprovalPolicy,
   type ContextStripItem,
+  type ThinkingLevelId,
 } from "@/components/composer";
 
 export type SendMode = "send" | "steer" | "followUp";
@@ -28,6 +30,18 @@ export interface ComposerProps {
   modelId?: string;
   /** Called when the user picks a different model. Absent → static pill. */
   onModelChange?: (modelId: string) => void;
+  /** Thinking levels the current model accepts (e.g. ["medium","high","max"]); empty = unsupported model
+   *  (selector renders disabled); undefined = capability not loaded yet (selector hidden). */
+  thinkingLevels?: ThinkingLevelId[];
+  /** Effective thinking level for the session ("off" = model default). */
+  thinkingLevel?: ThinkingLevelId;
+  /** Called when the user picks a different thinking level. */
+  onThinkingLevelChange?: (level: ThinkingLevelId) => void;
+  /** True while a thinking-level PATCH is in flight; the selector stays disabled. */
+  thinkingLevelSaving?: boolean;
+  /** Capability load failed: the selector shows a retry affordance instead of an unsupported state. */
+  thinkingLevelsLoadFailed?: boolean;
+  onThinkingLevelsRetry?: () => void;
   /** Messages waiting in the bot's inbox. */
   queued?: number;
   onSend: (text: string, mode: SendMode) => void | Promise<void>;
@@ -50,6 +64,12 @@ export function Composer({
   model,
   modelId,
   onModelChange,
+  thinkingLevels,
+  thinkingLevel,
+  onThinkingLevelChange,
+  thinkingLevelSaving,
+  thinkingLevelsLoadFailed,
+  onThinkingLevelsRetry,
   queued = 0,
   onSend,
   onAbort,
@@ -106,6 +126,17 @@ export function Composer({
                         <span className="max-w-56 truncate">{model}</span>
                       </span>
                     ))}
+                  {(thinkingLevels !== undefined || thinkingLevelsLoadFailed) && (
+                    <ThinkingSelect
+                      value={thinkingLevel}
+                      options={thinkingLevels ?? []}
+                      disabled={disabled}
+                      saving={thinkingLevelSaving}
+                      loadFailed={thinkingLevelsLoadFailed}
+                      onRetry={onThinkingLevelsRetry}
+                      onChange={onThinkingLevelChange}
+                    />
+                  )}
                 </>
               }
               right={

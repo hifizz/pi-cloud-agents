@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { config, defaultModel } from "./config.mjs";
 import { ctx } from "./harness.mjs";
+import { defaultThinkingLevel, supportedThinkingLevels } from "./models.mjs";
 import { setApprovalPolicyLookup } from "./ext/approval.mjs";
 
 /** Tools a read-only fork (REQ-F07) may keep, by name. */
@@ -106,6 +107,7 @@ export class BotRegistry {
       conversationId: conv.id,
       model: agent.model,
       instructions: spec.instructions ?? "",
+      ...(spec.thinkingLevel ? { thinkingLevel: spec.thinkingLevel } : {}),
       ...(spec.workspaceId ? { workspaceId: spec.workspaceId } : {}),
       ...(spec.issueLoop ? { issueLoop: { ...spec.issueLoop } } : {}),
       ...(spec.worktree ? { worktree: { ...spec.worktree } } : {}),
@@ -151,7 +153,9 @@ export class BotRegistry {
   /**
    * Switch a Bot's model: durable agent change first (applies at the next model request; a running round keeps its
    * model), then the persisted record. The record updates only after configure succeeds, so a failed configure leaves
-   * record and conversation aligned. Returns the updated record, or undefined when the Bot (or its conversation) does
+   * record and conversation aligned. A stored thinking level the new model does not support is normalized in the
+   * same configure (defaultThinkingLevel: keep when valid, else climb up first) so record, conversation and the
+   * wire request never disagree. Returns the updated record, or undefined when the Bot (or its conversation) does
    * not exist.
    */
   async setModel(id, modelId) {
@@ -160,8 +164,40 @@ export class BotRegistry {
     const model = { provider: bot.model?.provider ?? config.provider, modelId };
     const conv = await this.conversation(id);
     if (!conv) return undefined;
-    await conv.configure({ model }, ctx);
+    const agent = await conv.agent(ctx);
+    // Provider default ("off") stays "off": switching model never invents a configured level. A configured
+    // level the new model cannot take is normalized to a real tier so record, conversation and wire agree.
+    const thinkingLevel = defaultThinkingLevel(modelId, agent.thinkingLevel);
+    const change = { model };
+    if (thinkingLevel) change.thinkingLevel = thinkingLevel;
+    else if (agent.thinkingLevel && agent.thinkingLevel !== "off") change.thinkingLevel = null;
+    await conv.configure(change, ctx);
     bot.model = model;
+    if (thinkingLevel) bot.thinkingLevel = thinkingLevel;
+    else delete bot.thinkingLevel;
+    this.#save();
+    return bot;
+  }
+
+  /**
+   * Change a Bot's thinking level: durable agent change first (applies at the next model request; a running
+   * round keeps its level), then the persisted record. `level` must be one of supportedThinkingLevels(model);
+   * "off" is the provider default — no reasoning_effort is sent (the model may still think internally).
+   * Returns the updated record, or undefined when the Bot (or its conversation) does not exist; throws
+   * RangeError for an unsupported level.
+   */
+  async setThinkingLevel(id, level) {
+    const bot = this.get(id);
+    if (!bot) return undefined;
+    const conv = await this.conversation(id);
+    if (!conv) return undefined;
+    if (level !== "off" && !supportedThinkingLevels(bot.model?.modelId).includes(level)) {
+      throw new RangeError(`thinking level not supported for ${bot.model?.modelId}: ${level}`);
+    }
+    // "off" is stored explicitly, not deleted: the record then mirrors the durable agent (which resolves a
+    // missing level to "off") so a deliberate provider-default can never be confused with an old record.
+    await conv.configure({ thinkingLevel: level }, ctx);
+    bot.thinkingLevel = level;
     this.#save();
     return bot;
   }
@@ -206,12 +242,21 @@ export class BotRegistry {
     }
 
     const child = await conv.fork(entryId, { ownership: { kind: "ownerless" }, agent }, ctx);
+    // The record mirrors the child conversation's effective level, not the parent's record: the fork inherits
+    // the agent as of `entryId` (which may predate the parent's current level) and `spec.modelId` may point at
+    // a model that cannot take it — normalize against the model actually on the child.
+    const childAgent = await child.agent(ctx);
+    const childThinkingLevel = defaultThinkingLevel(childAgent.model?.modelId, childAgent.thinkingLevel);
+    if (childThinkingLevel !== (childAgent.thinkingLevel === "off" ? undefined : childAgent.thinkingLevel)) {
+      await child.configure({ thinkingLevel: childThinkingLevel ?? null }, ctx);
+    }
     const bot = {
       id: randomUUID().slice(0, 8),
       name: spec.name,
       conversationId: child.id,
       model: agent.model ?? parent.model,
       instructions: spec.instructions ?? parent.instructions ?? "",
+      ...(childThinkingLevel ? { thinkingLevel: childThinkingLevel } : {}),
       createdAt: new Date().toISOString(),
       parent: { botId: parent.id, entryId },
       ...(spec.readOnly ? { readOnly: true } : {}),

@@ -21,6 +21,8 @@ export interface BotSummary {
   name: string;
   conversationId: number | string;
   model: { provider: string; modelId: string };
+  /** Configured thinking level of this session (e.g. "high"); absent = provider default (pi reports "off"). */
+  thinkingLevel?: string;
   instructions?: string;
   createdAt?: string | number;
   busy: boolean;
