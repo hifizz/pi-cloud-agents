@@ -8,6 +8,7 @@ import {
   ComposerRoot,
   ComposerToolbar,
   ContextStrip,
+  ModelIcon,
   ModelSelect,
   PermissionSelect,
   SendButton,
@@ -35,16 +36,13 @@ export interface ComposerProps {
   approvalPolicy?: ApprovalPolicy;
   /** Called when the user picks a different approval policy. */
   onApprovalPolicyChange?: (policy: ApprovalPolicy) => void;
-  /** Read-only context row under the input card (cwd, sandbox, branch, …). Content owned by the caller. */
+  /** Read-only context row under the input card (cwd, branch, …). Content owned by the caller. */
   contextItems?: ContextStripItem[];
   /** Free-form strip rendered under the input card (kept for callers that compose their own strip). */
   context?: ReactNode;
-  /** One-line status under the strip (reference "statusline"). Content owned by the caller. */
+  /** Status rendered at the trailing (right) end of the context strip. Content owned by the caller. */
   status?: ReactNode;
 }
-
-/** Two-letter badge for the model pill: "tokenrouter/glm-5.3" → "GL". */
-const abbr = (model: string) => (model.split("/").pop() ?? model).replace(/[^a-z0-9]/gi, "").slice(0, 2).toUpperCase() || "M";
 
 export function Composer({
   busy,
@@ -104,9 +102,7 @@ export function Composer({
                         title={model}
                         className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] whitespace-nowrap text-foreground/80"
                       >
-                        <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center rounded bg-muted text-[8px] font-semibold text-foreground">
-                          {abbr(model)}
-                        </span>
+                        <ModelIcon modelId={model} />
                         <span className="max-w-56 truncate">{model}</span>
                       </span>
                     ))}
@@ -120,9 +116,6 @@ export function Composer({
                       {queued} queued
                     </span>
                   )}
-                  <span className="hidden px-1 text-right text-[11px] text-muted-foreground/70 sm:block">
-                    {busy ? "Enter steers" : "Enter sends · Shift+Enter newline"}
-                  </span>
                   <StatusIndicator active={busy} />
                   {busy && (
                     <>
@@ -148,10 +141,11 @@ export function Composer({
               }
             />
           </ComposerRoot>
-          {contextItems && contextItems.length > 0 && <ContextStrip items={contextItems} />}
+          {(contextItems && contextItems.length > 0) || status ? (
+            <ContextStrip items={contextItems ?? []} trailing={status} />
+          ) : null}
         </ComposerFrame>
         {context}
-        {status}
       </div>
     </div>
   );
