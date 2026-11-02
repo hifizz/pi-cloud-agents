@@ -10,7 +10,7 @@
 //   - 8090 (the original service, live scheduled loops) is listed for status only and is NEVER restarted here.
 //   - TARSBOT_ENV_KEY is generated ONCE into the demo data dir and reused (env secrets stay readable).
 import { spawn, execSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const WT = resolve(import.meta.dirname, "..");
@@ -65,10 +65,11 @@ function stop(port) {
   console.log(`stopped :${port} (pid ${pid})`);
 }
 
-function startDetached(args, env) {
-  const child = spawn(args[0], args.slice(1), { cwd: WT, env: { ...process.env, ...env }, detached: true, stdio: "ignore" });
+function startDetached(args, env, { cwd = WT, log } = {}) {
+  const out = log ? openSync(log, "a") : "ignore";
+  const child = spawn(args[0], args.slice(1), { cwd, env: { ...process.env, ...env }, detached: true, stdio: ["ignore", out, out] });
   child.unref();
-  console.log(`started: ${args.join(" ")} (pid ${child.pid})`);
+  console.log(`started: ${args.join(" ")} (pid ${child.pid})${log ? ` log ${log}` : ""}`);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -93,8 +94,8 @@ if (cmd === "restart" && demos[name]) {
   stop(d.backend.port);
   if (d.vite) stop(d.vite.port);
   const env = { ...d.env, TARSBOT_ENV_KEY: envKey() };
-  startDetached(["node", d.backend.launcher], env);
-  if (d.vite) startDetached(["npx", "vite", "--config", d.vite.config], env);
+  startDetached(["node", d.backend.launcher], env, { log: "/tmp/pca-wia-demo.log" });
+  if (d.vite) startDetached(["npx", "vite", "--config", d.vite.config], env, { cwd: `${WT}/web`, log: "/tmp/pca-wia-vite.log" });
   await sleep(2500);
 }
 status();
