@@ -236,16 +236,12 @@ export function BotList({
                   className="h-auto py-2"
                   title={`${w.name} · ${w.repo} · ${w.branch}`}
                 >
-                  {/* Chevron + status dot share one flex child so the name keeps the normal
-                   * menu-button gap instead of two gaps of dead space. */}
-                  <span className="flex shrink-0 items-center gap-1.5">
-                    <span className={`flex size-3.5 items-center justify-center text-sidebar-foreground/60 transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`} aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3"><path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    </span>
-                    <StatusDot status={w.status} />
+                  <span className={`flex size-3.5 shrink-0 items-center justify-center text-sidebar-foreground/60 transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`} aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3"><path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </span>
                   <span className="flex min-w-0 flex-1 items-center gap-2">
                     <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{w.name}</span>
+                    <StatusDot status={w.status} />
                     {!selected && <ApprovalBadge count={pendingTotal} />}
                     {age && <span className="shrink-0 font-mono text-[11px] text-sidebar-foreground/50">{age}</span>}
                   </span>
