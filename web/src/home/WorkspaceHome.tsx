@@ -30,7 +30,7 @@ import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
  * Loops has no drawer: its full surface is the existing Loops pane (「管理全部 Loops」). */
 export type HomeDrawer = "events" | "integrations" | "routines" | "issues" | "pulls" | "settings";
 
-const SUMMARY_LIMIT = 8;
+const SUMMARY_LIMIT = 12;
 const BOTTOM_SHEET = "w-full rounded-t-2xl data-[side=bottom]:h-[75dvh] max-h-[90dvh]";
 const ACTIVE_RUN = new Set<LoopRunStatus>(["queued", "starting", "running", "needs_approval"]);
 
@@ -439,7 +439,7 @@ export function WorkspaceHome({
             title="Issues（未解决）"
             count={data.status === "ok" ? data.data.issues.length : undefined}
             testId="home-issues"
-            className="md:col-span-1 xl:col-span-3"
+            className="min-h-[clamp(22rem,46dvh,32rem)] md:col-span-1 xl:col-span-3"
             actions={
               <Button type="button" variant="link" size="sm" onClick={() => onDrawerChange("issues")} data-testid="open-issues" className="h-auto p-0">
                 查看全部 →
@@ -451,18 +451,18 @@ export function WorkspaceHome({
                 ov.issues.length === 0 ? (
               <p className="text-muted-foreground">没有未解决的 issue。</p>
             ) : (
-              <ul className="space-y-1 text-[13px]">
+              <ul className="divide-y divide-border/60 text-[13px]">
                 {ov.issues.slice(0, SUMMARY_LIMIT).map((issue) => (
-                  <li key={issue.number} className="flex items-center gap-2" data-testid={`issue-summary-${issue.number}`} title={`#${issue.number} ${issue.title}`}>
+                  <li key={issue.number} className="flex min-h-9 items-center gap-2 py-2" data-testid={`issue-summary-${issue.number}`} title={`#${issue.number} ${issue.title}`}>
                     <span className="shrink-0 font-mono text-xs text-muted-foreground">#{issue.number}</span>
-                    <span className="min-w-0 flex-1 truncate">{issue.title}</span>
+                    <button type="button" onClick={() => { setExpandedIssue(issue.number); onDrawerChange("issues"); }} className="min-w-0 flex-1 text-left leading-5 hover:underline focus-visible:outline-2 focus-visible:outline-ring"><span className="line-clamp-2 break-words">{issue.title}</span></button>
                     {typeof issue.comments === "number" && issue.comments > 0 && (
                       <span className="shrink-0 text-[11px] text-muted-foreground">💬 {issue.comments}</span>
                     )}
                     {issue.discussionBotId && <span className="shrink-0 text-[11px] text-muted-foreground">已有讨论</span>}
                   </li>
                 ))}
-                {ov.issues.length > SUMMARY_LIMIT && <li className="px-1 text-[11px] text-muted-foreground">还有 {ov.issues.length - SUMMARY_LIMIT} 个，查看全部 →</li>}
+                {ov.issues.length > SUMMARY_LIMIT && <li><Button type="button" variant="link" size="sm" className="px-1 text-xs" onClick={() => onDrawerChange("issues")}>还有 {ov.issues.length - SUMMARY_LIMIT} 个，查看全部 →</Button></li>}
               </ul>
             )
             }
@@ -473,7 +473,7 @@ export function WorkspaceHome({
             title="Pull requests"
             count={data.status === "ok" ? openPulls.length : undefined}
             testId="home-pulls"
-            className="md:col-span-1 xl:col-span-3"
+            className="min-h-[clamp(22rem,46dvh,32rem)] md:col-span-1 xl:col-span-3"
             actions={
               <Button type="button" variant="link" size="sm" onClick={() => { setSelectedPr(undefined); onDrawerChange("pulls"); }} data-testid="open-pulls" className="h-auto p-0">
                 查看全部 →
@@ -485,17 +485,17 @@ export function WorkspaceHome({
                 openPulls.length === 0 ? (
               <p className="text-muted-foreground">没有开放的 PR。</p>
             ) : (
-              <ul className="space-y-1 text-[13px]">
+              <ul className="divide-y divide-border/60 text-[13px]">
                 {openPulls.slice(0, SUMMARY_LIMIT).map((pr) => (
-                  <li key={pr.number} className="flex items-center gap-2" title={`#${pr.number} ${pr.title ?? ""}`}>
+                  <li key={pr.number} className="flex min-h-9 items-center gap-2 py-2" title={`#${pr.number} ${pr.title ?? ""}`}>
                     <span className="shrink-0 font-mono text-xs text-muted-foreground">#{pr.number}</span>
-                    <button type="button" onClick={() => { setPrFilter("open"); setSelectedPr(pr.number); onDrawerChange("pulls"); }} className="min-w-0 flex-1 truncate text-left text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring">
-                      {pr.title ?? ""}
+                    <button type="button" onClick={() => { setPrFilter("open"); setSelectedPr(pr.number); onDrawerChange("pulls"); }} className="min-w-0 flex-1 text-left leading-5 text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+                      <span className="line-clamp-2 break-words">{pr.title ?? ""}</span>
                     </button>
                     {pr.updatedAt && <span className="shrink-0 text-[11px] text-muted-foreground">{formatTime(pr.updatedAt)}</span>}
                   </li>
                 ))}
-                {openPulls.length > SUMMARY_LIMIT && <li className="px-1 text-[11px] text-muted-foreground">还有 {openPulls.length - SUMMARY_LIMIT} 个开放的 PR，查看全部 →</li>}
+                {openPulls.length > SUMMARY_LIMIT && <li><Button type="button" variant="link" size="sm" className="px-1 text-xs" onClick={() => { setSelectedPr(undefined); onDrawerChange("pulls"); }}>还有 {openPulls.length - SUMMARY_LIMIT} 个开放的 PR，查看全部 →</Button></li>}
               </ul>
             )
             }
@@ -527,7 +527,7 @@ export function WorkspaceHome({
                     {!i.enabled && <Badge variant="destructive" className="shrink-0 rounded-sm px-1 py-0.5 text-[10px] uppercase tracking-wide">停用</Badge>}
                   </li>
                 ))}
-                {list.length > 5 && <li className="px-1 text-[11px] text-muted-foreground">还有 {list.length - 5} 个，查看全部 →</li>}
+                {list.length > 5 && <li><Button type="button" variant="link" size="sm" className="px-1 text-xs" onClick={() => onDrawerChange("integrations")}>还有 {list.length - 5} 个，查看全部 →</Button></li>}
               </ul>
             )
             }
@@ -558,7 +558,7 @@ export function WorkspaceHome({
                     <span className="shrink-0 text-[11px] text-muted-foreground">{formatInterval(r)}</span>
                   </li>
                 ))}
-                {wsRoutines.length > 5 && <li className="px-1 text-[11px] text-muted-foreground">还有 {wsRoutines.length - 5} 个，查看全部 →</li>}
+                {wsRoutines.length > 5 && <li><Button type="button" variant="link" size="sm" className="px-1 text-xs" onClick={() => onDrawerChange("routines")}>还有 {wsRoutines.length - 5} 个，查看全部 →</Button></li>}
               </ul>
             )
             }

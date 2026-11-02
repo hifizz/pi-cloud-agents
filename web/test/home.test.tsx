@@ -127,32 +127,32 @@ function renderHome(bots: BotSummary[] = [bot()], workspace = ws()) {
 }
 
 describe("WorkspaceHome", () => {
-  it("shows eight issues and PRs; a PR title and view-all open bottom sheets", async () => {
+  it("shows twelve issues and PRs; titles and remaining-count buttons open bottom sheets", async () => {
     const user = userEvent.setup();
     fakeFetch((c) => {
       if (c.path === "/api/workspaces/w1/overview?prs=all") return json({
-        issues: Array.from({ length: 10 }, (_, i) => ({ number: i + 1, title: `Issue ${i + 1}` })),
-        pulls: Array.from({ length: 10 }, (_, i) => ({ number: i + 1, title: `PR ${i + 1}`, state: "open", url: `https://github.com/example/repo/pull/${i + 1}` })),
+        issues: Array.from({ length: 14 }, (_, i) => ({ number: i + 1, title: `Issue ${i + 1}` })),
+        pulls: Array.from({ length: 14 }, (_, i) => ({ number: i + 1, title: `PR ${i + 1}`, state: "open", url: `https://github.com/example/repo/pull/${i + 1}` })),
       });
       return baseHandler(c);
     });
     renderHome();
     const issues = screen.getByTestId("home-issues");
-    expect(await within(issues).findByText("Issue 8")).toBeInTheDocument();
-    expect(within(issues).queryByText("Issue 9")).toBeNull();
+    expect(await within(issues).findByText("Issue 12")).toBeInTheDocument();
+    expect(within(issues).queryByText("Issue 13")).toBeNull();
     const pulls = screen.getByTestId("home-pulls");
-    expect(await within(pulls).findByRole("button", { name: "PR 8" })).toBeInTheDocument();
-    expect(within(pulls).queryByText("PR 9")).toBeNull();
+    expect(await within(pulls).findByRole("button", { name: "PR 12" })).toBeInTheDocument();
+    expect(within(pulls).queryByText("PR 13")).toBeNull();
     await user.click(within(pulls).getByRole("button", { name: "PR 8" }));
     const sheet = await screen.findByTestId("drawer-pulls");
     expect(sheet).toHaveAttribute("data-side", "bottom");
     expect(within(sheet).getByRole("link", { name: "PR 8" })).toHaveAttribute("href", "https://github.com/example/repo/pull/8");
     expect(sheet.querySelector('[data-selected="true"]')).toHaveTextContent("PR 8");
     await user.keyboard("{Escape}");
-    await user.click(screen.getByTestId("open-pulls"));
+    await user.click(within(pulls).getByRole("button", { name: "还有 2 个开放的 PR，查看全部 →" }));
     expect(await screen.findByTestId("drawer-pulls")).toHaveAttribute("data-side", "bottom");
     await user.keyboard("{Escape}");
-    await user.click(screen.getByTestId("open-issues"));
+    await user.click(within(issues).getByRole("button", { name: "还有 2 个，查看全部 →" }));
     expect(await screen.findByTestId("drawer-issues")).toHaveAttribute("data-side", "bottom");
   });
 
