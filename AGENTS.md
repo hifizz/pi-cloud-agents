@@ -65,8 +65,8 @@ fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --
 
 ## 本地演示环境
 
-- 演示服务（后端 8092 + vite 5183）**只在固定 worktree `/Users/zilin/side/pca-wia-demo`（分支 `demo/wia`）里运行**，与主 checkout 隔离：主树切分支、改代码不影响演示。要更新演示内容：在 worktree 里把目标提交合进 `demo/wia`，再 restart。
-- 唯一操作入口：`node /Users/zilin/side/pca-wia-demo/scripts/demo.mjs`（`status` / `restart wia`）。重启命令只从这份清单读，**不凭记忆重构启动命令**。
+- 演示服务（后端 8092 + vite 5183）跑在主 worktree `/Users/zilin/side/pi-cloud-agents` 的当前分支（开发即演示：改完代码 restart 就生效）。冻结快照 `/Users/zilin/side/pca-wia-demo`（分支 `demo/wia`）保留不删，但不再用于运行。
+- 唯一操作入口：`node /Users/zilin/side/pi-cloud-agents/scripts/demo.mjs`（`status` / `restart wia`）。重启命令只从这份清单读，**不凭记忆重构启动命令**。
 - 端口归属：8090 原服务（有定时 loops 在跑，**绝不主动重启**）；8091 env-demo（只看状态）；8092 + 5183 wia 演示（由 manifest 管理）。并行 worker 不占用这些端口。
 - `TARSBOT_ENV_KEY` 固化在 `/Users/zilin/side/pca-wia-demo-state/env.key`（重启幂等）；进程日志在 `/tmp/pca-wia-demo.log` 与 `/tmp/pca-wia-vite.log`。
 - 演示数据固定在 `/Users/zilin/side/pca-wia-demo-state`（不放 `/tmp`），首次启动从主树 `data/` 只读备份，后续不覆盖。原 `/tmp` 演示数据已缺失，新副本不含后续新增会话；不要把恢复服务说成恢复了全部历史。演示登录账号见 `docs/acceptance/`，不写入本文件。

@@ -1,6 +1,6 @@
 // Demo manifest: the single source of truth for what runs where.
-// Lives on the demo branch INSIDE the pinned worktree (/Users/zilin/side/pca-wia-demo), so switching
-// branches in the main checkout never changes demo behavior. Run it from anywhere by absolute path.
+// Lives on the development branch INSIDE the main worktree (/Users/zilin/side/pi-cloud-agents), so the demo
+// always serves the code being worked on. Run it from anywhere by absolute path.
 //
 //   node scripts/demo.mjs              # status of every known port
 //   node scripts/demo.mjs restart wia  # restart the wia demo (backend 8092 + vite 5183) from THIS worktree
@@ -18,7 +18,7 @@ const DATA = resolve(WT, "../pca-wia-demo-state");
 
 const demos = {
   wia: {
-    desc: "WIA demo: workspace dashboard + SWE-2 controls (branch demo/wia, this worktree)",
+    desc: "WIA demo: workspace dashboard + SWE-2 controls (feat/wia-integrated, this worktree)",
     backend: { port: 8092, launcher: `${WT}/scripts/demo-launch-wia.mjs` },
     vite: { port: 5183, config: "vite.8092.config.ts" },
     dataDir: DATA,
