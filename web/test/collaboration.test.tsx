@@ -7,6 +7,7 @@ import { readSessionLink, sessionUrl, copySessionLink, useSessionLink } from "..
 import { useSessionNotifications } from "../src/hooks/useSessionNotifications";
 import { WorkspaceShell } from "../src/shell/WorkspaceShell";
 import { setMockViewportWidth } from "./helpers/viewport";
+import { SidebarProvider } from "../src/components/ui/sidebar";
 import { SessionHeader } from "../src/shell/SessionHeader";
 import { emptyVM } from "../src/lib/reducer";
 import type { BotSummary } from "../src/types";
@@ -303,20 +304,29 @@ describe("useSessionNotifications", () => {
 
 describe("narrow-screen shell", () => {
   const slots = { rail: <p>RAIL</p>, main: <p>MAIN</p>, panel: <p>PANEL</p> };
-  it("the open rail renders a scrim that closes it on small screens only", () => {
-    // Below md the rail is an overlay drawer with a scrim; above md it is a resizable column.
+  it("the open rail is a sidebar column; below md it is a Sheet drawer closed via the provider", () => {
+    const onOpenRail = vi.fn();
+    // Desktop viewport: the rail is an inline column inside the resizable group.
+    render(<WorkspaceShell railOpen panelOpen={false} onOpenRail={onOpenRail} {...slots} />);
+    expect(screen.getByText("RAIL").closest("aside")).toBeInTheDocument();
+    expect(screen.getByText("MAIN")).toBeInTheDocument();
+  });
+
+  it("below md the rail is a Sheet drawer whose scrim closes it through onOpenRail", async () => {
     setMockViewportWidth(390);
-    const onCloseRail = vi.fn();
-    render(<WorkspaceShell railOpen panelOpen={false} onCloseRail={onCloseRail} {...slots} />);
-    const scrim = screen.getByRole("button", { name: "关闭侧边栏" });
-    expect(scrim).toBeInTheDocument();
-    scrim.click();
-    expect(onCloseRail).toHaveBeenCalled();
-    expect(screen.getByText("RAIL").closest("aside")).toHaveClass("max-md:fixed");
+    const user = userEvent.setup();
+    const onOpenRail = vi.fn();
+    render(<WorkspaceShell railOpen panelOpen={false} onOpenRail={onOpenRail} {...slots} />);
+    // The rail content mounts inside the Sheet (drawer), not the desktop column.
+    expect(await screen.findByText("RAIL")).toBeInTheDocument();
+    // Escape is the Sheet's close gesture; the provider forwards false to onOpenRail.
+    await user.keyboard("{Escape}");
+    expect(onOpenRail).toHaveBeenCalledWith(false);
   });
 
   it("SessionHeader hides the toolbar action cluster (usage/share/notify/Compact/Reset) at every width", () => {
     render(
+      <SidebarProvider>
       <SessionHeader
         bot={bot()}
         vm={emptyVM()}
@@ -330,7 +340,8 @@ describe("narrow-screen shell", () => {
         onReset={vi.fn()}
         onShare={vi.fn()}
         notifications={{ supported: true, permission: "granted", enabled: false, onToggle: vi.fn() }}
-      />,
+      />
+      </SidebarProvider>,
     );
     // The five items live in one `hidden` container: not in the accessibility tree, not tabbable,
     // and the `hidden` attribute beats the `md:inline-flex`/`sm:inline` per-item overrides.

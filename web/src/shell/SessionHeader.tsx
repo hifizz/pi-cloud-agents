@@ -1,6 +1,7 @@
 // Conversation header (reference `.c-head`): breadcrumb + connection state + actions + panel toggle.
 import { UsageBadge } from "../components/UsageBadge";
 import { Button } from "../components/ui/button";
+import { SidebarTrigger } from "../components/ui/sidebar";
 import { Icon } from "../components/Chat/primitives/Icon";
 import { envName, repoName, shortSha, type Workspace } from "../lib/workspaces";
 import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary, type ConversationVM, type SessionStatus, type StreamStatus } from "../types";
@@ -102,19 +103,7 @@ export function SessionHeader({
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-2 sm:gap-3 sm:px-4">
-      {!railOpen && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Expand sidebar"
-          title="Expand sidebar"
-          onClick={onExpandRail}
-          className="shrink-0"
-        >
-          <Icon name="sidebar" className="size-4" />
-        </Button>
-      )}
+      {!railOpen && <SidebarTrigger aria-label="Expand sidebar" title="Expand sidebar" onClick={onExpandRail} className="shrink-0" />}
       <div className="flex min-w-0 flex-1 items-center gap-2 text-[13px]">
         {bot && workspace && (
           <>

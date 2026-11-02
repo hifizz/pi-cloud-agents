@@ -24,6 +24,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../components/ui/s
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Icon } from "../components/Chat/primitives/Icon";
+import { SidebarTrigger } from "../components/ui/sidebar";
 import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
 
 /** Which drawer is open. Each value mounts a detail surface only while open; undefined = closed.
@@ -268,19 +269,7 @@ export function WorkspaceHome({
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="workspace-overview">
       <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
-        {!railOpen && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Expand sidebar"
-            title="Expand sidebar"
-            onClick={onExpandRail}
-            className="shrink-0"
-          >
-            <Icon name="sidebar" className="size-4" />
-          </Button>
-        )}
+        {!railOpen && <SidebarTrigger aria-label="Expand sidebar" title="Expand sidebar" onClick={onExpandRail} className="shrink-0" />}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <h2 className="truncate text-sm font-semibold text-foreground" title={workspace.name}>{workspace.name}</h2>

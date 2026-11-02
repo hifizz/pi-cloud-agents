@@ -8,7 +8,6 @@ import { ApprovalBar } from "./components/ApprovalBar";
 import { ForkDialog } from "./components/ForkDialog";
 import { useApprovals } from "./hooks/useApprovals";
 import { MessageList } from "./components/Chat/MessageList";
-import { Icon } from "./components/Chat/primitives/Icon";
 import { Composer, type SendMode } from "./components/Chat/Composer";
 import type { ApprovalPolicy, ContextStripItem, ThinkingLevelId } from "./components/composer";
 
@@ -16,6 +15,7 @@ const THINKING_LEVEL_IDS: Readonly<Record<string, true>> = { off: true, low: tru
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AiCloudIcon, FolderIcon, GitBranchIcon } from "@hugeicons/core-free-icons";
 import { WorkspaceShell } from "./shell/WorkspaceShell";
+import { SidebarTrigger } from "./components/ui/sidebar";
 import { PanelHost } from "./shell/PanelHost";
 import { SessionHeader } from "./shell/SessionHeader";
 import { StatusLine } from "./shell/ComposerContext";
@@ -627,19 +627,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
       {loopsOpen && workspace ? (
         <div className="flex min-h-0 flex-1 flex-col" data-testid="loops-pane">
           <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
-            {!rail.open && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Expand sidebar"
-                title="Expand sidebar"
-                onClick={rail.show}
-                className="shrink-0"
-              >
-                <Icon name="sidebar" className="size-4" />
-              </Button>
-            )}
+            {!rail.open && <SidebarTrigger aria-label="Expand sidebar" title="Expand sidebar" onClick={rail.show} className="shrink-0" />}
             <Button
               type="button"
               variant="outline"
@@ -788,7 +776,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
         panelOpen={panels.open && !overviewOpen && !loopsOpen}
         rail={railNode}
         main={mainNode}
-        onCloseRail={rail.close}
+        onOpenRail={(open) => (open ? rail.show() : rail.close())}
         panel={
           // The right session panel belongs to a session; it stays closed while the workspace overview or the
           // Loops surface is open.

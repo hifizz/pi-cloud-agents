@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { WorkspaceContext } from "../src/lib/workspaces";
 import { SessionHeader } from "../src/shell/SessionHeader";
+import { SidebarProvider } from "../src/components/ui/sidebar";
 import { LoopsList } from "../src/components/LoopsList";
 import { LoopRuns } from "../src/components/LoopRuns";
 import { LoopEditor } from "../src/components/LoopEditor";
@@ -68,8 +69,9 @@ afterEach(() => vi.restoreAllMocks());
 
 const renderHeader = (b: BotSummary, over: Record<string, unknown> = {}) =>
   render(
-    <WorkspaceContext.Provider value={{ workspace: ws(), loading: false, onUpdate: vi.fn(), onChanged: vi.fn() }}>
-      <SessionHeader
+    <SidebarProvider>
+      <WorkspaceContext.Provider value={{ workspace: ws(), loading: false, onUpdate: vi.fn(), onChanged: vi.fn() }}>
+        <SessionHeader
         bot={b}
         vm={emptyVM()}
         status="open"
@@ -85,7 +87,8 @@ const renderHeader = (b: BotSummary, over: Record<string, unknown> = {}) =>
         onReset={vi.fn()}
         {...over}
       />
-    </WorkspaceContext.Provider>,
+      </WorkspaceContext.Provider>
+    </SidebarProvider>,
   );
 
 describe("loops: triggerLabel", () => {

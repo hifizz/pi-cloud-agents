@@ -8,6 +8,7 @@ import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../components/ui/resizable";
 import type { Layout, LayoutChangedMeta } from "../components/ui/resizable";
+import { Sidebar, SidebarProvider } from "../components/ui/sidebar";
 import { useMediaQuery } from "./useMediaQuery";
 
 const LAYOUT_KEY = "pca.shell.layout.v1";
@@ -63,12 +64,12 @@ export interface WorkspaceShellProps {
   rail: ReactNode;
   main: ReactNode;
   panel: ReactNode;
-  /** AMP13-collaboration: the rail closes when the scrim below md is tapped. Optional so pure layout tests stay
-   * unaffected; App always passes it. */
-  onCloseRail?: () => void;
+  /** Feeds SidebarProvider.onOpenChange (Sheet scrim/Escape closes the rail on mobile, SidebarTrigger
+   * toggles it). Optional so pure layout tests stay unaffected; App always passes it. */
+  onOpenRail?: (open: boolean) => void;
 }
 
-export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onCloseRail }: WorkspaceShellProps) {
+export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenRail }: WorkspaceShellProps) {
   // Breakpoints: the rail is an inline resizable column at md+, and the panel at xl+. Below those
   // breakpoints the same column (still mounted) collapses to a zero-width slot whose content escapes
   // as a fixed overlay drawer, so it overlays main instead of squeezing it.
@@ -104,85 +105,70 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onClose
   );
 
   return (
-    <div className="relative h-dvh overflow-hidden bg-background text-foreground">
-      {/* Below md the open rail is a modal drawer; this is only the scrim (the column's own content
-       * escapes as the fixed overlay inside the rail Panel below). */}
-      {railOpen && !md && (
-        <button
-          type="button"
-          aria-label="关闭侧边栏"
-          onClick={onCloseRail}
-          className="absolute inset-0 z-40 bg-black/50"
-        />
-      )}
-
-      <ResizablePanelGroup
-        orientation="horizontal"
-        className="flex h-full w-full"
-        elementRef={groupElRef}
-        onLayoutChanged={persist}
-      >
-        {/* Rail: inline resizable at md+; below md it collapses to a zero-width slot and its content
-         * escapes as a fixed left-edge drawer. It mounts only while open, and stays mounted across
-         * the md breakpoint via the disabled + zero-size slot (no tree change). */}
-        {railOpen && (
-          <ResizablePanel
-            id={RAIL_ID}
-            defaultSize={widths.current.rail}
-            minSize={railInline ? RAIL_MIN_PX : 0}
-            maxSize={railInline ? "100%" : 0}
-            disabled={!railInline}
-            groupResizeBehavior="preserve-pixel-size"
-            className="h-full min-h-0 flex-col bg-sidebar"
-            style={{ overflow: "visible" }}
-          >
-            <aside
-              className={
-                "flex h-full min-h-0 flex-col overflow-hidden border-r border-border bg-sidebar " +
-                "w-full max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[min(272px,85vw)]"
-              }
+    <SidebarProvider open={railOpen} onOpenChange={onOpenRail}>
+      <div className="relative h-dvh overflow-hidden bg-background text-foreground">
+        {/* The rail's own content decides drawer vs column: the shadcn Sidebar renders a Sheet drawer
+         * below md (useIsMobile) and an inline column at md+. This ResizablePanel supplies the column
+         * slot at md+; below md it collapses to zero width while the Sheet mounts the rail content in
+         * a portal, so nothing here needs a scrim or a fixed overlay. */}
+        <ResizablePanelGroup
+          orientation="horizontal"
+          className="flex h-full w-full"
+          elementRef={groupElRef}
+          onLayoutChanged={persist}
+        >
+          {railOpen && (
+            <ResizablePanel
+              id={RAIL_ID}
+              defaultSize={widths.current.rail}
+              minSize={railInline ? RAIL_MIN_PX : 0}
+              maxSize={railInline ? "100%" : 0}
+              disabled={!railInline}
+              groupResizeBehavior="preserve-pixel-size"
+              className="h-full min-h-0 flex-col bg-sidebar"
+              style={{ overflow: "visible" }}
             >
-              {rail}
-            </aside>
+              <Sidebar className="h-full border-r border-border bg-sidebar max-md:w-[min(272px,85vw)]">{rail}</Sidebar>
+            </ResizablePanel>
+          )}
+          {railOpen && <ResizableHandle aria-label="调整侧边栏宽度" disabled={!railInline} className="max-md:hidden" />}
+
+          <ResizablePanel id={MAIN_ID} minSize={md ? MAIN_MIN_PX : 0} className="h-full min-h-0 flex-col overflow-hidden">
+            <main className="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-label="Chat">
+              {main}
+            </main>
           </ResizablePanel>
-        )}
-        {railOpen && <ResizableHandle aria-label="调整侧边栏宽度" disabled={!railInline} className="max-md:hidden" />}
 
-        <ResizablePanel id={MAIN_ID} minSize={md ? MAIN_MIN_PX : 0} className="h-full min-h-0 flex-col overflow-hidden">
-          <main className="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-label="Chat">
-            {main}
-          </main>
-        </ResizablePanel>
-
-        {panelOpen && <ResizableHandle aria-label="调整面板宽度" disabled={!panelInline} className="max-xl:hidden" />}
-        {/* Panel: inline resizable at xl+; below xl it collapses to a zero-width slot and its content
-         * escapes as a fixed right-edge drawer (md..xl) / full-width cover (<md). Stays mounted
-         * across the xl breakpoint so the PTY keeps running. */}
-        {panelOpen && (
-          <ResizablePanel
-            id={PANEL_ID}
-            defaultSize={widths.current.panel}
-            minSize={panelInline ? PANEL_MIN_PX : 0}
-            maxSize={panelInline ? "100%" : 0}
-            disabled={!panelInline}
-            groupResizeBehavior="preserve-pixel-size"
-            className="h-full min-h-0 flex-col bg-background"
-            style={{ overflow: "visible" }}
-          >
-            <aside
-              className={
-                "flex h-full min-h-0 flex-col overflow-hidden border-l border-border bg-background " +
-                "w-full max-md:border-l-0 " +
-                "max-xl:fixed max-xl:inset-y-0 max-xl:right-0 max-xl:z-30 max-xl:w-[min(560px,90vw)] max-xl:shadow-2xl max-xl:shadow-black/60 " +
-                // Below md the drawer covers the full width so controls stay reachable on phones.
-                "max-md:w-full"
-              }
+          {panelOpen && <ResizableHandle aria-label="调整面板宽度" disabled={!panelInline} className="max-xl:hidden" />}
+          {/* Panel: inline resizable at xl+; below xl it collapses to a zero-width slot and its content
+           * escapes as a fixed right-edge drawer (md..xl) / full-width cover (<md). Stays mounted
+           * across the xl breakpoint so the PTY keeps running. */}
+          {panelOpen && (
+            <ResizablePanel
+              id={PANEL_ID}
+              defaultSize={widths.current.panel}
+              minSize={panelInline ? PANEL_MIN_PX : 0}
+              maxSize={panelInline ? "100%" : 0}
+              disabled={!panelInline}
+              groupResizeBehavior="preserve-pixel-size"
+              className="h-full min-h-0 flex-col bg-background"
+              style={{ overflow: "visible" }}
             >
-              {panel}
-            </aside>
-          </ResizablePanel>
-        )}
-      </ResizablePanelGroup>
-    </div>
+              <aside
+                className={
+                  "flex h-full min-h-0 flex-col overflow-hidden border-l border-border bg-background " +
+                  "w-full max-md:border-l-0 " +
+                  "max-xl:fixed max-xl:inset-y-0 max-xl:right-0 max-xl:z-30 max-xl:w-[min(560px,90vw)] max-xl:shadow-2xl max-xl:shadow-black/60 " +
+                  // Below md the drawer covers the full width so controls stay reachable on phones.
+                  "max-md:w-full"
+                }
+              >
+                {panel}
+              </aside>
+            </ResizablePanel>
+          )}
+        </ResizablePanelGroup>
+      </div>
+    </SidebarProvider>
   );
 }
