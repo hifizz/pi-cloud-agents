@@ -38,7 +38,9 @@ const BASELINE = String.raw`['"]?(?:[^\s:'"]*:)?(?:refs/heads/)?(?:main|master|d
 /** `gh api` arguments in the same segment. */
 const GH_API = String.raw`\bgh\s+api\b[^\n;|&]*?`;
 
-/** Shell patterns that need approval. `pattern` is tested against the whole `command` string. */
+/** Shell patterns that need approval. `pattern` is tested against the whole `command` string.
+ * `hard: true` marks the irreversible/destructive subset: under policy "auto" these still park for a human,
+ * while unmarked (recoverable) matches are auto-approved. Policy "bypass" approves everything. */
 export const DEFAULT_BASH_RULES = [
   { pattern: /\brm\s+(?:\S+\s+)*?-[a-zA-Z]*(?:rf|fr|Rf|fR)[a-zA-Z]*(?=\s|$)/, reason: "recursive force delete (rm -rf)" },
   { pattern: /\brm\b[^\n;|&]*\s-[a-zA-Z]*[rR][a-zA-Z]*(?=\s)[^\n;|&]*\s-[a-zA-Z]*f/, reason: "recursive force delete (rm -r -f)" },
@@ -48,21 +50,23 @@ export const DEFAULT_BASH_RULES = [
   {
     pattern: gitPush(String.raw`(?:--force(?:-with-lease|-if-includes)?(?:=\S*)?|-[a-zA-Z]*f[a-zA-Z]*)`),
     reason: "git push that rewrites remote history (--force / -f / --force-with-lease / --force-if-includes)",
+    hard: true,
   },
-  { pattern: gitPush(String.raw`['"]?\+\S+`), reason: "git push with a +refspec (forced update of a remote ref)" },
+  { pattern: gitPush(String.raw`['"]?\+\S+`), reason: "git push with a +refspec (forced update of a remote ref)", hard: true },
   // git push: delete remote refs
   {
     pattern: gitPush(String.raw`(?:--delete|--mirror|--prune|-[a-zA-Z]*d[a-zA-Z]*)`),
     reason: "git push that deletes remote refs (--delete / -d / --mirror / --prune)",
+    hard: true,
   },
-  { pattern: gitPush(String.raw`['"]?:\S+`), reason: "git push of an empty source (:<ref>) deletes a remote ref" },
+  { pattern: gitPush(String.raw`['"]?:\S+`), reason: "git push of an empty source (:<ref>) deletes a remote ref", hard: true },
   // git push: baseline branches
-  { pattern: gitPush(BASELINE), reason: "git push directly to a baseline branch (main / master / dev)" },
+  { pattern: gitPush(BASELINE), reason: "git push directly to a baseline branch (main / master / dev)", hard: true },
   // gh: operations on existing PRs / repos / releases
   { pattern: /\bgh\s+pr\s+merge\b/, reason: "gh pr merge (merges code into the base branch)" },
   { pattern: /\bgh\s+pr\s+close\b/, reason: "gh pr close (closes an existing PR)" },
-  { pattern: /\bgh\s+repo\s+delete\b/, reason: "gh repo delete (deletes a repository)" },
-  { pattern: /\bgh\s+repo\s+edit\b/, reason: "gh repo edit (changes repository settings)" },
+  { pattern: /\bgh\s+repo\s+delete\b/, reason: "gh repo delete (deletes a repository)", hard: true },
+  { pattern: /\bgh\s+repo\s+edit\b/, reason: "gh repo edit (changes repository settings)", hard: true },
   { pattern: /\bgh\s+release\s+delete\b/, reason: "gh release delete (deletes a release)" },
   {
     pattern: new RegExp(String.raw`${GH_API}\s(?:-X|--method)[\s=]*['"]?(?:POST|PUT|PATCH|DELETE)\b`, "i"),
@@ -98,25 +102,34 @@ function nameMatcher(entry) {
 
 /**
  * Build a danger classifier.
- * @param {{ bash?: Array<{pattern: RegExp, reason: string}>, toolNames?: Array<string|RegExp>, bashTools?: string[] }} [rules]
+ * @param {{ bash?: Array<{pattern: RegExp, reason: string, hard?: boolean}>, toolNames?: Array<string|RegExp|{pattern: string|RegExp, hard?: boolean, reason?: string}>, bashTools?: string[] }} [rules]
  *   Omitted keys fall back to the defaults. `bashTools` lists tools whose `command` argument is checked (default ["bash"]).
- * @returns {(call: {name: string, arguments?: any}) => string | undefined} the reason, or undefined for a safe call
+ * @returns {((call: {name: string, arguments?: any}) => string | undefined) & { hard: (call: {name: string, arguments?: any}) => string | undefined }}
+ *   calling it returns the reason a call needs approval, or undefined for a safe call; `.hard` returns the reason only
+ *   when a `hard`-marked rule matches (the irreversible subset "auto" still parks; "bypass" approves everything).
  */
 export function createClassifier(rules = {}) {
   const bash = rules.bash ?? DEFAULT_BASH_RULES;
-  const names = (rules.toolNames ?? DEFAULT_TOOL_NAMES).map((e) => ({ match: nameMatcher(e) }));
+  const names = (rules.toolNames ?? DEFAULT_TOOL_NAMES).map((e) =>
+    e && typeof e === "object" && !(e instanceof RegExp)
+      ? { match: nameMatcher(e.pattern), reason: e.reason, hard: e.hard === true }
+      : { match: nameMatcher(e), reason: undefined, hard: false },
+  );
   const bashTools = new Set(rules.bashTools ?? ["bash"]);
-  return (call) => {
+  const check = (call, hardOnly) => {
     const name = String(call?.name ?? "");
     if (bashTools.has(name)) {
       const command = call?.arguments?.command;
       if (typeof command === "string") {
-        for (const rule of bash) if (rule.pattern.test(command)) return rule.reason;
+        for (const rule of bash) if ((!hardOnly || rule.hard === true) && rule.pattern.test(command)) return rule.reason;
       }
     }
-    for (const n of names) if (n.match(name)) return `tool ${name} has external side effects`;
+    for (const n of names) if ((!hardOnly || n.hard) && n.match(name)) return n.reason ?? `tool ${name} has external side effects`;
     return undefined;
   };
+  const classifier = (call) => check(call, false);
+  classifier.hard = (call) => check(call, true);
+  return classifier;
 }
 
 const defaultClassifier = createClassifier();
@@ -214,6 +227,7 @@ export const approvals = new ApprovalCenter();
 // setExecResolver / setIntegrationsApplier: the extension module is imported before the registry exists).
 // productionExtensions() cannot take the registry — bootstrap() runs before BotRegistry is constructed in
 // server.mjs — so the hook consults this at call time. Unset, unknown, "ask", or a throwing lookup all mean ask.
+// "auto" auto-approves only recoverable classifications; "bypass" auto-approves every dangerous call.
 let policyLookup;
 export function setApprovalPolicyLookup(fn) {
   if (fn !== undefined && fn !== null && typeof fn !== "function") throw new TypeError("setApprovalPolicyLookup requires a function");
@@ -224,35 +238,37 @@ export function setApprovalPolicyLookup(fn) {
 
 /**
  * @param {{ center?: ApprovalCenter, rules?: Parameters<typeof createClassifier>[0], getPolicy?: (conversationId: unknown) => string | undefined }} [opts]
- * `getPolicy` is consulted only after a call is classified dangerous; "auto" treats the call as already approved.
+ * `getPolicy` is consulted only after a call is classified dangerous; "bypass" treats every dangerous call as already
+ * approved, "auto" only the recoverable (non-hard) ones.
  * Defaults to the process-wide lookup set by setApprovalPolicyLookup, resolved per call so a lookup installed
  * after the extension still applies.
  */
 export function createApproval({ center = approvals, rules, getPolicy } = {}) {
-  const classify = rules ? createClassifier(rules) : isDangerous;
+  const classifier = rules ? createClassifier(rules) : defaultClassifier;
   return defineExtension({
     name: "tarsbot.approval",
     hooks: [
       hook(ToolTask, {
         beforeTool: async (call, api, context) => {
-          const reason = classify(call);
+          const reason = classifier(call);
           if (reason === undefined) return undefined;
           // The memo survives restarts: a verdict given before a crash is reused and the human is not asked twice.
           let ok = await api.memo("approval", context);
           if (ok === undefined) {
-            // A conversation whose bot runs on policy "auto" skips the human question entirely; the same durable memo
-            // records the verdict, so restart and first-write-wins semantics are identical to a human approval.
-            // Anything else — "ask", unknown, or a lookup that throws — keeps the question.
-            let auto = false;
+            // "bypass" memos an approval for every dangerous call; "auto" does the same but only for recoverable
+            // (soft) classifications — hard ones (history rewrite, remote-ref deletes, baseline pushes, repo
+            // delete/edit) still park. No data migration: a stored "auto" from before the three-level policy
+            // takes the new narrower meaning on purpose. "ask", unknown, or a throwing lookup keeps the question.
+            let policy;
             const lookup = getPolicy ?? policyLookup;
             if (lookup) {
               try {
-                auto = lookup(api.conversationId) === "auto";
+                policy = lookup(api.conversationId);
               } catch {
-                auto = false;
+                policy = undefined;
               }
             }
-            if (auto) {
+            if (policy === "bypass" || (policy === "auto" && classifier.hard(call) === undefined)) {
               ok = await api.memo("approval", true, context);
             } else {
               // Aborting the wait (conversation abort, harness close) rejects here; the tool task rethrows while it is

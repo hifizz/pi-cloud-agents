@@ -1,4 +1,6 @@
-// Offline tests for the per-session approval policy ("ask" | "auto") and PATCH /api/bots/:id/approval-policy.
+// Offline tests for the per-session approval policy ("ask" | "auto" | "bypass") and
+// PATCH /api/bots/:id/approval-policy. "auto" auto-approves only recoverable (soft) classifications; a stored
+// "auto" written before the three-level policy takes the new narrower meaning by design (no data migration).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -84,7 +86,50 @@ test("policy auto: dangerous call runs without a pending approval", async () => 
   }
 });
 
-test("policy auto writes the durable approval memo: the memo itself records true", async () => {
+test("policy auto: a hard (irreversible) call still parks for a human", async () => {
+  // "auto" narrows to recoverable classifications; force pushes stay gated like under "ask".
+  const dir = tmp();
+  const marker = join(dir, "pushed");
+  try {
+    const { harness, bot, conv, center } = await setup({
+      dir,
+      getPolicy: (id) => (id === bot.conversationId ? "auto" : undefined),
+      responses: [toolCall("bash", { command: `git push --force; touch ${marker}` }), fauxAssistantMessage([fauxText("ok")])],
+    });
+    const sub = await conv.submit({ type: "input", content: "push it" }, ctx);
+    const [item] = await waitFor(() => (center.list().length ? center.list() : undefined), "pending approval for hard call");
+    assert.match(item.reason, /rewrites remote history/);
+    assert.equal(existsSync(marker), false, "hard call must not run under auto");
+    center.resolve(item.taskId, true);
+    const settled = await sub.wait(ctx);
+    assert.equal(settled.status, "done");
+    assert.equal(existsSync(marker), true, "runs once a human approves");
+    await harness.close(ctx);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("policy bypass: every dangerous call runs without a pending approval, hard included", async () => {
+  const dir = tmp();
+  const marker = join(dir, "pushed");
+  try {
+    const { harness, bot, conv, center } = await setup({
+      dir,
+      getPolicy: (id) => (id === bot.conversationId ? "bypass" : undefined),
+      responses: [toolCall("bash", { command: `git push --force; touch ${marker}` }), fauxAssistantMessage([fauxText("ok")])],
+    });
+    const settled = await (await conv.submit({ type: "input", content: "push it" }, ctx)).wait(ctx);
+    assert.equal(settled.status, "done");
+    assert.equal(existsSync(marker), true, "hard call ran under bypass");
+    assert.deepEqual(center.list(), [], "nothing ever entered the approval center");
+    await harness.close(ctx);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("policy bypass writes the durable approval memo: the memo itself records true", async () => {
   const dir = tmp();
   const db = join(dir, "t.sqlite");
   const victim = join(dir, "x");
@@ -93,12 +138,12 @@ test("policy auto writes the durable approval memo: the memo itself records true
     const { harness, conv } = await setup({
       dir,
       storage: await openNodeSqliteStorage(db),
-      getPolicy: () => "auto",
+      getPolicy: () => "bypass",
       responses: [toolCall("bash", { command: `rm -rf ${victim}` }), fauxAssistantMessage([fauxText("removed")])],
     });
     const settled = await (await conv.submit({ type: "input", content: "clean up" }, ctx)).wait(ctx);
     assert.equal(settled.status, "done");
-    assert.equal(existsSync(victim), false, "tool ran under auto");
+    assert.equal(existsSync(victim), false, "tool ran under bypass");
     const results = await toolResults(conv);
     assert.ok(results.length >= 1 && !results.some((r) => /User denied/.test(r)), "no denial block in the transcript");
     await harness.close(ctx);
@@ -134,8 +179,8 @@ test("policy ask / unknown / throwing lookups keep the human question", async ()
   }
 });
 
-test("policy auto does not resurrect a denied memo verdict", async () => {
-  // First-write-wins still holds: if a human denial reached the memo first, a later auto policy cannot flip it.
+test("policy bypass does not resurrect a denied memo verdict", async () => {
+  // First-write-wins still holds: if a human denial reached the memo first, a later bypass policy cannot flip it.
   const dir = tmp();
   const db = join(dir, "t.sqlite");
   const victim = join(dir, "x");
@@ -153,22 +198,22 @@ test("policy auto does not resurrect a denied memo verdict", async () => {
     await harness.close(ctx);
     assert.ok(existsSync(victim));
 
-    // Restart with auto: the memo already says denied, so the hook must block again without asking or running.
+    // Restart with bypass: the memo already says denied, so the hook must block again without asking or running.
     const { harness: h2 } = await openHarness({
       storage: await openNodeSqliteStorage(db),
       models: fauxModels([fauxAssistantMessage([fauxText("done")])]),
-      extensions: [CodingTools, createApproval({ getPolicy: () => "auto" })],
+      extensions: [CodingTools, createApproval({ getPolicy: () => "bypass" })],
       env: nodeEnv,
     });
     await h2.waitForIdle(ctx);
-    assert.ok(existsSync(victim), "a memoized denial beats a later auto policy");
+    assert.ok(existsSync(victim), "a memoized denial beats a later bypass policy");
     await h2.close(ctx);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("BotRegistry.policyOf: auto only when the field is exactly 'auto'", async () => {
+test("BotRegistry.policyOf returns the stored ask/auto/bypass value, undefined otherwise", async () => {
   const { models } = (() => {
     const f = fauxProvider();
     const m = createModels();
@@ -180,11 +225,14 @@ test("BotRegistry.policyOf: auto only when the field is exactly 'auto'", async (
   const bots = new BotRegistry(harness, { path: null });
   const plain = await bots.createBot({ name: "plain", model: FAUX });
   const auto = await bots.createBot({ name: "auto", model: FAUX, approvalPolicy: "auto" });
+  const bypass = await bots.createBot({ name: "bypass", model: FAUX, approvalPolicy: "bypass" });
   assert.equal(bots.policyOf(plain.conversationId), undefined, "no field means ask");
   assert.equal(bots.policyOf(auto.conversationId), "auto");
+  assert.equal(bots.policyOf(bypass.conversationId), "bypass");
   assert.equal(bots.policyOf("nonexistent"), undefined, "unknown conversation means ask");
   assert.equal(bots.get("plain").approvalPolicy, undefined);
   assert.equal(bots.get("auto").approvalPolicy, "auto");
+  assert.equal(bots.get("bypass").approvalPolicy, "bypass");
   await harness.close(ctx);
 });
 
@@ -225,6 +273,12 @@ test("PATCH /api/bots/:id/approval-policy: update persists, 400/404, ask keeps t
       assert.equal(bots2.get(bot.id).approvalPolicy, "auto");
       assert.equal(bots2.policyOf(bot.conversationId), "auto");
       assert.ok(readFileSync(botsPath, "utf8").includes('"approvalPolicy": "auto"'));
+
+      // bypass round-trips through the same route.
+      const bypassed = await patch(`/api/bots/${bot.id}/approval-policy`, { policy: "bypass" });
+      assert.equal(bypassed.status, 200);
+      assert.equal(bypassed.body.bot.approvalPolicy, "bypass");
+      assert.equal(bots.policyOf(bot.conversationId), "bypass");
 
       // Switching back to ask keeps the field visible on the record.
       const back = await patch(`/api/bots/${bot.id}/approval-policy`, { policy: "ask" });
