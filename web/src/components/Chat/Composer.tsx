@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import type { Usage } from "@/types";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Clock01Icon, StopIcon, QueueIcon } from "@hugeicons/core-free-icons";
 import {
@@ -11,7 +10,6 @@ import {
   ContextStrip,
   PermissionSelect,
   SendButton,
-  ComposerUsagePill,
   StatusIndicator,
   type ApprovalPolicy,
   type ContextStripItem,
@@ -26,8 +24,6 @@ export interface ComposerProps {
   model?: string;
   /** Messages waiting in the bot's inbox. */
   queued?: number;
-  /** Cumulative token usage of this session, shown as a pill in the toolbar. */
-  usage?: Usage;
   onSend: (text: string, mode: SendMode) => void | Promise<void>;
   onAbort: () => void | Promise<void>;
   /** Approval policy of this session; rendered as the PermissionSelect pill. */
@@ -50,7 +46,6 @@ export function Composer({
   disabled,
   model,
   queued = 0,
-  usage,
   onSend,
   onAbort,
   approvalPolicy,
@@ -118,7 +113,6 @@ export function Composer({
                   <span className="hidden px-1 text-right text-[11px] text-muted-foreground/70 sm:block">
                     {busy ? "Enter steers" : "Enter sends · Shift+Enter newline"}
                   </span>
-                  {usage && <ComposerUsagePill usage={usage} />}
                   <StatusIndicator active={busy} />
                   {busy && (
                     <>

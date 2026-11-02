@@ -24,4 +24,3 @@ export { StatusIndicator } from "./status-indicator";
 export { SendButton } from "./send-button";
 export { ContextStrip } from "./context-strip";
 export type { ContextStripItem } from "./context-strip";
-export { ComposerUsagePill } from "./usage-pill";
