@@ -1,5 +1,12 @@
 # 首页与思考强度本地验收
 
+## 后续布局调整
+
+- Loops / Events 各占半宽，同排卡片内容框等高。EGO 实测两个框均为 552×71.5，Issues / PR 均为 552×186.5。
+- Issues / PR 首页最多展示 8 条；点击 PR 标题打开底部 Sheet，选中对应行；详情保留 GitHub 链接。各「查看全部」入口统一底部 Sheet，设置仍保留侧边。
+- EGO 验证 PR 标题点击、选中行和 Issues 查看全部；1440×900 下底部 Sheet 宽 1440、高 675。截图 `04-equal-cards.png`、`05-bottom-pulls.png`。
+- 本轮前端 251/251，typecheck / build 通过。
+
 ## 可访问入口
 
 - 前端：http://127.0.0.1:5183

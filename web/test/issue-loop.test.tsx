@@ -336,11 +336,13 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
     await screen.findByTestId("workspace-overview");
     expect(overviewGets()).toHaveLength(2);
 
-    // PR rows link to GitHub; the Review-session action lives in the pulls drawer (not a diff viewer)
-    const prLink = screen.getByRole("link", { name: /WIP feature/ });
+    // PR summaries open the bottom sheet; the full row retains its GitHub link and Review action.
+    await user.click(screen.getByRole("button", { name: /WIP feature/ }));
+    const pullsDrawer = await screen.findByTestId("drawer-pulls");
+    expect(pullsDrawer).toHaveAttribute("data-side", "bottom");
+    const prLink = within(pullsDrawer).getByRole("link", { name: /WIP feature/ });
     expect(prLink).toHaveAttribute("href", "https://github.com/hifizz/tars-sandbox-playground/pull/7");
     expect(prLink).toHaveAttribute("target", "_blank");
-    await user.click(screen.getByTestId("open-pulls"));
     await user.click(await within(await screen.findByTestId("drawer-pulls")).findByRole("button", { name: /打开 Review Session/ }));
     await waitFor(() => expect(calls.some((c) => c.path === "/api/workspaces/w1/review" && c.method === "POST")).toBe(true));
     expect(calls.find((c) => c.path === "/api/workspaces/w1/review")?.body).toEqual({ pr: 7 });

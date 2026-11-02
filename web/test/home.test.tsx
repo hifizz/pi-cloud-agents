@@ -127,6 +127,35 @@ function renderHome(bots: BotSummary[] = [bot()], workspace = ws()) {
 }
 
 describe("WorkspaceHome", () => {
+  it("shows eight issues and PRs; a PR title and view-all open bottom sheets", async () => {
+    const user = userEvent.setup();
+    fakeFetch((c) => {
+      if (c.path === "/api/workspaces/w1/overview?prs=all") return json({
+        issues: Array.from({ length: 10 }, (_, i) => ({ number: i + 1, title: `Issue ${i + 1}` })),
+        pulls: Array.from({ length: 10 }, (_, i) => ({ number: i + 1, title: `PR ${i + 1}`, state: "open", url: `https://github.com/example/repo/pull/${i + 1}` })),
+      });
+      return baseHandler(c);
+    });
+    renderHome();
+    const issues = screen.getByTestId("home-issues");
+    expect(await within(issues).findByText("Issue 8")).toBeInTheDocument();
+    expect(within(issues).queryByText("Issue 9")).toBeNull();
+    const pulls = screen.getByTestId("home-pulls");
+    expect(await within(pulls).findByRole("button", { name: "PR 8" })).toBeInTheDocument();
+    expect(within(pulls).queryByText("PR 9")).toBeNull();
+    await user.click(within(pulls).getByRole("button", { name: "PR 8" }));
+    const sheet = await screen.findByTestId("drawer-pulls");
+    expect(sheet).toHaveAttribute("data-side", "bottom");
+    expect(within(sheet).getByRole("link", { name: "PR 8" })).toHaveAttribute("href", "https://github.com/example/repo/pull/8");
+    expect(sheet.querySelector('[data-selected="true"]')).toHaveTextContent("PR 8");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByTestId("open-pulls"));
+    expect(await screen.findByTestId("drawer-pulls")).toHaveAttribute("data-side", "bottom");
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByTestId("open-issues"));
+    expect(await screen.findByTestId("drawer-issues")).toHaveAttribute("data-side", "bottom");
+  });
+
   it("the Events card lists the record's head — the newest 4 in server order — not the tail", async () => {
     // Server record() unshifts, so record[0] is the newest entry. Six entries, newest first.
     const record = ["n6", "n5", "n4", "n3", "n2", "n1"].map((id) => comment(id, `title-${id}`));

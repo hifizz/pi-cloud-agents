@@ -30,6 +30,8 @@ import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
  * Loops has no drawer: its full surface is the existing Loops pane (「管理全部 Loops」). */
 export type HomeDrawer = "events" | "integrations" | "routines" | "issues" | "pulls" | "settings";
 
+const SUMMARY_LIMIT = 8;
+const BOTTOM_SHEET = "w-full rounded-t-2xl data-[side=bottom]:h-[75dvh] max-h-[90dvh]";
 const ACTIVE_RUN = new Set<LoopRunStatus>(["queued", "starting", "running", "needs_approval"]);
 
 /** One block of the home grid: header row (title + real count + actions) over a bordered summary body. */
@@ -42,7 +44,7 @@ function HomeCard({ title, count, actions, className, children, testId }: {
   testId: string;
 }) {
   return (
-    <section aria-label={title} className={className} data-testid={testId}>
+    <section aria-label={title} className={`flex min-w-0 flex-col ${className ?? ""}`} data-testid={testId}>
       <div className="flex items-center justify-between gap-2 px-0.5 pb-1.5">
         <h3 className="flex min-w-0 items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <span className="truncate">{title}</span>
@@ -50,7 +52,7 @@ function HomeCard({ title, count, actions, className, children, testId }: {
         </h3>
         <span className="flex shrink-0 items-center gap-1">{actions}</span>
       </div>
-      <div className="rounded-xl border border-border bg-card p-3 text-[13px]">{children}</div>
+      <div className="flex-1 rounded-xl border border-border bg-card p-3 text-[13px]">{children}</div>
     </section>
   );
 }
@@ -151,6 +153,7 @@ export function WorkspaceHome({
   const [opening, setOpening] = useState<number>();
   /** PR whose review request is in flight; disables every Review button until it resolves. */
   const [reviewing, setReviewing] = useState<number>();
+  const [selectedPr, setSelectedPr] = useState<number>();
   const [prFilter, setPrFilter] = useState<"open" | "closed" | "all">("open");
 
   // Routines live on a global list; only the ones attached to THIS workspace's sessions belong on this page.
@@ -311,7 +314,7 @@ export function WorkspaceHome({
             title="Loops（自动运行）"
             count={loops.status === "ok" ? loops.data.length : undefined}
             testId="home-loops"
-            className="md:col-span-2 xl:col-span-4"
+            className="md:col-span-1 xl:col-span-3"
             actions={
               <Button type="button" variant="link" size="sm" onClick={onOpenLoops} data-testid="open-loops" className="h-auto p-0">
                 管理全部 Loops →
@@ -393,7 +396,7 @@ export function WorkspaceHome({
             title="Events"
             count={events.status === "ok" ? events.data.record?.length : undefined}
             testId="home-events"
-            className="md:col-span-1 xl:col-span-2"
+            className="md:col-span-1 xl:col-span-3"
             actions={
               <Button type="button" variant="link" size="sm" onClick={() => onDrawerChange("events")} data-testid="open-events" className="h-auto p-0">
                 查看全部 →
@@ -449,7 +452,7 @@ export function WorkspaceHome({
               <p className="text-muted-foreground">没有未解决的 issue。</p>
             ) : (
               <ul className="space-y-1 text-[13px]">
-                {ov.issues.slice(0, 5).map((issue) => (
+                {ov.issues.slice(0, SUMMARY_LIMIT).map((issue) => (
                   <li key={issue.number} className="flex items-center gap-2" data-testid={`issue-summary-${issue.number}`} title={`#${issue.number} ${issue.title}`}>
                     <span className="shrink-0 font-mono text-xs text-muted-foreground">#{issue.number}</span>
                     <span className="min-w-0 flex-1 truncate">{issue.title}</span>
@@ -459,7 +462,7 @@ export function WorkspaceHome({
                     {issue.discussionBotId && <span className="shrink-0 text-[11px] text-muted-foreground">已有讨论</span>}
                   </li>
                 ))}
-                {ov.issues.length > 5 && <li className="px-1 text-[11px] text-muted-foreground">还有 {ov.issues.length - 5} 个，查看全部 →</li>}
+                {ov.issues.length > SUMMARY_LIMIT && <li className="px-1 text-[11px] text-muted-foreground">还有 {ov.issues.length - SUMMARY_LIMIT} 个，查看全部 →</li>}
               </ul>
             )
             }
@@ -472,7 +475,7 @@ export function WorkspaceHome({
             testId="home-pulls"
             className="md:col-span-1 xl:col-span-3"
             actions={
-              <Button type="button" variant="link" size="sm" onClick={() => onDrawerChange("pulls")} data-testid="open-pulls" className="h-auto p-0">
+              <Button type="button" variant="link" size="sm" onClick={() => { setSelectedPr(undefined); onDrawerChange("pulls"); }} data-testid="open-pulls" className="h-auto p-0">
                 查看全部 →
               </Button>
             }
@@ -483,16 +486,16 @@ export function WorkspaceHome({
               <p className="text-muted-foreground">没有开放的 PR。</p>
             ) : (
               <ul className="space-y-1 text-[13px]">
-                {openPulls.slice(0, 5).map((pr) => (
+                {openPulls.slice(0, SUMMARY_LIMIT).map((pr) => (
                   <li key={pr.number} className="flex items-center gap-2" title={`#${pr.number} ${pr.title ?? ""}`}>
                     <span className="shrink-0 font-mono text-xs text-muted-foreground">#{pr.number}</span>
-                    <a href={pr.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+                    <button type="button" onClick={() => { setPrFilter("open"); setSelectedPr(pr.number); onDrawerChange("pulls"); }} className="min-w-0 flex-1 truncate text-left text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring">
                       {pr.title ?? ""}
-                    </a>
+                    </button>
                     {pr.updatedAt && <span className="shrink-0 text-[11px] text-muted-foreground">{formatTime(pr.updatedAt)}</span>}
                   </li>
                 ))}
-                {openPulls.length > 5 && <li className="px-1 text-[11px] text-muted-foreground">还有 {openPulls.length - 5} 个开放的 PR，查看全部 →</li>}
+                {openPulls.length > SUMMARY_LIMIT && <li className="px-1 text-[11px] text-muted-foreground">还有 {openPulls.length - SUMMARY_LIMIT} 个开放的 PR，查看全部 →</li>}
               </ul>
             )
             }
@@ -570,7 +573,7 @@ export function WorkspaceHome({
       {/* Full detail surfaces live in closeable drawers; each mounts only while open, so no stale fetches linger
           between drawers or after a workspace switch (the whole page is remounted by the parent key). */}
       <Sheet open={drawer === "issues"} onOpenChange={(open) => !open && onDrawerChange(undefined)}>
-        <SheetContent side="right" className="w-full sm:max-w-lg" data-testid="drawer-issues">
+        <SheetContent side="bottom" className={BOTTOM_SHEET} data-testid="drawer-issues">
           <SheetHeader>
             <SheetTitle>Issues · {workspace.name}</SheetTitle>
           </SheetHeader>
@@ -669,7 +672,7 @@ export function WorkspaceHome({
       </Sheet>
 
       <Sheet open={drawer === "pulls"} onOpenChange={(open) => !open && onDrawerChange(undefined)}>
-        <SheetContent side="right" className="w-full sm:max-w-lg" data-testid="drawer-pulls">
+        <SheetContent side="bottom" className={BOTTOM_SHEET} data-testid="drawer-pulls">
           <SheetHeader>
             <SheetTitle>Pull requests · {workspace.name}</SheetTitle>
           </SheetHeader>
@@ -701,7 +704,7 @@ export function WorkspaceHome({
             ) : (
               <ul className="space-y-1.5">
                 {shownPulls.map((pr) => (
-                  <li key={pr.number} className="rounded-lg border border-border bg-card px-3 py-2 text-[13px]">
+                  <li key={pr.number} data-selected={selectedPr === pr.number ? "true" : undefined} ref={(node) => { if (selectedPr === pr.number) node?.scrollIntoView?.({ block: "nearest" }); }} className="rounded-lg border border-border bg-card px-3 py-2 text-[13px] data-[selected=true]:border-primary">
                     <div className="flex items-center gap-2">
                       <span className="shrink-0 font-mono text-xs text-muted-foreground">#{pr.number}</span>
                       <a href={pr.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring" title={pr.title ?? ""}>
@@ -735,7 +738,7 @@ export function WorkspaceHome({
         </SheetContent>
       </Sheet>
       <Sheet open={drawer === "events"} onOpenChange={(open) => { if (!open) { onDrawerChange(undefined); refresh(); } }}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl" data-testid="drawer-events">
+        <SheetContent side="bottom" className={BOTTOM_SHEET} data-testid="drawer-events">
           <SheetHeader>
             <SheetTitle>Events · {workspace.name}</SheetTitle>
           </SheetHeader>
@@ -747,7 +750,7 @@ export function WorkspaceHome({
       </Sheet>
 
       <Sheet open={drawer === "integrations"} onOpenChange={(open) => { if (!open) { onDrawerChange(undefined); refresh(); } }}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl" data-testid="drawer-integrations">
+        <SheetContent side="bottom" className={BOTTOM_SHEET} data-testid="drawer-integrations">
           <SheetHeader>
             <SheetTitle>Integrations · {workspace.name}</SheetTitle>
           </SheetHeader>
@@ -759,7 +762,7 @@ export function WorkspaceHome({
       </Sheet>
 
       <Sheet open={drawer === "routines"} onOpenChange={(open) => { if (!open) { onDrawerChange(undefined); refresh(); } }}>
-        <SheetContent side="right" className="w-full sm:max-w-lg" data-testid="drawer-routines">
+        <SheetContent side="bottom" className={BOTTOM_SHEET} data-testid="drawer-routines">
           <SheetHeader>
             <SheetTitle>Routines · {workspace.name}</SheetTitle>
           </SheetHeader>
