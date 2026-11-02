@@ -786,7 +786,7 @@ export default function App({ email, onLoggedOut }: { email?: string; onLoggedOu
               active={panels.active}
               onSelect={panels.select}
               onClose={panels.close}
-              ctx={{ bot, bots, vm }}
+              ctx={{ bot, bots, vm, workspace }}
               focus={panels.focus}
             />
           )

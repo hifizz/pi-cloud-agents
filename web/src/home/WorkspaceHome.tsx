@@ -2,9 +2,10 @@
 // Compact header (repo, branch, status, refresh, settings) plus a 6-column grid of summary cards — Loops,
 // Events, Issues, Pull requests, Integrations, Routines — each a real count + a few rows, with its full
 // management surface behind a "查看全部" drawer. Only UI rearrangement: every action still hits the same APIs.
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { loopsApi, triggerLabel, RUN_STATUS_LABEL, type Loop, type LoopRunStatus } from "../lib/loops";
+import { OVERVIEW_SKELETON_MIN_MS, readOverviewCache, writeOverviewCache } from "../lib/overview-cache";
 import {
   STATUS_LABEL,
   describeError,
@@ -22,6 +23,7 @@ import { emptyVM } from "../lib/reducer";
 import { Empty, EmptyDescription } from "../components/ui/empty";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Badge } from "../components/ui/badge";
+import { Skeleton } from "../components/ui/skeleton";
 import { Button } from "../components/ui/button";
 import { Icon } from "../components/Chat/primitives/Icon";
 import { SidebarTrigger } from "../components/ui/sidebar";
@@ -30,6 +32,15 @@ import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
 /** Which drawer is open. Each value mounts a detail surface only while open; undefined = closed.
  * Loops has no drawer: its full surface is the existing Loops pane (「管理全部 Loops」). */
 export type HomeDrawer = "events" | "integrations" | "routines" | "issues" | "pulls" | "settings";
+
+/** The payloads the home page caches, keyed by source name in the localStorage entry. */
+interface HomeCacheData {
+  overview?: WorkspaceOverview;
+  loops?: Loop[];
+  events?: EventsSyncState;
+  installs?: IntegrationInstall[];
+  routines?: Awaited<ReturnType<typeof api.listRoutines>>;
+}
 
 const SUMMARY_LIMIT = 12;
 const BOTTOM_SHEET = "w-full rounded-t-2xl data-[side=bottom]:h-[75dvh] max-h-[90dvh]";
@@ -64,8 +75,23 @@ type Source<T> = { status: "loading" } | { status: "error"; message: string } | 
 
 const LOADING: Source<never> = { status: "loading" };
 
-function SourceBody<T>({ source, retry, children }: { source: Source<T>; retry: () => void; children: (data: T) => ReactNode }) {
-  if (source.status === "loading") return <p className="text-muted-foreground">加载中…</p>;
+/** Rows of pulsing placeholders shaped like a summary card's body; used instead of a "加载中…" line while a
+ * source has no cached snapshot. The `rows` count mirrors the content a card usually shows. */
+function CardSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <ul className="space-y-2" aria-hidden="true">
+      {Array.from({ length: rows }, (_, i) => (
+        <li key={i} className="space-y-1.5">
+          <Skeleton className="h-4" style={{ width: `${78 - i * 12}%` }} />
+          <Skeleton className="h-3" style={{ width: `${55 - i * 8}%` }} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SourceBody<T>({ source, retry, skeletonRows, children }: { source: Source<T>; retry: () => void; skeletonRows?: number; children: (data: T) => ReactNode }) {
+  if (source.status === "loading") return <CardSkeleton rows={skeletonRows} />;
   if (source.status === "error")
     return (
       <p className="flex items-center gap-2 text-destructive" role="alert">
@@ -142,12 +168,21 @@ export function WorkspaceHome({
   drawer,
   onDrawerChange,
 }: WorkspaceHomeProps) {
-  const [data, setData] = useState<Source<WorkspaceOverview>>(LOADING);
-  const [loops, setLoops] = useState<Source<Loop[]>>(LOADING);
-  const [events, setEvents] = useState<Source<EventsSyncState>>(LOADING);
-  const [installs, setInstalls] = useState<Source<IntegrationInstall[]>>(LOADING);
-  const [routines, setRoutines] = useState<Source<Awaited<ReturnType<typeof api.listRoutines>>>>(LOADING);
+  const cached = useMemo(() => readOverviewCache(workspace.id)?.data as HomeCacheData | undefined, [workspace.id]);
+  // Each source initializes from the persisted snapshot when there is one, so a revisit renders content instantly;
+  // the loaders below overwrite it with fresh data. `stale` marks "showing cache, fetch in flight" for the header.
+  const [data, setData] = useState<Source<WorkspaceOverview>>(() => (cached?.overview ? { status: "ok", data: cached.overview } : LOADING));
+  const [loops, setLoops] = useState<Source<Loop[]>>(() => (cached?.loops ? { status: "ok", data: cached.loops } : LOADING));
+  const [events, setEvents] = useState<Source<EventsSyncState>>(() => (cached?.events ? { status: "ok", data: cached.events } : LOADING));
+  const [installs, setInstalls] = useState<Source<IntegrationInstall[]>>(() => (cached?.installs ? { status: "ok", data: cached.installs } : LOADING));
+  const [routines, setRoutines] = useState<Source<Awaited<ReturnType<typeof api.listRoutines>>>>(() => (cached?.routines ? { status: "ok", data: cached.routines } : LOADING));
   const [loading, setLoading] = useState(true);
+  const [stale, setStale] = useState(() => cached !== undefined);
+  /** True once any source produced content this mount; the skeleton delay only matters before that. */
+  const hadContent = useRef(cached !== undefined);
+  /** Pending delayed set-applies; cancelled on unmount so a workspace switch can't write state into a dead tree. */
+  const pendingTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => () => pendingTimers.current.forEach(clearTimeout), []);
   /** Issue row expanded into its detail + actions panel (click toggles; it never starts a session by itself). */
   const [expandedIssue, setExpandedIssue] = useState<number>();
   /** Issue currently being opened via the discuss flow; disables every issue action until it resolves. */
@@ -164,48 +199,79 @@ export function WorkspaceHome({
   );
 
   // Independent sources: each summary card owns its fetch so one failure can't freeze or falsify the others.
-  const loadOverview = useCallback(async () => {
-    try {
-      setData({ status: "ok", data: await workspacesApi.overview(workspace.id, { allPrs: true }) });
-    } catch (e) {
-      setData({ status: "error", message: describeError(e) });
+  // Every loader writes its payload into the shared cache entry, and — only while the card still shows a skeleton
+  // (no cache, nothing rendered yet) — holds the result back briefly so the skeleton can't flash for a sub-frame
+  // instant. Once real content is on screen, fresh data applies the moment it arrives.
+  const settle = useCallback(<T,>(set: (s: Source<T>) => void, patch: Partial<HomeCacheData>, started: number, ok: Source<T>) => {
+    const apply = () => {
+      set(ok);
+      writeOverviewCache(workspace.id, patch);
+      hadContent.current = true;
+    };
+    const delay = hadContent.current ? 0 : OVERVIEW_SKELETON_MIN_MS - (Date.now() - started);
+    if (delay <= 0) {
+      apply();
+    } else {
+      const t = setTimeout(() => {
+        pendingTimers.current.delete(t);
+        apply();
+      }, delay);
+      pendingTimers.current.add(t);
     }
   }, [workspace.id]);
+  const loadOverview = useCallback(async () => {
+    const started = Date.now();
+    try {
+      const v = await workspacesApi.overview(workspace.id, { allPrs: true });
+      settle(setData, { overview: v }, started, { status: "ok", data: v });
+    } catch (e) {
+      settle(setData, {}, started, { status: "error", message: describeError(e) });
+    }
+  }, [workspace.id, settle]);
   const loadLoops = useCallback(async () => {
+    const started = Date.now();
     try {
       const l = await loopsApi.list(workspace.id);
-      setLoops({ status: "ok", data: Array.isArray(l) ? l : [] });
+      const list = Array.isArray(l) ? l : [];
+      settle(setLoops, { loops: list }, started, { status: "ok", data: list });
     } catch (e) {
-      setLoops({ status: "error", message: describeError(e) });
+      settle(setLoops, {}, started, { status: "error", message: describeError(e) });
     }
-  }, [workspace.id]);
+  }, [workspace.id, settle]);
   const loadEvents = useCallback(async () => {
+    const started = Date.now();
     try {
-      setEvents({ status: "ok", data: await eventsApi.state(workspace.id) });
+      const v = await eventsApi.state(workspace.id);
+      settle(setEvents, { events: v }, started, { status: "ok", data: v });
     } catch (e) {
-      setEvents({ status: "error", message: describeError(e) });
+      settle(setEvents, {}, started, { status: "error", message: describeError(e) });
     }
-  }, [workspace.id]);
+  }, [workspace.id, settle]);
   const loadInstalls = useCallback(async () => {
+    const started = Date.now();
     try {
       const r = await integrationsApi.list(workspace.id);
-      setInstalls({ status: "ok", data: r.installs ?? [] });
+      const list = r.installs ?? [];
+      settle(setInstalls, { installs: list }, started, { status: "ok", data: list });
     } catch (e) {
-      setInstalls({ status: "error", message: describeError(e) });
+      settle(setInstalls, {}, started, { status: "error", message: describeError(e) });
     }
-  }, [workspace.id]);
+  }, [workspace.id, settle]);
   const loadRoutines = useCallback(async () => {
+    const started = Date.now();
     try {
-      setRoutines({ status: "ok", data: await api.listRoutines() });
+      const v = await api.listRoutines();
+      settle(setRoutines, { routines: v }, started, { status: "ok", data: v });
     } catch (e) {
-      setRoutines({ status: "error", message: describeError(e) });
+      settle(setRoutines, {}, started, { status: "error", message: describeError(e) });
     }
-  }, [workspace.id]);
+  }, [settle]);
 
   const LOADERS = useMemo(() => [loadOverview, loadLoops, loadEvents, loadInstalls, loadRoutines], [loadOverview, loadLoops, loadEvents, loadInstalls, loadRoutines]);
   const load = useCallback(async () => {
     setLoading(true);
     await Promise.all(LOADERS.map((fn) => fn()));
+    setStale(false);
     setLoading(false);
   }, [LOADERS]);
   /** Drawer close / action refresh: re-pull summaries without resetting their state to a global spinner. */
@@ -280,7 +346,7 @@ export function WorkspaceHome({
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading} className="shrink-0">
-          {loading ? "加载中…" : "刷新"}
+          {loading ? (stale ? "更新中…" : "加载中…") : "刷新"}
         </Button>
         <Button
           type="button"
@@ -296,8 +362,6 @@ export function WorkspaceHome({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 lg:p-6">
-        {loading && data.status === "loading" && <p className="mb-3 text-sm text-muted-foreground">加载中…</p>}
-
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
           <HomeCard
             title="Loops（自动运行）"
@@ -310,7 +374,7 @@ export function WorkspaceHome({
               </Button>
             }
           >
-            <SourceBody source={loops} retry={() => void loadLoops()}>
+            <SourceBody source={loops} retry={() => void loadLoops()} skeletonRows={4}>
               {(loopList) =>
                 loopList.length === 0 ? (
               <p className="text-muted-foreground">
@@ -392,7 +456,7 @@ export function WorkspaceHome({
               </Button>
             }
           >
-            <SourceBody source={events} retry={() => void loadEvents()}>
+            <SourceBody source={events} retry={() => void loadEvents()} skeletonRows={4}>
               {(ev) => (
               <>
                 <div className="flex items-center gap-2 pb-1.5">
@@ -435,7 +499,7 @@ export function WorkspaceHome({
               </Button>
             }
           >
-            <SourceBody source={data} retry={() => void loadOverview()}>
+            <SourceBody source={data} retry={() => void loadOverview()} skeletonRows={6}>
               {(ov) =>
                 ov.issues.length === 0 ? (
               <p className="text-muted-foreground">没有未解决的 issue。</p>
@@ -469,7 +533,7 @@ export function WorkspaceHome({
               </Button>
             }
           >
-            <SourceBody source={data} retry={() => void loadOverview()}>
+            <SourceBody source={data} retry={() => void loadOverview()} skeletonRows={6}>
               {() =>
                 openPulls.length === 0 ? (
               <p className="text-muted-foreground">没有开放的 PR。</p>
@@ -502,7 +566,7 @@ export function WorkspaceHome({
               </Button>
             }
           >
-            <SourceBody source={installs} retry={() => void loadInstalls()}>
+            <SourceBody source={installs} retry={() => void loadInstalls()} skeletonRows={3}>
               {(list) =>
                 list.length === 0 ? (
               <p className="text-muted-foreground">还没有安装集成。Skill 与 MCP 供 Pi Agent 使用；安装入口在「查看全部」。</p>
@@ -534,7 +598,7 @@ export function WorkspaceHome({
               </Button>
             }
           >
-            <SourceBody source={routines} retry={() => void loadRoutines()}>
+            <SourceBody source={routines} retry={() => void loadRoutines()} skeletonRows={3}>
               {() =>
                 wsRoutines.length === 0 ? (
               <p className="text-muted-foreground">本工作区的会话还没有 routine。Routine 挂在具体会话上定时发消息，新建入口在「查看全部」。</p>

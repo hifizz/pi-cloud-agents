@@ -4,8 +4,7 @@ import userEvent from "@testing-library/user-event";
 import App from "../src/App";
 import { api } from "../src/lib/api";
 import { NewWorkspaceDialog } from "../src/components/NewWorkspaceDialog";
-import { EnvironmentPane } from "../src/components/EnvironmentPane";
-import { WorkspaceActions, WorkspaceStatus } from "../src/components/WorkspaceStatus";
+import { WorkspaceActions, WorkspaceOpsBar, WorkspaceStatus } from "../src/components/WorkspaceStatus";
 import { SessionHeader } from "../src/shell/SessionHeader";
 import { emptyVM } from "../src/lib/reducer";
 import { envName, mapBotsToWorkspaces, mergeWorkspaceList, useWorkspacePoll, type LocalWorkspace, type Workspace } from "../src/lib/workspaces";
@@ -240,10 +239,10 @@ describe("WorkspaceStatus", () => {
   });
 });
 
-describe("WorkspaceActions", () => {
+describe("WorkspaceOpsBar", () => {
   it("renders nothing for a workspace that is not ready", () => {
     fakeFetch(() => undefined);
-    const { container } = render(<WorkspaceActions workspace={ws({ status: "preparing" })} />);
+    const { container } = render(<WorkspaceOpsBar workspace={ws({ status: "preparing" })} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -251,14 +250,13 @@ describe("WorkspaceActions", () => {
     const user = userEvent.setup();
     let n = 0;
     const calls = fakeFetch(({ method, path }) => {
-      if (method === "GET" && path === "/api/workspaces/w1/checkpoints") return json([]);
       if (method === "POST" && path === "/api/workspaces/w1/pr") {
         const created = n++ === 0;
         return json({ pull: { number: 7, url: "https://github.com/hifizz/demo/pull/7" }, created });
       }
       return undefined;
     });
-    render(<WorkspaceActions workspace={ws()} />);
+    render(<WorkspaceOpsBar workspace={ws()} verbose />);
     await user.click(screen.getByRole("button", { name: "创建 PR" }));
     expect(await screen.findByText(/PR 已创建/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "#7" })).toHaveAttribute("href", "https://github.com/hifizz/demo/pull/7");
@@ -272,14 +270,13 @@ describe("WorkspaceActions", () => {
   it("switching to another workspace does not carry over the PR result of the previous one (found in the M1 acceptance run)", async () => {
     const user = userEvent.setup();
     fakeFetch(({ method, path }) => {
-      if (method === "GET" && path.endsWith("/checkpoints")) return json([]);
       if (method === "POST" && path === "/api/workspaces/w1/pr") return json({ pull: { number: 11, url: "https://github.com/hifizz/demo/pull/11" }, created: true });
       return undefined;
     });
-    const { rerender } = render(<EnvironmentPane workspace={ws({ id: "w1" })} />);
+    const { rerender } = render(<WorkspaceOpsBar workspace={ws({ id: "w1" })} verbose />);
     await user.click(screen.getByRole("button", { name: "创建 PR" }));
     expect(await screen.findByRole("link", { name: "#11" })).toBeInTheDocument();
-    rerender(<EnvironmentPane workspace={ws({ id: "w2", branch: "tarsbot/other-9f8e7d" })} />);
+    rerender(<WorkspaceOpsBar workspace={ws({ id: "w2", branch: "tarsbot/other-9f8e7d" })} verbose />);
     expect(screen.queryByRole("link", { name: "#11" })).not.toBeInTheDocument();
     expect(screen.queryByText(/PR 已/)).not.toBeInTheDocument();
   });
@@ -287,12 +284,11 @@ describe("WorkspaceActions", () => {
   it("create PR failure shows the error and the retry reuses the requestId", async () => {
     const user = userEvent.setup();
     let n = 0;
-    const calls = fakeFetch(({ method, path }) => {
-      if (method === "GET") return json([]);
+    const calls = fakeFetch(({ path }) => {
       if (path.endsWith("/pr")) return n++ === 0 ? json({ error: "分支尚未推送，请先让 Bot git push" }, 409) : json({ pull: { number: 8, url: "https://github.com/hifizz/demo/pull/8" }, created: true });
       return undefined;
     });
-    render(<WorkspaceActions workspace={ws()} />);
+    render(<WorkspaceOpsBar workspace={ws()} verbose />);
     await user.click(screen.getByRole("button", { name: "创建 PR" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("分支尚未推送");
     await user.click(screen.getByRole("button", { name: "创建 PR" }));
@@ -301,24 +297,47 @@ describe("WorkspaceActions", () => {
     expect(prs[1].body!.requestId).toBe(prs[0].body!.requestId);
   });
 
-  it("saves a checkpoint (time and size shown), lists checkpoints, and rebuild asks for confirmation first", async () => {
+  it("saves a checkpoint (time and size shown) and reports the save to the parent via onSaved", async () => {
     const user = userEvent.setup();
     const cp = { id: "c1", size: 2048, createdAt: "2026-10-25T10:20:00Z", fileCount: 3, bindingVersion: 1 };
-    let saved = false;
     const calls = fakeFetch(({ method, path }) => {
-      if (method === "GET" && path === "/api/workspaces/w1/checkpoints") return json(saved ? [cp] : []);
-      if (method === "POST" && path === "/api/workspaces/w1/checkpoint") {
-        saved = true;
-        return json(cp);
-      }
+      if (method === "POST" && path === "/api/workspaces/w1/checkpoint") return json(cp);
+      return undefined;
+    });
+    const onSaved = vi.fn();
+    render(<WorkspaceOpsBar workspace={ws()} verbose onSaved={onSaved} />);
+    await user.click(screen.getByRole("button", { name: "保存检查点" }));
+    expect(await screen.findByText(/已保存：/)).toHaveTextContent("2.0 KB");
+    expect(onSaved).toHaveBeenCalled();
+    expect(calls.some((c) => c.path.endsWith("/checkpoint"))).toBe(true);
+  });
+
+  it("checkpoint save failure shows an error", async () => {
+    const user = userEvent.setup();
+    fakeFetch(({ method }) => (method === "GET" ? json([]) : json({ error: "超过大小上限" }, 500)));
+    render(<WorkspaceOpsBar workspace={ws()} verbose />);
+    await user.click(await screen.findByRole("button", { name: "保存检查点" }));
+    expect(await screen.findByText(/保存检查点失败：超过大小上限/)).toBeInTheDocument();
+  });
+});
+
+describe("WorkspaceActions", () => {
+  it("renders nothing for a workspace that is not ready", () => {
+    fakeFetch(() => undefined);
+    const { container } = render(<WorkspaceActions workspace={ws({ status: "preparing" })} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("lists checkpoints and asks for confirmation before rebuild", async () => {
+    const user = userEvent.setup();
+    const cp = { id: "c1", size: 2048, createdAt: "2026-10-25T10:20:00Z", fileCount: 3, bindingVersion: 1 };
+    const calls = fakeFetch(({ method, path }) => {
+      if (method === "GET" && path === "/api/workspaces/w1/checkpoints") return json([cp]);
       if (method === "POST" && path === "/api/workspaces/w1/rebuild") return json({ version: 2, replaced: { runtimeId: "pca-oldenv0001", version: 1 } });
       return undefined;
     });
     const onChanged = vi.fn();
     render(<WorkspaceActions workspace={ws()} onChanged={onChanged} />);
-    expect(await screen.findByText("还没有检查点。")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "保存检查点" }));
-    expect(await screen.findByText(/已保存：/)).toHaveTextContent("2.0 KB");
     expect(await screen.findByTestId("checkpoint-item")).toHaveTextContent("3 个文件");
 
     await user.click(within(screen.getByTestId("checkpoint-item")).getByRole("button", { name: /重建/ }));
@@ -350,14 +369,6 @@ describe("WorkspaceActions", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const rebuilds = calls.filter((c) => c.path.endsWith("/rebuild"));
     expect(rebuilds[1].body!.requestId).toBe(rebuilds[0].body!.requestId);
-  });
-
-  it("checkpoint save failure shows an error", async () => {
-    const user = userEvent.setup();
-    fakeFetch(({ method }) => (method === "GET" ? json([]) : json({ error: "超过大小上限" }, 500)));
-    render(<WorkspaceActions workspace={ws()} />);
-    await user.click(await screen.findByRole("button", { name: "保存检查点" }));
-    expect(await screen.findByText(/保存检查点失败：超过大小上限/)).toBeInTheDocument();
   });
 });
 

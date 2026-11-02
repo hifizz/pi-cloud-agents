@@ -314,13 +314,16 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
     localStorage.setItem("pca.workspace", "w1");
     render(<App />);
 
-    // clicking the workspace row opens the home page: six summary cards, no chat/composer
+    // clicking the workspace row opens the home page: six summary cards, no chat/composer (content may trail a
+    // brief first-load skeleton, so settle on the text rather than a fixed microtask)
     await user.click(await screen.findByRole("button", { name: /issue-loop ws/ }));
     const ov = await screen.findByTestId("workspace-overview");
-    expect(ov).toHaveTextContent("#12");
-    expect(ov).toHaveTextContent("Fix upload");
-    expect(ov).toHaveTextContent("#7");
-    expect(ov).toHaveTextContent("WIP feature");
+    await waitFor(() => {
+      expect(ov).toHaveTextContent("#12");
+      expect(ov).toHaveTextContent("Fix upload");
+      expect(ov).toHaveTextContent("#7");
+      expect(ov).toHaveTextContent("WIP feature");
+    });
     // no chat input or messages on the overview (assert the settled state — a boot-time primary-session
     // resolution can briefly mount a composer before the workspace-row click commits pickedBotId=null)
     await waitFor(() => expect(screen.queryByLabelText("Message")).toBeNull());
@@ -386,11 +389,14 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
     await user.click(await screen.findByRole("button", { name: /^primary/ }));
     await screen.findByLabelText("Message");
     expect(screen.queryByTestId("workspace-overview")).toBeNull();
-    // back to the workspace row: the overview shows again (with the empty-state texts)
+    // back to the workspace row: the overview shows again (with the empty-state texts); the revisit may first
+    // show the cached snapshot, so wait for the fresh empty state.
     await user.click(screen.getByRole("button", { name: /issue-loop ws/ }));
     const ov = await screen.findByTestId("workspace-overview");
-    expect(ov).toHaveTextContent("没有未解决的 issue。");
-    expect(ov).toHaveTextContent("没有开放的 PR。");
+    await waitFor(() => {
+      expect(ov).toHaveTextContent("没有未解决的 issue。");
+      expect(ov).toHaveTextContent("没有开放的 PR。");
+    });
     expect(screen.queryByLabelText("Message")).toBeNull();
   });
 

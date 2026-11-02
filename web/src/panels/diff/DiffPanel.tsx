@@ -72,6 +72,7 @@ export function DiffPanel({ source = conversationSource, ...ctx }: PanelContext 
         onWrap={() => setWrap((w) => !w)}
         allCollapsed={allCollapsed}
         onToggleAll={() => setCollapsed(allCollapsed ? new Set() : new Set(files.map((f) => f.path)))}
+        workspace={ctx.workspace}
       />
       {error && <p role="alert" className="px-4 py-2 text-xs text-destructive">{error}</p>}
       {!turn ? (

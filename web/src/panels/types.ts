@@ -5,6 +5,7 @@
 import type { ComponentType } from "react";
 import type { IconName } from "../components/Chat/primitives/Icon";
 import type { BotSummary, ConversationVM } from "../types";
+import type { Workspace } from "../lib/workspaces";
 
 /** A request to show something specific, e.g. "Open diff" on turn X / file Y. `seq` changes on every request. */
 export interface PanelFocus {
@@ -19,6 +20,8 @@ export interface PanelContext {
   bots: BotSummary[];
   /** Live conversation of the selected bot (empty VM when none). */
   vm: ConversationVM;
+  /** Workspace the selected bot belongs to; undefined on the workspace overview or before it resolves. */
+  workspace?: Workspace;
   /** Present only for the panel the focus was addressed to. */
   focus?: PanelFocus;
 }

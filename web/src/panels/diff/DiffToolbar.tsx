@@ -2,6 +2,8 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Toggle } from "../../components/ui/toggle";
 import { Icon } from "../../components/Chat/primitives/Icon";
+import { WorkspaceOpsBar } from "../../components/WorkspaceStatus";
+import type { Workspace } from "../../lib/workspaces";
 import type { TurnChange } from "../../lib/turns";
 import { TurnSelect } from "./TurnSelect";
 
@@ -13,9 +15,11 @@ interface Props {
   onWrap: () => void;
   allCollapsed: boolean;
   onToggleAll: () => void;
+  /** Owning workspace; the create-PR / save-checkpoint ops render only when it resolves and is ready. */
+  workspace?: Workspace;
 }
 
-export function DiffToolbar({ turns, turn, onTurn, wrap, onWrap, allCollapsed, onToggleAll }: Props) {
+export function DiffToolbar({ turns, turn, onTurn, wrap, onWrap, allCollapsed, onToggleAll, workspace }: Props) {
   return (
     <div className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border px-3">
       <TurnSelect turns={turns} value={turn?.key} onChange={onTurn} />
@@ -26,6 +30,7 @@ export function DiffToolbar({ turns, turn, onTurn, wrap, onWrap, allCollapsed, o
         </span>
       )}
       <div className="ml-auto flex items-center gap-2">
+        {workspace && <WorkspaceOpsBar workspace={workspace} />}
         <Toggle type="button" pressed={wrap} onPressedChange={onWrap} size="sm" variant="outline" aria-pressed={wrap}>
           Wrap
         </Toggle>
