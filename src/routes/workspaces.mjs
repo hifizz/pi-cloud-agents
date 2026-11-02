@@ -14,7 +14,6 @@
 import { randomUUID } from "node:crypto";
 import { HttpError, toJson } from "../api.mjs";
 import { ctx } from "../harness.mjs";
-import { config } from "../config.mjs";
 import { shellQuote } from "../env.mjs";
 import { Preamble } from "../ext/preamble.mjs";
 import { mapGithubError, REPO_RE } from "./github.mjs";
@@ -178,8 +177,6 @@ export function register(app) {
 
   function assertIssueLoopWorkspace(id) {
     const ws = workspaceOr404(id);
-    const allowed = config.issueLoopRepos;
-    if (!allowed.includes(ws.repo)) throw new HttpError(409, `issue-loop only runs on configured repos: ${allowed.join(", ")} (this workspace uses ${ws.repo})`);
     if (ws.status !== "ready") throw new HttpError(409, `workspace is not ready (status: ${ws.status})`);
     if (!control.bindings.current(ws.id)) throw new HttpError(409, "workspace has no active runtime binding");
     if (typeof app.ctx.runtimeBash !== "function") throw new HttpError(503, "runtime bash is not available");

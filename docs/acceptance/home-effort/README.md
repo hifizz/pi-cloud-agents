@@ -1,5 +1,13 @@
 # 首页与思考强度本地验收
 
+## 移除仓库白名单
+
+用户明确要求全部放开：删除 issue-loop / GitHub events 仓库名单、配置字段和演示环境变量。仍保留登录鉴权、就绪和运行时绑定检查、事件同步的显式启用以及现有审批。
+
+- 离线：任意 owner/repo 的讨论与手动 Session 成功；事件同步 enable/sync/startPolling 接受其他仓库；非 ready 仍拒绝。
+- 后端 622 pass / 1 skip；前端 251 pass，typecheck/build 通过。
+- EGO 实际打开 thread-chatbot 工作区 `ws_0da35f122751031d`，用不存在的 issue `2147483647` 验证守卫已放行：得到 GitHub issue 不存在的 404，而非仓库白名单 409。没有启动讨论、没有修改远端仓库。截图 `06-unrestricted-repo.png`，Events 中不再显示仅限测试仓库。
+
 ## 后续布局调整
 
 - Loops / Events 各占半宽，同排卡片内容框等高。EGO 实测两个框均为 552×71.5，Issues / PR 均为 552×186.5。

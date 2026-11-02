@@ -36,12 +36,6 @@ export const config = {
   /** Loops (Issue14): max concurrently running loop runs across the process (FIFO queue above this). */
   loopsMaxConcurrent: Math.max(1, Number(process.env.TARSBOT_LOOPS_MAX_CONCURRENCY ?? 3) || 3),
   loopsGithubPollSec: Math.max(30, Number(process.env.TARSBOT_LOOPS_GH_POLL_SEC ?? 300) || 300),
-  /** Repos where issue-loop sessions and GitHub event sync may run — the agent-facing GitHub boundary.
-   * Comma-separated owner/name list; unset keeps the spike default (the test repo only). */
-  get issueLoopRepos() {
-    const raw = process.env.TARSBOT_ISSUE_LOOP_REPOS ?? "hifizz/tars-sandbox-playground";
-    return raw.split(",").map((s) => s.trim()).filter(Boolean);
-  },
 };
 
 export const defaultModel = () => ({ provider: config.provider, modelId: config.defaultModelId });

@@ -18,13 +18,12 @@ const DATA = resolve(WT, "../pca-wia-demo-state");
 
 const demos = {
   wia: {
-    desc: "WIA demo: composer + issue-loop allowlist (branch demo/wia, this worktree)",
+    desc: "WIA demo: workspace dashboard + SWE-2 controls (branch demo/wia, this worktree)",
     backend: { port: 8092, launcher: `${WT}/scripts/demo-launch-wia.mjs` },
     vite: { port: 5183, config: "vite.8092.config.ts" },
     dataDir: DATA,
     env: {
       TARSBOT_DATA_DIR: DATA,
-      TARSBOT_ISSUE_LOOP_REPOS: "hifizz/tars-sandbox-playground,hifizz/pi-cloud-agents",
       TARSBOT_ALLOWED_EMAILS: "demo@localhost,env-demo@localhost",
     },
   },

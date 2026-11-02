@@ -586,27 +586,12 @@ test("add session: a blank session in the same Sprite, its own detached worktree
   }
 });
 
-test("add session: refuses a non-test repo and a workspace that is not ready, with no worktree and no Bot", async () => {
+test("add session: refuses a workspace that is not ready, with no worktree and no Bot", async () => {
   const env = await makeEnv({ defaultBranch: "main", branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [] });
   try {
     env.store.workspaces.update(env.ws.id, { status: "preparing" });
     const notReady = await env.post(`/api/workspaces/${env.ws.id}/sessions`, { name: "x" });
     assert.equal(notReady.status, 409, "a not-ready workspace cannot get a session");
-    // a ready workspace of ANOTHER repo: the store fixes `repo`, so it is created as such, not mutated
-    const otherProject = env.store.projects.upsert({ repo: "someone/else", defaultBranch: "main" });
-    const { workspace: foreign } = env.store.workspaces.create({
-      requestId: "seed-foreign",
-      projectId: otherProject.id,
-      name: "foreign ws",
-      baseBranch: "main",
-      branch: "tarsbot/foreign",
-      cwd: "/home/sprite/workspace/else",
-      model: FAUX,
-    });
-    env.store.workspaces.update(foreign.id, { status: "ready" });
-    env.store.bindings.bind(foreign.id, { provider: "sprites", runtimeId: "pca-other00000" });
-    const otherRepo = await env.post(`/api/workspaces/${foreign.id}/sessions`, { name: "x" });
-    assert.equal(otherRepo.status, 409, "a workspace outside the test repo gets no fake success");
     assert.equal(env.bots.created.length, 0, "nothing was created");
     assert.equal(env.rt.calls.filter((c) => c.includes("worktree add")).length, 0, "no worktree was added");
   } finally {
@@ -959,27 +944,18 @@ test("result: an execution session reports a human result; the PR is verified ag
   }
 });
 
-// ---- repo allowlist (TARSBOT_ISSUE_LOOP_REPOS) ----------------------------------------------------------------------
-
-test("issue-loop allowlist: default rejects other repos; TARSBOT_ISSUE_LOOP_REPOS opens them", async () => {
-  const OTHER = "hifizz/pi-cloud-agents";
-  const env = await makeEnv({ repo: OTHER, branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [] });
-  const prev = process.env.TARSBOT_ISSUE_LOOP_REPOS;
-  try {
-    // default allowlist (test repo only): the guard rejects before any GitHub call
-    let r = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
-    assert.equal(r.status, 409, "default allowlist must reject the product repo");
-    assert.match(r.json.error, /configured repos/);
-    assert.equal(env.gh.st.calls.length, 0, "the guard rejects before touching GitHub");
-
-    // explicit allowlist including this repo: the same request passes the guard (and succeeds end-to-end)
-    process.env.TARSBOT_ISSUE_LOOP_REPOS = `${REPO},${OTHER}`;
-    r = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
-    assert.equal(r.status, 200, r.json?.error);
-    assert.equal(env.bots.created[0].issueLoop.issue, 12);
-  } finally {
-    if (prev === undefined) delete process.env.TARSBOT_ISSUE_LOOP_REPOS;
-    else process.env.TARSBOT_ISSUE_LOOP_REPOS = prev;
-    await env.close();
+test("issue-loop accepts any ready workspace's bound repository without an allowlist", async () => {
+  for (const repo of ["hifizz/thread-chatbot", "another-owner/another-repo"]) {
+    const env = await makeEnv({ repo, branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [] });
+    try {
+      const r = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
+      assert.equal(r.status, 200, r.json?.error);
+      assert.equal(env.bots.created[0].issueLoop.issue, 12);
+      assert.ok(env.gh.st.calls.some((c) => c.includes(`/repos/${repo}/`)));
+      const manual = await env.post(`/api/workspaces/${env.ws.id}/sessions`, { name: "manual" });
+      assert.equal(manual.status, 200, manual.json?.error);
+    } finally {
+      await env.close();
+    }
   }
 });

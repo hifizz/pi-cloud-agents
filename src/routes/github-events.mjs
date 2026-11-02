@@ -57,7 +57,6 @@ export function register(app) {
 
   const service = createGithubEventsService({
     dataDir: app.ctx.dataDir ?? config.dataDir,
-    allowedRepos: config.issueLoopRepos,
     control,
     bots,
     github,
