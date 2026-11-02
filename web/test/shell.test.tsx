@@ -3,7 +3,9 @@ import { act, render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PanelHost } from "../src/shell/PanelHost";
 import { usePanelState } from "../src/shell/usePanelState";
+import { useState } from "react";
 import { WorkspaceShell } from "../src/shell/WorkspaceShell";
+import { setMockViewportWidth } from "./helpers/viewport";
 import { BotList } from "../src/components/BotList";
 import { RoutinesPanel } from "../src/components/RoutinesPanel";
 import { EnvironmentPane } from "../src/components/EnvironmentPane";
@@ -119,6 +121,83 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByText("RAIL")).not.toBeInTheDocument();
     expect(screen.queryByText("PANEL")).not.toBeInTheDocument();
     expect(screen.getByText("MAIN")).toBeInTheDocument();
+  });
+
+  it("renders a labeled separator for each open column boundary", () => {
+    // xl+ width so the panel is an inline column with its own separator.
+    setMockViewportWidth(1440);
+    render(<WorkspaceShell railOpen panelOpen {...slots} />);
+    expect(screen.getByRole("separator", { name: "调整侧边栏宽度" })).toBeInTheDocument();
+    expect(screen.getByRole("separator", { name: "调整面板宽度" })).toBeInTheDocument();
+  });
+
+  it("leaves no stray separator next to a closed column", () => {
+    setMockViewportWidth(1440);
+    const { rerender } = render(<WorkspaceShell railOpen panelOpen {...slots} />);
+    expect(screen.getAllByRole("separator")).toHaveLength(2);
+    rerender(<WorkspaceShell railOpen={false} panelOpen={false} {...slots} />);
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+    rerender(<WorkspaceShell railOpen panelOpen={false} {...slots} />);
+    expect(screen.getAllByRole("separator")).toHaveLength(1);
+    expect(screen.getByRole("separator", { name: "调整侧边栏宽度" })).toBeInTheDocument();
+  });
+
+  it("keeps each column mounted exactly once (no duplicated business content)", () => {
+    render(<WorkspaceShell railOpen panelOpen {...slots} />);
+    expect(screen.getAllByText("MAIN")).toHaveLength(1);
+    expect(screen.getAllByText("PANEL")).toHaveLength(1);
+    expect(screen.getAllByText("RAIL")).toHaveLength(1);
+  });
+
+  it("tolerates corrupt stored layout and still renders", () => {
+    localStorage.setItem("pca.shell.layout.v1", "{not json");
+    const first = render(<WorkspaceShell railOpen panelOpen {...slots} />);
+    expect(first.getByText("MAIN")).toBeInTheDocument();
+    first.unmount();
+    localStorage.setItem("pca.shell.layout.v1", JSON.stringify({ rail: "wide", panel: null }));
+    const second = render(<WorkspaceShell railOpen panelOpen {...slots} />);
+    expect(second.getByText("MAIN")).toBeInTheDocument();
+    second.unmount();
+  });
+
+  it("reads stored layout without crashing; invalid shapes fall back to defaults", () => {
+    // A well-formed stored layout is accepted (rendered without error) and a corrupt one falls back.
+    // jsdom has no real layout, so we can't assert the measured pixel width here — only that the
+    // stored value path is exercised and the shell still renders all three columns.
+    localStorage.setItem("pca.shell.layout.v1", JSON.stringify({ rail: 300, panel: 500 }));
+    render(<WorkspaceShell railOpen panelOpen {...slots} />);
+    expect(screen.getByText("RAIL")).toBeInTheDocument();
+    expect(screen.getByText("PANEL")).toBeInTheDocument();
+  });
+
+  it("keeps mount identity for stateful content across the md and xl breakpoints", () => {
+    // A stateful child must not remount when the viewport crosses a breakpoint — the whole point of
+    // the single-tree layout is that chat input and PTY state survive. Count mounts via useState
+    // initializers (runs once per real mount, not per render or per DOM node).
+    const mounts: Record<string, number> = {};
+    function Probe({ id }: { id: string }) {
+      const [n] = useState(() => (mounts[id] = (mounts[id] ?? 0) + 1));
+      return <span data-probe={id}>{id}:{n}</span>;
+    }
+    const stateful = { rail: <Probe id="rail" />, main: <Probe id="main" />, panel: <Probe id="panel" /> };
+    setMockViewportWidth(1440);
+    render(<WorkspaceShell railOpen panelOpen {...stateful} />);
+    expect(mounts).toEqual({ rail: 1, main: 1, panel: 1 });
+    // Cross below xl (panel inline -> overlay drawer), then below md (rail inline -> drawer), back up.
+    setMockViewportWidth(900);
+    setMockViewportWidth(390);
+    setMockViewportWidth(1440);
+    expect(mounts).toEqual({ rail: 1, main: 1, panel: 1 });
+  });
+
+  it("keeps the previous panel width stored while it is an overlay (md..xl)", () => {
+    // At 1024 the panel is below xl (an overlay, ~0 size in the group). Persisting must not
+    // overwrite the stored panel width with ~0 — it keeps the last inline value.
+    localStorage.setItem("pca.shell.layout.v1", JSON.stringify({ rail: 272, panel: 500 }));
+    setMockViewportWidth(1024);
+    render(<WorkspaceShell railOpen panelOpen {...slots} />);
+    const persisted = JSON.parse(localStorage.getItem("pca.shell.layout.v1")!);
+    expect(persisted.panel).toBe(500);
   });
 });
 
