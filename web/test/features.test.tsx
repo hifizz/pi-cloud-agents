@@ -292,4 +292,31 @@ describe("RoutinesPanel", () => {
     await user.click(screen.getByRole("button", { name: /routines/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent("boom");
   });
+
+  it("botIds scopes both the list and the new-routine select to those bots", async () => {
+    const user = userEvent.setup();
+    const all: RoutineItem[] = [
+      { id: "r1", bot: "tars", botId: "b1", prompt: "workspace routine", everyMs: 60_000, enabled: true },
+      { id: "r2", bot: "other", botId: "b9", prompt: "foreign routine", everyMs: 60_000, enabled: true },
+    ];
+    const bots = [bot(), bot({ id: "b9", name: "other-ws-bot" })];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(all));
+    render(<RoutinesPanel bots={bots} embedded botIds={new Set(["b1"])} />);
+    // foreign routine never renders (no cancel path to it either)
+    expect(await screen.findByTestId("routine-item")).toHaveTextContent("workspace routine");
+    expect(screen.queryByText("foreign routine")).not.toBeInTheDocument();
+    // the create select offers only the scoped bots; foreign ids can't be chosen
+    await user.click(screen.getByRole("button", { name: "New routine" }));
+    const select = screen.getByLabelText("Bot");
+    expect(within(select).getAllByRole("option")).toHaveLength(1);
+    expect(within(select).queryByRole("option", { name: "other-ws-bot" })).not.toBeInTheDocument();
+  });
+
+  it("botIds with no matching bots shows the workspace empty state and disables new-routine", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([{ id: "r1", bot: "x", botId: "b9", prompt: "foreign", everyMs: 60_000, enabled: true }]));
+    render(<RoutinesPanel bots={[bot({ id: "b9", name: "other-ws-bot" })]} embedded botIds={new Set(["b1"])} />);
+    expect(await screen.findByText("此工作区还没有可挂 routine 的会话。")).toBeInTheDocument();
+    expect(screen.queryByText("foreign")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New routine" })).toBeDisabled();
+  });
 });

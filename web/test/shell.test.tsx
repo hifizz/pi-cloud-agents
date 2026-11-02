@@ -57,7 +57,10 @@ describe("PanelHost", () => {
   });
 
   it("registers the integrated session panels", () => {
-    expect(PANELS.map((p) => p.id)).toEqual(["diff", "git", "files", "preview", "terminal", "environment", "search", "delegation", "events", "integrations", "routines"]);
+    // Events / Integrations / Routines moved to the workspace home; a stored removed-tab selection falls back to the first panel.
+    expect(PANELS.map((p) => p.id)).toEqual(["diff", "git", "files", "preview", "terminal", "environment", "search", "delegation"]);
+    render(<PanelHost panels={PANELS} active="routines" onSelect={vi.fn()} onClose={vi.fn()} ctx={ctx} />);
+    expect(screen.getByRole("tab", { name: /Changes/ })).toHaveAttribute("aria-selected", "true");
   });
 });
 

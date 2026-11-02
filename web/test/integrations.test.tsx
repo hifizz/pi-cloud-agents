@@ -173,4 +173,43 @@ describe("integrations panel", () => {
     expect(await screen.findByText(/未配置、未实现。/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /slack/i })).not.toBeInTheDocument();
   });
+
+  it("home context (no selected bot): an explicit session pick survives a same-id workspace object refresh, and a real workspace switch clears it", async () => {
+    const wsBots = [
+      bot,
+      { id: "b2", name: "exec-1", conversationId: 2, model: { provider: "faux", modelId: "m" }, busy: false, queued: 0, workspaceId: ws.id } as BotSummary,
+    ];
+    mockFetch((url) => {
+      if (url === "/api/integrations") return { status: 200, data: INFO };
+      if (url === `/api/workspaces/${ws.id}/integrations`) return { status: 200, data: { installs: [] } };
+      return { status: 404, data: { error: "nope" } };
+    });
+    const ctxValue = (w: Workspace) => ({ workspace: w, onUpdate: () => {}, onChanged: () => {} });
+    const body = <integrationsPanel.Component {...ctxOf({ bot: undefined, bots: wsBots })} />;
+    const { rerender } = render(<WorkspaceContext.Provider value={ctxValue(ws)}>{body}</WorkspaceContext.Provider>);
+
+    // pick a scan session explicitly (the picker appears only when no bot is selected)
+    const picker = await screen.findByLabelText("选择要扫描 SKILL.md 的会话");
+    await userEvent.selectOptions(picker, "b2");
+    expect(picker).toHaveValue("b2");
+    expect(screen.getByRole("button", { name: "从工作区 SKILL.md 安装" })).toBeEnabled();
+
+    // App polls workspaces every 3s: a fresh object with the same id must NOT reset the pick
+    rerender(<WorkspaceContext.Provider value={ctxValue({ ...ws })}>{body}</WorkspaceContext.Provider>);
+    expect(await screen.findByLabelText("选择要扫描 SKILL.md 的会话")).toHaveValue("b2");
+    expect(screen.getByRole("button", { name: "从工作区 SKILL.md 安装" })).toBeEnabled();
+
+    // a real workspace switch clears the pick; ws2 has no sessions, so the picker gives way to the note
+    const other = { ...ws, id: "ws2", name: "ws2" } as Workspace;
+    mockFetch((url) => {
+      if (url === "/api/integrations") return { status: 200, data: INFO };
+      if (url === "/api/workspaces/ws2/integrations") return { status: 200, data: { installs: [] } };
+      return { status: 404, data: { error: "nope" } };
+    });
+    rerender(<WorkspaceContext.Provider value={ctxValue(other)}>{body}</WorkspaceContext.Provider>);
+    await screen.findByText(/已安装（ws2）/);
+    expect(screen.queryByLabelText("选择要扫描 SKILL.md 的会话")).not.toBeInTheDocument();
+    expect(screen.getByText(/此工作区还没有会话/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "从工作区 SKILL.md 安装" })).toBeDisabled();
+  });
 });
