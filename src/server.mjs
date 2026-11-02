@@ -156,6 +156,8 @@ export async function assemble({
       workspace,
       binding,
       resolveEnv,
+      // Direct bash primitive for read-only tools (view_image): same access files-env uses.
+      runtimeBash: () => runtimeBash(workspace.id),
     };
   });
 
