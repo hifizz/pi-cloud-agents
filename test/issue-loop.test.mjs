@@ -25,7 +25,7 @@ const OTHER_SHA = "b".repeat(40);
 const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
 /** GitHub REST double: repo meta, branches, the issue and its comments, /issues list, PR list and PR detail/diff. */
-function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [], issues, pulls } = {}) {
+function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [], issues, pulls, repo = REPO } = {}) {
   const st = { calls: [] };
   const reply = (status, data) => ({ status, headers: { get: () => null }, text: async () => (data === undefined ? "" : JSON.stringify(data)) });
   const rawReply = (status, text) => ({ status, headers: { get: () => null }, text: async () => text });
@@ -34,7 +34,7 @@ function fakeGithubApi({ branches, defaultBranch = "main", issue, comments = [],
     st.calls.push(`${init.method} ${u.pathname}${u.search}`);
     let m;
     if ((m = /^\/repos\/([^/]+\/[^/]+)$/.exec(u.pathname))) {
-      return m[1] === REPO ? reply(200, { full_name: REPO, default_branch: defaultBranch }) : reply(404, { message: "Not Found" });
+      return m[1] === repo ? reply(200, { full_name: repo, default_branch: defaultBranch }) : reply(404, { message: "Not Found" });
     }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/branches$/.exec(u.pathname))) {
       return reply(200, Object.entries(branches).map(([name, sha]) => ({ name, commit: { sha } })));
@@ -147,21 +147,21 @@ function fakeRuntimeBash() {
   return { calls, bash };
 }
 
-async function makeEnv({ branches, issue, comments, defaultBranch, issues, pulls } = {}) {
+async function makeEnv({ branches, issue, comments, defaultBranch, issues, pulls, repo = REPO } = {}) {
   const store = openControlStore({ path: null });
-  const gh = fakeGithubApi({ branches, issue, comments, defaultBranch, issues, pulls });
+  const gh = fakeGithubApi({ branches, issue, comments, defaultBranch, issues, pulls, repo });
   const github = createGithubClient({ token: TOKEN, fetch: gh.fetch });
   const bots = fakeBots();
   const rt = fakeRuntimeBash();
 
-  const project = store.projects.upsert({ repo: REPO, defaultBranch: defaultBranch ?? "main" });
+  const project = store.projects.upsert({ repo, defaultBranch: defaultBranch ?? "main" });
   const { workspace } = store.workspaces.create({
     requestId: "seed-il",
     projectId: project.id,
     name: "issue-loop ws",
     baseBranch: defaultBranch ?? "main",
     branch: "tarsbot/ws-abc123",
-    cwd: "/home/sprite/workspace/tars-sandbox-playground",
+    cwd: `/home/sprite/workspace/${repo.split("/")[1]}`,
     model: FAUX,
   });
   store.workspaces.update(workspace.id, { status: "ready" });
@@ -955,6 +955,31 @@ test("result: an execution session reports a human result; the PR is verified ag
     const issueResults = env.bots.records.filter((b) => b.executionResult?.issue === 12);
     assert.equal(issueResults.length, 2, "multiple results per issue are kept");
   } finally {
+    await env.close();
+  }
+});
+
+// ---- repo allowlist (TARSBOT_ISSUE_LOOP_REPOS) ----------------------------------------------------------------------
+
+test("issue-loop allowlist: default rejects other repos; TARSBOT_ISSUE_LOOP_REPOS opens them", async () => {
+  const OTHER = "hifizz/pi-cloud-agents";
+  const env = await makeEnv({ repo: OTHER, branches: { main: MAIN_SHA }, issue: { title: "t", body: "b" }, comments: [] });
+  const prev = process.env.TARSBOT_ISSUE_LOOP_REPOS;
+  try {
+    // default allowlist (test repo only): the guard rejects before any GitHub call
+    let r = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
+    assert.equal(r.status, 409, "default allowlist must reject the product repo");
+    assert.match(r.json.error, /configured repos/);
+    assert.equal(env.gh.st.calls.length, 0, "the guard rejects before touching GitHub");
+
+    // explicit allowlist including this repo: the same request passes the guard (and succeeds end-to-end)
+    process.env.TARSBOT_ISSUE_LOOP_REPOS = `${REPO},${OTHER}`;
+    r = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
+    assert.equal(r.status, 200, r.json?.error);
+    assert.equal(env.bots.created[0].issueLoop.issue, 12);
+  } finally {
+    if (prev === undefined) delete process.env.TARSBOT_ISSUE_LOOP_REPOS;
+    else process.env.TARSBOT_ISSUE_LOOP_REPOS = prev;
     await env.close();
   }
 });

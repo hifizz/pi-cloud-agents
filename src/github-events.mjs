@@ -17,7 +17,8 @@
 //
 // What this is not:
 //   - It never writes to GitHub (no comments, approvals, merges). It never creates or deletes Sprites.
-//   - Only workspaces bound to the allowed test repository can enable sync (same guard as the issue-loop spike).
+//   - Only workspaces bound to an allowed repository can enable sync (TARSBOT_ISSUE_LOOP_REPOS, default: the
+//     test repo — same allowlist as the issue-loop routes).
 //   - External event content is untrusted material: messages sent to sessions label it as such.
 //
 // State: one JSON file per workspace under `<dataDir>/github-events/<workspaceId>.json`, written atomically
@@ -151,11 +152,12 @@ function publicState(state, nextSyncAt) {
 
 /**
  * @param {{ dataDir: string, control: any, bots: any, github: any, sessions: {startDiscussion, startReview},
- *           submit: (botId, text) => Promise<void> }} opts
+ *           submit: (botId, text) => Promise<void>, allowedRepos?: string[] }} opts
  */
-export function createGithubEventsService({ dataDir, control, bots, github, sessions, submit, pollSec, setTimer, clearTimer, nowMs } = {}) {
+export function createGithubEventsService({ dataDir, control, bots, github, sessions, submit, pollSec, setTimer, clearTimer, nowMs, allowedRepos } = {}) {
   if (!dataDir) throw new TypeError("github-events requires a dataDir");
   if (!control || !bots || !github) throw new TypeError("github-events requires control, bots and github");
+  const allowed = allowedRepos ?? [EVENTS_REPO];
   const dir = join(dataDir, "github-events");
   const queues = new Map(); // workspaceId -> promise chain (single writer per file)
   const timers = new Map(); // workspaceId -> { timer, running, nextAt }
@@ -211,7 +213,7 @@ export function createGithubEventsService({ dataDir, control, bots, github, sess
 
   function assertEnabledWorkspace(ws) {
     if (!REPO_RE.test(ws.repo ?? "")) throw new EventsError("invalid", "workspace has no valid bound repo");
-    if (ws.repo !== EVENTS_REPO) throw new EventsError("conflict", `GitHub 事件同步仅在测试仓库 ${EVENTS_REPO} 上开放（当前工作区绑定 ${ws.repo}）`);
+    if (ws.repo !== EVENTS_REPO && !allowed.includes(ws.repo)) throw new EventsError("conflict", `GitHub 事件同步仅在允许的仓库上开放：${allowed.join("、")}（当前工作区绑定 ${ws.repo}）`);
     if (ws.status !== "ready") throw new EventsError("conflict", `workspace is not ready (status: ${ws.status})`);
     return ws;
   }
@@ -598,7 +600,7 @@ export function createGithubEventsService({ dataDir, control, bots, github, sess
         const state = readState(wsId);
         if (!state.enabled) continue;
         const ws = control.workspaces.get(wsId);
-        if (!ws || ws.status !== "ready" || ws.repo !== EVENTS_REPO) continue;
+        if (!ws || ws.status !== "ready" || (ws.repo !== EVENTS_REPO && !allowed.includes(ws.repo))) continue;
         schedulePoll(wsId, state);
         resumed.push(wsId);
       }

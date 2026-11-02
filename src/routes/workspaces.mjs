@@ -14,13 +14,13 @@
 import { randomUUID } from "node:crypto";
 import { HttpError, toJson } from "../api.mjs";
 import { ctx } from "../harness.mjs";
+import { config } from "../config.mjs";
 import { shellQuote } from "../env.mjs";
 import { Preamble } from "../ext/preamble.mjs";
 import { mapGithubError, REPO_RE } from "./github.mjs";
 import { SHA_RE, SPIKE_RULES, hostAgentsExcerpt, pickBaseline, pinnedSha, sha256 } from "../loops/context.mjs";
 
 /** Issue-loop spike only touches the test repository's bound workspaces (AGENTS.md 安全红线). */
-const ISSUE_LOOP_REPO = "hifizz/tars-sandbox-playground";
 /** Most comments the discussion start message will carry; more is an explicit error, never a silent cut. */
 const COMMENT_LIMIT = 100;
 /** The diff text a review session carries is capped: an over-limit diff is an explicit error, never a silent cut. */
@@ -178,7 +178,8 @@ export function register(app) {
 
   function assertIssueLoopWorkspace(id) {
     const ws = workspaceOr404(id);
-    if (ws.repo !== ISSUE_LOOP_REPO) throw new HttpError(409, `issue-loop only runs on the test repo ${ISSUE_LOOP_REPO} (this workspace uses ${ws.repo})`);
+    const allowed = config.issueLoopRepos;
+    if (!allowed.includes(ws.repo)) throw new HttpError(409, `issue-loop only runs on configured repos: ${allowed.join(", ")} (this workspace uses ${ws.repo})`);
     if (ws.status !== "ready") throw new HttpError(409, `workspace is not ready (status: ${ws.status})`);
     if (!control.bindings.current(ws.id)) throw new HttpError(409, "workspace has no active runtime binding");
     if (typeof app.ctx.runtimeBash !== "function") throw new HttpError(503, "runtime bash is not available");
