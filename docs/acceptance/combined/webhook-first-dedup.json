@@ -1,0 +1,15 @@
+{
+  "count": 1,
+  "run": [
+    {
+      "id": "run_2dc96e24866dd377",
+      "status": "succeeded",
+      "prNumber": 16
+    }
+  ],
+  "queue": {
+    "maxConcurrent": 3,
+    "running": [],
+    "queued": []
+  }
+}

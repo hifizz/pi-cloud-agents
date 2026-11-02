@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type { ForkInput } from "../types";
 import { MODEL_OPTIONS } from "./BotList";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 export interface ForkDialogProps {
   parentName: string;
@@ -11,18 +15,12 @@ export interface ForkDialogProps {
   onClose: () => void;
 }
 
-const field =
-  "w-full rounded-md border border-line-strong bg-field px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent";
-
 export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onClose }: ForkDialogProps) {
   const options = defaultModelId && !MODEL_OPTIONS.includes(defaultModelId) ? [defaultModelId, ...MODEL_OPTIONS] : MODEL_OPTIONS;
   const [name, setName] = useState("");
   const [modelId, setModelId] = useState(defaultModelId ?? MODEL_OPTIONS[0]);
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
-  const nameRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => nameRef.current?.focus(), []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -40,32 +38,32 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="fork-title"
-        onKeyDown={(e) => e.key === "Escape" && onClose()}
-        className="w-96 max-w-[90vw] rounded-lg border border-line-strong bg-raised p-4 shadow-xl"
-      >
-        <h2 id="fork-title" className="text-sm font-semibold text-fg">
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      {/* Native <select> stays: Base UI's Select cannot submit a different option in tests (selectOptions). */}
+      <DialogContent aria-labelledby="fork-title" showCloseButton={false} className="w-96">
+        <DialogTitle id="fork-title" className="text-sm font-semibold">
           Fork from here
-        </h2>
-        <p className="mt-0.5 text-xs text-fg-muted">
+        </DialogTitle>
+        <DialogDescription className="-mt-2 text-xs">
           从“{parentName}”的这个位置分出一个会话。这是只读副本，用于查看和讨论，不会修改文件。
-        </p>
-        <form onSubmit={submit} className="mt-3 space-y-3">
+        </DialogDescription>
+        <form onSubmit={submit} className="space-y-3">
           <div>
-            <label htmlFor="fork-name" className="mb-1 block text-xs text-fg-muted">
+            <Label htmlFor="fork-name" className="mb-1.5 block text-xs font-medium text-muted-foreground">
               New bot name
-            </label>
-            <input id="fork-name" ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} required className={field} autoComplete="off" />
+            </Label>
+            <Input id="fork-name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus autoComplete="off" />
           </div>
           <div>
-            <label htmlFor="fork-model" className="mb-1 block text-xs text-fg-muted">
+            <Label htmlFor="fork-model" className="mb-1.5 block text-xs font-medium text-muted-foreground">
               Model
-            </label>
-            <select id="fork-model" value={modelId} onChange={(e) => setModelId(e.target.value)} className={field}>
+            </Label>
+            <select
+              id="fork-model"
+              value={modelId}
+              onChange={(e) => setModelId(e.target.value)}
+              className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+            >
               {options.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -73,32 +71,24 @@ export function ForkDialog({ parentName, entryId, defaultModelId, onSubmit, onCl
               ))}
             </select>
           </div>
-          <p className="rounded-md border border-line bg-field px-2 py-1.5 text-xs text-fg-muted" data-testid="fork-readonly-note">
+          <p className="rounded-md border border-border bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground" data-testid="fork-readonly-note">
             只读副本：只能读取，不能执行命令或修改文件。
           </p>
           {error && (
-            <p role="alert" className="text-xs text-bad">
+            <p role="alert" className="text-xs text-destructive">
               {error}
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-line-strong px-3 py-1.5 text-sm text-fg-dim hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"
-            >
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || !name.trim()}
-              className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
-            >
+            </Button>
+            <Button type="submit" disabled={submitting || !name.trim()}>
               Fork
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -50,8 +50,10 @@ export function register(app) {
 
   /**
    * Resolve the session's git dir and bash for `botId`. The directory comes from the server-side record only:
-   * session worktree metadata first (issueLoop > review > worktree), then the bot's own cwd, then the workspace
-   * cwd — never a client-supplied path.
+   * session worktree metadata first (issueLoop > review > worktree > loopRun), then the bot's own cwd, then the
+   * workspace cwd — never a client-supplied path. A Loop-run session with code=none has NO worktree: report the
+   * stable non-repo dir clearly instead of falling back to the workspace checkout (which would look like the run
+   * had repo access it does not have).
    */
   async function sessionGit(botId) {
     const bot = bots.get(botId);
@@ -62,7 +64,7 @@ export function register(app) {
     const binding = control.bindings.current(ws.id);
     if (!binding) throw new HttpError(409, "workspace has no active runtime binding");
     if (typeof app.ctx.runtimeBash !== "function") throw new HttpError(503, "runtime bash is not available");
-    const dir = bot.issueLoop?.dir ?? bot.review?.dir ?? bot.worktree?.dir ?? bot.cwd ?? ws.cwd;
+    const dir = bot.issueLoop?.dir ?? bot.review?.dir ?? bot.worktree?.dir ?? bot.loopRun?.dir ?? bot.cwd ?? ws.cwd;
     if (typeof dir !== "string" || !dir.startsWith("/")) throw new HttpError(409, `session ${botId} has no git directory`);
     let bash;
     try {

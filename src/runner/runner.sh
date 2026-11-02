@@ -2,7 +2,7 @@
 # pca runner: detached, resumable command execution for a Linux sandbox (Sprite). POSIX sh; runs under dash.
 # See docs/M1-PLAN.md section 4.4 and docs/m1-probe.md (A2, B2, B3, B4).
 #
-#   runner.sh prepare <id> --cwd <dir> --cmd-file <path> --cmd-sha256 <hex> [--env-file <path>]
+#   runner.sh prepare <id> --cwd <dir> --cmd-file <path> --cmd-sha256 <hex> [--env-file <path>] [--unset-file <path>]
 #   runner.sh start   <id>
 #   runner.sh wait    <id> --from <byteOffset> --max <seconds> [--encoding raw|base64]
 #   runner.sh status  <id>
@@ -15,7 +15,7 @@
 # Layout under ${PCA_HOME:-$HOME/.pca}:
 #   stage/<id>/          written by the client (command bytes); never contains environment values
 #   runs/<id>/cmd        the command, raw bytes          runs/<id>/cwd    working directory (one line)
-#   runs/<id>/meta       id, cwd, cmd_sha256, env NAMES (never values)
+#   runs/<id>/meta       id, cwd, cmd_sha256, env NAMES (never values), unset NAMES (never values)
 #   runs/<id>/starting/  directory made by `start` BEFORE anything is launched: the atomic "start at most once" latch
 #   runs/<id>/ident      pid, pgid, boot_id, start ticks of the wrapper (written by the wrapper itself, atomically)
 #   runs/<id>/out.log    stdout + stderr of the command, merged
@@ -39,7 +39,9 @@
 #    limited to 128 KiB by Linux (prepare rejects commands above MAX_CMD_BYTES).
 #  - If the wrapper dies but the command's group lives on, `kill` cannot verify identity and does nothing (not-found).
 #  - Environment values are inherited from whoever calls `start`; they are never written to any file. `meta` records only
-#    the NAMES; `start` refuses (error=env-missing) when a recorded name is not set in its environment.
+#    the NAMES; `start` refuses (error=env-missing) when a recorded name is not set in its environment. Names listed in
+#    --unset-file are removed from the wrapper's environment before the command runs (the caller passes them via the
+#    reserved PCA_ENV_UNSET list); a disabled variable is a real unset, not an empty string.
 
 RUNNER_VERSION=2
 MAX_DATA=32768
@@ -208,7 +210,7 @@ cmd_prepare() {
   id=$1
   shift
   valid_id "$id" || die bad-id
-  cwd='' cmdf='' sha='' envf=''
+  cwd='' cmdf='' sha='' envf='' unsetf=''
   while [ $# -gt 0 ]; do
     [ $# -ge 2 ] || die bad-args "missing value for $1"
     case $1 in
@@ -216,6 +218,7 @@ cmd_prepare() {
       --cmd-file) cmdf=$2 ;;
       --cmd-sha256) sha=$2 ;;
       --env-file) envf=$2 ;;
+      --unset-file) unsetf=$2 ;;
       *) die bad-args "unknown option $1" ;;
     esac
     shift 2
@@ -240,6 +243,16 @@ cmd_prepare() {
       valid_name "$en_line" || die bad-env-name
       names=${names:+$names,}$en_line
     done < "$envf"
+  fi
+  unset_names=
+  if [ -n "$unsetf" ]; then
+    [ -f "$unsetf" ] || die stage-missing
+    while IFS= read -r un_line || [ -n "$un_line" ]; do
+      [ -n "$un_line" ] || continue
+      case $un_line in *=*) die env-file-has-value "unset files may only list names" ;; esac
+      valid_name "$un_line" || die bad-env-name
+      unset_names=${unset_names:+$unset_names,}$un_line
+    done < "$unsetf"
   fi
 
   mkdir -p "$RUNS" || die io-error
@@ -271,6 +284,7 @@ cmd_prepare() {
     printf 'cmd_sha256=%s\n' "$sha"
     printf 'cmd_bytes=%s\n' "$(file_size "$rd/cmd")"
     printf 'env_names=%s\n' "$names"
+    printf 'env_unset_names=%s\n' "$unset_names"
     printf 'runner_version=%s\n' "$RUNNER_VERSION"
     printf 'created=%s\n' "$(date +%s)"
   } > "$rd/meta.tmp" || fail_claim io-error
@@ -313,6 +327,22 @@ cmd_start() {
     IFS=,
   done
   IFS=$oldifs
+  # Unset names: the caller must have passed PCA_ENV_UNSET listing them; each name is still validated.
+  un=$(kv "$RD/meta" env_unset_names)
+  if [ -n "$un" ]; then
+    [ -n "${PCA_ENV_UNSET+x}" ] || die env-missing "PCA_ENV_UNSET"
+    IFS=,
+    for un_name in $un; do
+      IFS=$oldifs
+      valid_name "$un_name" || die bad-env-name
+      case ",$PCA_ENV_UNSET," in
+        *,$un_name,*) ;;
+        *) die env-missing "$un_name (not in PCA_ENV_UNSET)" ;;
+      esac
+      IFS=,
+    done
+    IFS=$oldifs
+  fi
   command -v "${PCA_SETSID%% *}" > /dev/null 2>&1 || die setsid-missing
   if ! mkdir "$RD/starting" 2> /dev/null; then
     printf 'started=already\n'
@@ -358,6 +388,20 @@ cmd_wrap() {
   } > "$rd/ident.tmp" && mv "$rd/ident.tmp" "$rd/ident" || exit 71
   IFS= read -r wcwd < "$rd/cwd"
   umask 022 # our own files are 0600 (umask above); the user's command gets an ordinary umask
+  # Disabled variables: a real unset in THIS wrapper's environment, before the command starts. Names come
+  # from the meta record (validated at start); PCA_ENV_UNSET is the transport and is itself removed.
+  wun=$(kv "$rd/meta" env_unset_names)
+  if [ -n "$wun" ]; then
+    woldifs=$IFS
+    IFS=,
+    for wun_name in $wun; do
+      IFS=$woldifs
+      valid_name "$wun_name" && unset "$wun_name"
+      IFS=,
+    done
+    IFS=$woldifs
+    unset PCA_ENV_UNSET
+  fi
   wcmd=$(cat "$rd/cmd")
   if cd "$wcwd" 2>> "$rd/out.log"; then
     "$PCA_CMD_SH" -c -- "$wcmd" < /dev/null >> "$rd/out.log" 2>&1

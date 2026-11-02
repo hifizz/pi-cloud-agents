@@ -1,4 +1,5 @@
 import { RoutinesPanel } from "../../components/RoutinesPanel";
+import { ScrollArea } from "../../components/ui/scroll-area";
 import type { PanelDefinition } from "../types";
 
 export const routinesPanel: PanelDefinition = {
@@ -6,8 +7,8 @@ export const routinesPanel: PanelDefinition = {
   title: "Routines",
   icon: "clock",
   Component: ({ bots }) => (
-    <div className="h-full overflow-y-auto">
+    <ScrollArea className="h-full">
       <RoutinesPanel bots={bots} embedded />
-    </div>
+    </ScrollArea>
   ),
 };

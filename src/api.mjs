@@ -102,6 +102,18 @@ async function readBody(req) {
   }
 }
 
+/** Read the raw body without parsing, capped at `limit` bytes (webhook signature verification needs exact bytes). */
+async function readRawBody(req, limit) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new HttpError(413, "request body too large");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 function send(res, status, payload) {
   if (res.headersSent || res.writableEnded) return;
   const body = toJson(payload);
@@ -125,7 +137,9 @@ export function createApi({ harness, bots, routes = [], staticDir, extraCtx = {}
     },
     ctx: { ...extraCtx, harness, bots },
     get: (path, handler) => httpRoutes.push({ method: "GET", ...compilePath(path), handler }),
-    post: (path, handler) => httpRoutes.push({ method: "POST", ...compilePath(path), handler }),
+    post: (path, handler, opts = {}) => httpRoutes.push({ method: "POST", rawBody: opts.rawBody === true, rawLimit: opts.rawLimit, ...compilePath(path), handler }),
+    patch: (path, handler) => httpRoutes.push({ method: "PATCH", ...compilePath(path), handler }),
+    delete: (path, handler) => httpRoutes.push({ method: "DELETE", ...compilePath(path), handler }),
     ws: (path, handler) => wsRoutes.push({ ...compilePath(path), handler }),
   };
 
@@ -338,9 +352,14 @@ export function createApi({ harness, bots, routes = [], staticDir, extraCtx = {}
         path,
       );
       if (hit) {
-        const body = req.method === "POST" ? await readBody(req) : undefined;
+        const mutating = req.method === "POST" || req.method === "PATCH" || req.method === "DELETE";
+        const body = hit.route.rawBody
+          ? await readRawBody(req, hit.route.rawLimit ?? MAX_BODY)
+          : mutating
+            ? await readBody(req)
+            : undefined;
         const query = Object.fromEntries(url.searchParams);
-        const result = await hit.route.handler(req, res, { params: hit.params, body, query });
+        const result = await hit.route.handler(req, res, { params: hit.params, body, query, raw: hit.route.rawBody === true });
         if (!res.writableEnded && !res.headersSent) send(res, 200, result === undefined ? { ok: true } : result);
         return;
       }

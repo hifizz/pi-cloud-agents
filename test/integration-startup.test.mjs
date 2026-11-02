@@ -15,7 +15,7 @@ process.env.TARSBOT_DATA_DIR = dataDir; // nothing in this file may touch the re
 const { assemble, assertStartupConfig, loadRoutes } = await import("../src/server.mjs");
 const { ctx } = await import("../src/harness.mjs");
 const { sha256Hex } = await import("../src/runner/client.mjs");
-const { setExecResolver } = await import("../src/ext/exec.mjs");
+const { setExecResolver, Exec } = await import("../src/ext/exec.mjs");
 
 test.after(() => rmSync(dataDir, { recursive: true, force: true }));
 
@@ -32,6 +32,7 @@ function fakeRunnerWorld() {
     runs,
     released: false,
     runnerFor: () => ({
+      async install() {},
       async prepare({ id, command }) {
         calls.prepare++;
         if (runs.has(id)) return { prepared: "existing" };
@@ -193,7 +194,10 @@ test("a tool call interrupted by a restart re-enters after the resolver is insta
   // --- process 2: same files; the interrupted call must find its resolver the moment the harness resumes ------------
   world.released = true;
   setExecResolver(undefined); // a fresh process starts with no resolver
-  const second = await assemble({ ...common, harnessOptions: { storage: await openStorage(dir), models } });
+  let decryptCalls = 0;
+  const second = await assemble({ ...common, harnessOptions: { storage: await openStorage(dir), models },
+    envService: { isRestricted: () => false, effectiveEnv() { decryptCalls++; throw new Error("missing TARSBOT_ENV_KEY"); } },
+  });
   try {
     const conv2 = await second.bots.conversation(bot.id);
     const text = await waitFor(async () => {
@@ -207,9 +211,59 @@ test("a tool call interrupted by a restart re-enters after the resolver is insta
     assert.equal(world.calls.start, 1, "the command was started exactly once across the restart");
     assert.equal(world.calls.prepare, 1);
     assert.equal(world.calls.kill, 0);
+    assert.equal(decryptCalls, 0, "memo recovery never resolves current secrets");
   } finally {
     await second.close();
   }
+});
+
+test("production resolver: normal env, restricted env and missing-key fresh execution", async () => {
+  const dir = mkdtempSync(join(dataDir, "env-"));
+  const world = fakeRunnerWorld();
+  world.released = true;
+  const preparations = [];
+  const original = world.runnerFor;
+  world.runnerFor = () => {
+    const runner = original();
+    const prepare = runner.prepare;
+    runner.prepare = (args) => { preparations.push(args); return prepare(args); };
+    return runner;
+  };
+  let missing = false;
+  const models = createModels(); models.setProvider(fauxProvider().provider);
+  const parts = await assemble({ controlDbPath: join(dir, "control.sqlite"), botsPath: join(dir, "bots.json"),
+    checkpointDir: join(dir, "checkpoints"), github: {}, providers: fakeProviders(), runnerFor: world.runnerFor,
+    harnessOptions: { storage: await openStorage(dir), models },
+    envService: { isRestricted: (bot) => Boolean(bot?.readOnly), effectiveEnv() {
+      if (missing) throw new Error("missing TARSBOT_ENV_KEY");
+      return { set: { DEMO: "fictional-value" }, unset: ["DISABLED"] };
+    } },
+  });
+  try {
+    const bot = await parts.bots.createBot({ name: "normal", model: FAUX, cwd: "/tmp" });
+    seedReadyWorkspace(parts.store, bot);
+    const invoke = async (taskId) => {
+      const memo = new Map();
+      const api = { conversationId: bot.conversationId, taskId, now: Date.now,
+        agent: async () => ({ cwd: "/tmp" }), output() {}, details: async () => {},
+        memo: async (name, ...args) => { if (args.length > 1 && !memo.has(name)) memo.set(name, args[0]); return memo.get(name); },
+      };
+      const result = await Exec.tools[0].execute({ command: "true" }, api, ctx);
+      assert.ok(!JSON.stringify([...memo]).includes("fictional-value"), "no secret in durable memo");
+      return result;
+    };
+    assert.ok(!(await invoke(801)).isError);
+    assert.deepEqual(preparations[0].env, { DEMO: "fictional-value" });
+    assert.deepEqual(preparations[0].unset, ["DISABLED"]);
+    missing = true;
+    await assert.rejects(invoke(802), /bash 未执行.*TARSBOT_ENV_KEY/);
+    assert.equal(preparations.length, 1);
+    // The registry returns its live record; the resolver must inspect the restricted branch before decrypting.
+    parts.bots.get(bot.id).readOnly = true;
+    assert.ok(!(await invoke(803)).isError);
+    assert.deepEqual(preparations[1].env, { GH_TOKEN: "" });
+    assert.equal(preparations[1].unset, undefined);
+  } finally { await parts.close(); }
 });
 
 test("loadRoutes + ctxForApi register every M1 route (rebuild included)", async () => {
@@ -233,6 +287,8 @@ test("loadRoutes + ctxForApi register every M1 route (rebuild included)", async 
       guard() {},
       get: (p) => seen.push(`GET ${p}`),
       post: (p) => seen.push(`POST ${p}`),
+      patch: (p) => seen.push(`PATCH ${p}`),
+      delete: (p) => seen.push(`DELETE ${p}`),
       ws() {},
     };
     for (const register of await loadRoutes()) register(app);

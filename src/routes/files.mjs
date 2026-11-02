@@ -70,6 +70,12 @@ export function register(app) {
   });
 
   app.post("/api/bots/:id/files/write", async (_req, _res, { params, body }) => {
+    // Issue14: a restricted loop run's worktree must not be writable through the Files panel either — the same
+    // capability boundary the run's own tools enforce. readwrite loop runs and all normal sessions write as before.
+    const bot = bots.get(params.id);
+    if (bot?.readOnly || (bot?.loopRun?.runId && bot.loopRun.capabilities?.code !== "readwrite")) {
+      throw new HttpError(403, "this loop run's code capability is not readwrite; file writes are disabled");
+    }
     if (body === null || typeof body !== "object" || Array.isArray(body)) throw new HttpError(400, "body must be a JSON object");
     const p = body.path;
     if (typeof p !== "string" || !p.trim()) throw new HttpError(400, "path is required");

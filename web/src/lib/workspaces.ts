@@ -99,6 +99,7 @@ export interface PullInfo {
   merged?: boolean;
   headRef?: string | null;
   baseRef?: string | null;
+  updatedAt?: string | null;
 }
 
 /** One open issue in the workspace overview; `discussionBotId` is the existing discussion session, when there is one. */
@@ -109,6 +110,7 @@ export interface OverviewIssue {
   state?: string;
   author?: string | null;
   comments?: number;
+  updatedAt?: string | null;
   discussionBotId?: string | null;
 }
 
@@ -144,6 +146,23 @@ export interface ExecutionResult {
   issue: number;
   sourceBotId: string;
   reportedAt: string;
+}
+
+/** ENV-DEMO: a workspace default variable as the API exposes it (name + masked state only; values never leave the server). */
+export interface EnvVarEntry {
+  name: string;
+  masked: boolean;
+  updatedAt?: string;
+}
+
+/** ENV-DEMO: one effective entry of a session's env config. mode "inherit" = workspace default applies,
+ * "set" = this session overrides, "disabled" = unset for this session (not the empty string). */
+export interface SessionEnvEntry {
+  name: string;
+  mode: "set" | "disabled" | "inherit";
+  masked: boolean;
+  inherits?: boolean;
+  updatedAt?: string;
 }
 
 export interface CheckpointManifest {
@@ -202,9 +221,10 @@ export const workspacesApi = {
   create: async (input: NewWorkspaceInput) => normalizeWorkspace(await request<Workspace>("POST", "/api/workspaces", input)),
   list: async () => (await request<Workspace[]>("GET", "/api/workspaces")).map(normalizeWorkspace),
   get: async (id: string) => normalizeWorkspace(await request<Workspace>("GET", `/api/workspaces/${enc(id)}`)),
-  /** Workspace overview: open issues (+ existing discussion botId) and open unmerged PRs of the bound repo. One fetch
-   * on workspace open / manual refresh; not part of the 3s bots poll. */
-  overview: (id: string) => request<WorkspaceOverview>("GET", `/api/workspaces/${enc(id)}/overview`),
+  /** Workspace overview: open issues (+ existing discussion botId) and PRs of the bound repo. `allPrs` also returns
+   * closed/merged PRs (with state) so the UI can filter; the server default stays open-only. */
+  overview: (id: string, opts?: { allPrs?: boolean }) =>
+    request<WorkspaceOverview>("GET", `/api/workspaces/${enc(id)}/overview${opts?.allPrs ? "?prs=all" : ""}`),
   retry: async (id: string) => normalizeWorkspace(await request<Workspace>("POST", `/api/workspaces/${enc(id)}/retry`, {})),
   createPr: (id: string, input: { requestId: string; title?: string; body?: string; base?: string }) =>
     request<{ pull: PullInfo; created: boolean }>("POST", `/api/workspaces/${enc(id)}/pr`, input),
@@ -226,6 +246,15 @@ export const workspacesApi = {
   /** SPIKE-review-loop: report the human-written result of an execution session (feeds the issue's overview card). */
   reportResult: (id: string, botId: string, input: { summary: string; tests?: string; pr?: number }) =>
     request<{ result: ExecutionResult }>("POST", `/api/workspaces/${enc(id)}/sessions/${enc(botId)}/result`, input),
+  /** ENV-DEMO: workspace env-var defaults (masked; values are write-only). */
+  envList: (id: string) => request<{ enabled: boolean; vars: EnvVarEntry[] }>("GET", `/api/workspaces/${enc(id)}/env`),
+  envSet: (id: string, name: string, value: string) =>
+    request<{ name: string; masked: boolean; updatedAt: string }>("POST", `/api/workspaces/${enc(id)}/env/${enc(name)}`, { value }),
+  envRemove: (id: string, name: string) => request<{ removed: boolean }>("POST", `/api/workspaces/${enc(id)}/env/${enc(name)}/remove`, {}),
+  /** ENV-DEMO: per-session env overrides (workspace defaults + this session's mode per name). */
+  sessionEnvList: (botId: string) => request<{ enabled: boolean; restricted: boolean; entries: SessionEnvEntry[] }>("GET", `/api/bots/${enc(botId)}/env`),
+  sessionEnvSet: (botId: string, name: string, input: { mode: "set" | "disabled" | "inherit"; value?: string }) =>
+    request<{ name: string; mode: string; masked: boolean }>("POST", `/api/bots/${enc(botId)}/env/${enc(name)}`, input),
   saveCheckpoint: (id: string) => request<CheckpointManifest>("POST", `/api/workspaces/${enc(id)}/checkpoint`, {}),
   checkpoints: (id: string) => request<CheckpointManifest[]>("GET", `/api/workspaces/${enc(id)}/checkpoints`),
   rebuild: (id: string, input: { checkpointId: string | number; requestId?: string }) =>

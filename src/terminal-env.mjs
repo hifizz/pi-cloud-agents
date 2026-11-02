@@ -32,6 +32,22 @@ const RUN_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const bad = (message) => new FileError("invalid", message);
 
 /**
+ * The session's effective env for console runs / PTY bootstrap (ENV-DEMO). Restricted sessions are already
+ * refused by the caller before this runs; undefined means "no user variables" (service disabled or none set).
+ * Plaintext never crosses the wire protocol: console values go through the runner's prepare-names + start-env
+ * channel, PTY values through the provider's stdin bootstrap.
+ * @returns {{set: Record<string,string>, unset: string[]}|undefined}
+ */
+function sessionEnvOf(app, bot) {
+  const svc = app.ctx.envService;
+  if (!svc || typeof svc.effectiveEnv !== "function") return undefined;
+  const workspace = app.ctx.control.links.workspaceOf(String(bot.conversationId));
+  if (!workspace) return undefined;
+  const eff = svc.effectiveEnv({ workspaceId: workspace.id, conversationId: String(bot.conversationId) });
+  return Object.keys(eff.set).length || eff.unset.length ? eff : undefined;
+}
+
+/**
  * Attach a runner-backed command console to a live WebSocket.
  *
  * Wire protocol (JSON frames, both directions):
@@ -68,6 +84,12 @@ export async function attachTerminal(app, socket, botId, deps = {}) {
   };
   const fail = (id, message) => send({ type: "error", ...(id ? { id } : {}), message: String(message).slice(0, 500) });
 
+  const target = app.ctx.bots?.get(botId);
+  if (target?.readOnly || target?.loopRun?.runId) {
+    fail(undefined, "Manual shells are disabled for restricted Sessions; use a separate normal Session.");
+    socket.close(4403, "restricted session");
+    return;
+  }
   let root;
   let workspace;
   try {
@@ -168,7 +190,18 @@ export async function attachTerminal(app, socket, botId, deps = {}) {
     const finish = (state, exit) => send({ type: "exit", id, state, exit: exit ?? null });
     try {
       await ensureRunner();
-      await runner.prepare({ id: runId, cwd: root, command });
+      // ENV-DEMO: the session's effective env (workspace defaults + its own overrides) — the same picture the
+      // Agent bash tool gets. Names only are staged by prepare; values are injected at start through the
+      // supportsEnv bash primitive, never written to a file or the wire protocol. A decryption failure is a
+      // hard error to the client (the run is refused, never silently unconfigured).
+      const env = sessionEnvOf(app, target);
+      await runner.prepare({
+        id: runId,
+        cwd: root,
+        command,
+        ...(env?.set && Object.keys(env.set).length ? { env: env.set } : {}),
+        ...(env?.unset?.length ? { unset: env.unset } : {}),
+      });
       if (closed) return;
       if (cancelled) {
         finish(entry.killResult?.state ?? "killed", entry.killResult?.exit ?? null);
@@ -294,6 +327,14 @@ export async function attachPtyTerminal(app, socket, botId, deps = {}) {
 
   // The session is fully validated BEFORE any client frame is read: bot -> linked workspace (ready) ->
   // active binding -> per-workspace spawn factory (app.ctx.ptySession mirrors ctx.runtimeBash).
+  // Issue14: a PTY is an unmediated FULL shell — no per-command approval is possible on a raw byte stream, so it
+  // must never attach to a capability-restricted loop-run session. Only a normal session (no loopRun) may open one.
+  const botRec = app.ctx.bots.get(botId);
+  if (botRec?.readOnly || botRec?.loopRun?.runId) {
+    fail("interactive PTY is disabled for restricted Sessions; use a separate normal Session");
+    socket.close(4403, "pty not allowed for loop-run sessions");
+    return;
+  }
   let workspace;
   let root;
   try {
@@ -394,7 +435,17 @@ export async function attachPtyTerminal(app, socket, botId, deps = {}) {
     const env = msg.env && typeof msg.env === "object" && !Array.isArray(msg.env) ? msg.env : {};
     let s;
     try {
-      s = await spawnPty({ cwd: root, cols, rows, env });
+      // ENV-DEMO: the session's user variables ride the provider's stdin bootstrap channel (they can never
+      // land in the exec URL query, argv or a file). `env` stays the display-only allowlist. A decryption
+      // failure throws INSIDE this try and is reported as a clean start failure, never an unhandled throw.
+      const sessionEnv = sessionEnvOf(app, botRec);
+      s = await spawnPty({
+        cwd: root,
+        cols,
+        rows,
+        env,
+        ...(sessionEnv ? { sessionEnv: sessionEnv.set, sessionUnset: sessionEnv.unset } : {}),
+      });
     } catch (e) {
       return fail(`could not start the shell: ${String(e?.message ?? e).slice(0, 200)}`);
     }

@@ -33,6 +33,10 @@ export interface BotSummary {
   parent?: { botId: string; entryId?: number | string };
   readOnly?: boolean;
   integrationError?: string;
+  /** Working directory of the session inside the sandbox (from agent info). */
+  cwd?: string;
+  /** Approval policy of this session: "ask" holds dangerous ops for approval; "auto" lets them run. */
+  approvalPolicy?: "ask" | "auto";
   /** SPIKE-add-session: a session added by hand from the workspace menu runs in its own detached worktree.
    * Also the shared session-worktree shape delegation children declare (AMP13): `branch` is the child's
    * own tarsbot/task-* branch (absent on a detached add-session). */
@@ -82,6 +86,21 @@ export interface BotSummary {
     depth?: number;
     tasks?: unknown[];
     results?: unknown[];
+  };
+  /** Issue14: this Session was created by a Loop run (UI backlink "来自 Loop"). Carries the run's own worktree so
+   *  Files/Git/Header never fall back to the workspace cwd, plus the capability level integrations must keep. */
+  loopRun?: {
+    loopId: string;
+    runId: string;
+    version: number;
+    /** The run's worktree directory (empty-dir runs: a stable non-repo dir). */
+    dir?: string;
+    /** Pinned baseline commit the worktree was taken from. */
+    pinnedSha?: string;
+    /** Own branch (code=readwrite runs), else detached HEAD. */
+    branch?: string | null;
+    /** Capability level this session was created under (scoped panels/integrations read the restriction here). */
+    capabilities?: { code: "none" | "read" | "readwrite"; web: boolean };
   };
 }
 

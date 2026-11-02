@@ -89,7 +89,7 @@ export function register(app) {
    * Never a client-supplied path. Order matters: a delegation child declares `worktree` (shared shape),
    * not issueLoop; issueLoop/review stay first for their own sessions. */
   function sessionDir(bot, ws) {
-    const dir = bot.issueLoop?.dir ?? bot.worktree?.dir ?? bot.review?.dir ?? ws.cwd;
+    const dir = bot.issueLoop?.dir ?? bot.worktree?.dir ?? bot.review?.dir ?? bot.loopRun?.dir ?? ws.cwd;
     if (typeof dir !== "string" || !dir.startsWith("/")) throw new HttpError(409, `session ${bot.id} has no usable worktree directory`);
     return dir;
   }
@@ -205,7 +205,7 @@ export function register(app) {
         botId: bot.id,
         name: bot.name,
         depth,
-        canDelegate: ws.status === "ready" && depth < MAX_DEPTH,
+        canDelegate: ws.status === "ready" && depth < MAX_DEPTH && !bot.readOnly && !bot.loopRun,
         dir: sessionDir(bot, ws),
         workspaceId: ws.id,
         maxChildren: MAX_CHILDREN,
@@ -222,6 +222,9 @@ export function register(app) {
     if (!task) throw new HttpError(400, "task is required");
     const parent = botOr404(params.id);
     if (parent.readOnly) throw new HttpError(409, "read-only sessions cannot delegate");
+    // Issue14: a Loop-run session is capability-restricted (loopRun); delegating would create a full-permission
+    // child session outside the run's boundary — forbidden. The human creates a normal session to delegate.
+    if (parent.loopRun?.runId) throw new HttpError(409, "loop-run sessions cannot delegate (capability boundary)");
     const ws = workspaceOf(parent);
     const dir = sessionDir(parent, ws);
     const delegation = parent.delegation ?? { tasks: [], results: [], depth: 0 };
@@ -264,7 +267,7 @@ export function register(app) {
     try {
       // The child gets its own worktree + its own branch off the parent's pinned baseline (or HEAD when
       // none is recorded — HEAD of the workspace repo, never a client path). The parent's checkout is never touched.
-      const baseRef = base ?? parent.issueLoop?.pinnedSha ?? parent.worktree?.pinnedSha ?? parent.review?.headSha ?? "HEAD";
+      const baseRef = base ?? parent.issueLoop?.pinnedSha ?? parent.worktree?.pinnedSha ?? parent.review?.headSha ?? parent.loopRun?.pinnedSha ?? "HEAD";
       // Resolve the base to its ACTUAL commit SHA first: the recorded pinnedSha is the source of truth for every
       // reader (Header branch label, EnvironmentPane, Files/Git panels), so a symbolic base or a stale record is
       // resolved once, here — never re-derived by a client.

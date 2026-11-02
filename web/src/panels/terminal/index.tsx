@@ -12,6 +12,10 @@
 //                 shared danger classifier are refused. No PTY, no stdin, no shell state.
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
+import { Input } from "../../components/ui/input";
 import { Icon } from "../../components/Chat/primitives/Icon";
 import { cx } from "../../lib/cx";
 import type { PanelContext, PanelDefinition } from "../types";
@@ -608,77 +612,79 @@ function PtyView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
   if (phase === "consent") {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-sm">
-        <Icon name="terminal" className="h-8 w-8 text-zinc-500" />
-        <div className="max-w-md space-y-2 text-zinc-300">
-          <p className="font-medium text-zinc-100">交互式终端 · 完全访问</p>
-          <p className="text-[13px] leading-relaxed text-zinc-400">
+        <Icon name="terminal" className="h-8 w-8 text-muted-foreground" />
+        <div className="max-w-md space-y-2 text-muted-foreground">
+          <p className="font-medium text-foreground">交互式终端 · 完全访问</p>
+          <p className="text-[13px] leading-relaxed">
             这会在该会话的工作目录中启动一个真实 shell：你的每次按键直接到达 Sprite，可以执行
-            <span className="text-zinc-200"> 任意命令</span>
+            <span className="text-foreground"> 任意命令</span>
             （包括使用 Bot 在其中的登录态）。
           </p>
-          <p className="text-[13px] leading-relaxed text-zinc-500">没有逐命令审批。Agent 的工具调用仍走审批；此 shell 是你本人的操作。不需要交互时，请用「命令控制台」（危险命令仍被分类器拦截）。</p>
+          <p className="text-[13px] leading-relaxed opacity-80">没有逐命令审批。Agent 的工具调用仍走审批；此 shell 是你本人的操作。不需要交互时，请用「命令控制台」（危险命令仍被分类器拦截）。</p>
         </div>
-        <label className="flex items-center gap-2 text-[12px] text-zinc-400">
-          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="accent-zinc-500" />
+        <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="accent-primary" />
           我理解此 shell 拥有对该 Sprite 的完全访问权限
         </label>
-        <button
+        <Button
           type="button"
           disabled={!agreed}
           onClick={begin}
-          className="rounded bg-zinc-700 px-4 py-1.5 text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
         >
           启动 Shell
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col text-sm">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5 text-[12px] text-zinc-400">
-        <span className="font-medium text-zinc-300">交互式终端</span>
-        <span className="rounded bg-amber-900/50 px-1.5 py-0.5 text-amber-200">PTY · 完全访问 · 无逐命令审批</span>
-        <span className="min-w-0 flex-1 truncate text-zinc-500" title={root ?? undefined}>
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[12px] text-muted-foreground">
+        <span className="font-medium text-foreground">交互式终端</span>
+        <Badge variant="secondary" className="bg-amber-500/15 text-amber-400 hover:bg-amber-500/15">PTY · 完全访问 · 无逐命令审批</Badge>
+        <span className="min-w-0 flex-1 truncate" title={root ?? undefined}>
           {phase === "connecting" ? "connecting…" : phase === "closed" ? (note ?? "disconnected") : `${root ?? ""} · ${dims.cols}×${dims.rows}`}
         </span>
         {phase === "live" && (
           <>
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="xs"
               onClick={interrupt}
-              className="flex items-center gap-1 rounded bg-zinc-800 px-2 py-0.5 text-zinc-300 hover:bg-zinc-700"
               aria-label="Send SIGINT"
             >
               ^C
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="destructive"
+              size="xs"
               onClick={killShell}
-              className="flex items-center gap-1 rounded bg-red-900/60 px-2 py-0.5 text-red-200 hover:bg-red-800/70"
               aria-label="Kill shell"
             >
               <Icon name="stop" className="h-3.5 w-3.5" /> Kill
-            </button>
+            </Button>
           </>
         )}
         {phase === "closed" && (
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="xs"
             onClick={() => {
               screen.write("\x1b[2J\x1b[H");
               bump();
               begin();
             }}
-            className="rounded bg-zinc-700 px-2 py-0.5 text-zinc-100 hover:bg-zinc-600"
           >
             重新连接
-          </button>
+          </Button>
         )}
       </div>
       <div
         ref={boxRef}
-        className="relative min-h-0 flex-1 overflow-hidden bg-zinc-950 px-1 font-mono text-[12px] leading-4"
+        className="relative min-h-0 flex-1 overflow-hidden bg-black px-1 font-mono text-[12px] leading-4"
         onClick={() => inputRef.current?.focus()}
         aria-label="Terminal output"
         role="application"
@@ -694,7 +700,7 @@ function PtyView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
           autoComplete="off"
           spellCheck={false}
         />
-        {phase === "connecting" && <div className="p-2 text-zinc-600">connecting…</div>}
+        {phase === "connecting" && <div className="p-2 text-muted-foreground">connecting…</div>}
         {screen.lines().map((runs, y) => (
           <div key={y} className="whitespace-pre">
             {runs.map((r, i) => (
@@ -848,58 +854,59 @@ function ConsoleView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
 
   return (
     <div className="flex h-full flex-col text-sm">
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5 text-[12px] text-zinc-400">
-        <span className="font-medium text-zinc-300">命令控制台</span>
-        <span className="rounded bg-zinc-800 px-1.5 py-0.5">非交互式 · 无 stdin · 危险命令被拦截</span>
-        <span className="min-w-0 flex-1 truncate text-zinc-500" title={root ?? undefined}>
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[12px] text-muted-foreground">
+        <span className="font-medium text-foreground">命令控制台</span>
+        <Badge variant="secondary">非交互式 · 无 stdin · 危险命令被拦截</Badge>
+        <span className="min-w-0 flex-1 truncate" title={root ?? undefined}>
           {status === "connecting" ? "connecting…" : status === "closed" ? "disconnected" : root}
         </span>
         {running && (
-          <button
+          <Button
             type="button"
+            variant="destructive"
+            size="xs"
             onClick={kill}
-            className="flex items-center gap-1 rounded bg-red-900/60 px-2 py-0.5 text-red-200 hover:bg-red-800/70"
             aria-label="Kill running command"
           >
             <Icon name="stop" className="h-3.5 w-3.5" /> Kill
-          </button>
+          </Button>
         )}
       </div>
-      <div ref={outRef} className="min-h-0 flex-1 overflow-y-auto bg-zinc-950 p-2 font-mono text-[12px] leading-relaxed" aria-label="Console output">
-        {lines.length === 0 && <div className="text-zinc-600">Run a command; output appears here as it is produced.</div>}
+      <div ref={outRef} className="min-h-0 flex-1 overflow-y-auto bg-black p-2 font-mono text-[12px] leading-relaxed" aria-label="Console output">
+        {lines.length === 0 && <div className="text-muted-foreground">Run a command; output appears here as it is produced.</div>}
         {lines.map((l) => (
           <pre
             key={l.id}
             className={cx(
               "whitespace-pre-wrap break-all",
               l.kind === "cmd" && "mt-1 text-sky-300",
-              l.kind === "out" && "text-zinc-200",
-              l.kind === "exit" && "text-zinc-500",
-              l.kind === "error" && "text-red-400",
+              l.kind === "out" && "text-foreground",
+              l.kind === "exit" && "text-muted-foreground",
+              l.kind === "error" && "text-destructive",
             )}
           >
             {l.text}
           </pre>
         ))}
       </div>
-      <form onSubmit={run} className="flex items-center gap-2 border-t border-zinc-800 p-2">
-        <span className="text-zinc-500">$</span>
-        <input
+      <form onSubmit={run} className="flex items-center gap-2 border-t border-border p-2">
+        <span className="text-muted-foreground">$</span>
+        <Input
           type="text"
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           placeholder={status === "ready" ? "command…" : "waiting for connection…"}
           disabled={status !== "ready" || running !== null}
-          className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-[12px] text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+          className="min-w-0 flex-1 font-mono text-[12px]"
           aria-label="Command"
         />
-        <button
+        <Button
           type="submit"
+          size="sm"
           disabled={status !== "ready" || running !== null || !command.trim()}
-          className="rounded bg-zinc-700 px-3 py-1 text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
         >
           Run
-        </button>
+        </Button>
       </form>
     </div>
   );
@@ -907,10 +914,21 @@ function ConsoleView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
 
 const Component = ({ bot }: PanelContext) => {
   const [mode, setMode] = useState<"pty" | "console">("pty");
-  if (!bot) return <div className="p-4 text-sm text-zinc-500">Select a session to open its terminal.</div>;
+  if (!bot)
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">Select a session to open its terminal.</EmptyDescription>
+      </Empty>
+    );
+  if (bot.readOnly || bot.loopRun)
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">受限 Session 不提供人工 Shell，以免绕过运行权限。请在工作区新建普通 Session 使用终端。</EmptyDescription>
+      </Empty>
+    );
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1 border-b border-zinc-800 px-2 pt-1.5 text-[12px]">
+      <div className="flex items-center gap-1 border-b border-border px-2 pt-1.5 text-[12px]">
         {(
           [
             ["pty", "终端 (PTY)"],
@@ -921,7 +939,7 @@ const Component = ({ bot }: PanelContext) => {
             key={m}
             type="button"
             onClick={() => setMode(m)}
-            className={cx("rounded-t px-2.5 py-1", mode === m ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300")}
+            className={cx("rounded-t px-2.5 py-1", mode === m ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground")}
           >
             {label}
           </button>

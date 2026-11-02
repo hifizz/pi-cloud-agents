@@ -3,6 +3,11 @@ import { SESSION_STATUS_LABEL, defaultSessionStatus, type BotSummary } from "../
 import { describeError, mapBotsToWorkspaces, repoName, workspacesApi, type Workspace } from "../lib/workspaces";
 import { Icon } from "./Chat/primitives/Icon";
 import { StatusDot } from "./WorkspaceStatus";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 // swe-2 stays first: it is the default model (src/config.mjs).
 export const MODEL_OPTIONS = ["swe-2", "glm-5.3-flash", "glm-5.3", "claude-sonnet-5-5", "gpt-5.6-terra"];
@@ -36,7 +41,7 @@ export function relativeTime(value: string | number | undefined, now = Date.now(
   return `${Math.floor(s / (86_400 * 30))}mo`;
 }
 
-const focusRing = "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent";
+const focusRing = "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring";
 
 /** In-page name form for a manually added session (SPIKE-add-session). Not a native prompt. */
 export function AddSessionDialog({
@@ -64,57 +69,50 @@ export function AddSessionDialog({
     }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && !submitting && onClose()}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="add-session-title"
-        onKeyDown={(e) => e.key === "Escape" && !submitting && onClose()}
-        className="w-[24rem] max-w-full rounded-lg border border-line-strong bg-raised p-4 shadow-xl"
-      >
-        <h2 id="add-session-title" className="text-sm font-semibold text-fg">
+    <Dialog open onOpenChange={(open) => !open && !submitting && onClose()}>
+      <DialogContent aria-labelledby="add-session-title" showCloseButton={false} className="w-[24rem]">
+        <DialogTitle id="add-session-title" className="text-sm font-semibold">
           添加 Session
-        </h2>
-        <p className="mt-0.5 text-xs text-fg-muted">在「{workspaceName}」里新建一个空白会话，使用独立目录，不会自动发送消息。</p>
-        <form onSubmit={submit} className="mt-3 space-y-3" aria-label="添加 Session">
+        </DialogTitle>
+        <DialogDescription className="-mt-2 text-xs">
+          在「{workspaceName}」里新建一个空白会话，使用独立目录，不会自动发送消息。
+        </DialogDescription>
+        <form onSubmit={submit} className="space-y-3" aria-label="添加 Session 表单">
           <div>
-            <label htmlFor="add-session-name" className="block text-xs font-medium text-fg-muted">
+            <Label htmlFor="add-session-name" className="mb-1.5 block text-xs font-medium text-muted-foreground">
               名称
-            </label>
-            <input
-              id="add-session-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={submitting}
-              className="mt-1 w-full rounded-md border border-line bg-field px-2.5 py-1.5 text-sm text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-            />
+            </Label>
+            <Input id="add-session-name" type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={submitting} />
           </div>
           {error && (
-            <p role="alert" className="text-xs text-bad">
+            <p role="alert" className="text-xs text-destructive">
               {error}
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} disabled={submitting} className="rounded-md border border-line-strong px-2.5 py-1 text-xs font-medium text-fg-dim hover:bg-hover">
+            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={submitting}>
               取消
-            </button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-40">
+            </Button>
+            <Button type="submit" size="sm" disabled={submitting}>
               {submitting ? "创建中…" : "创建"}
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function ApprovalBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
-    <span role="status" aria-label={`${count} pending approval${count === 1 ? "" : "s"}`} className="rounded-full bg-warn px-1.5 text-[11px] font-semibold text-black">
+    <Badge
+      role="status"
+      aria-label={`${count} pending approval${count === 1 ? "" : "s"}`}
+      className="rounded-full border-transparent bg-warn px-1.5 text-[11px] font-semibold text-black"
+    >
       {count}
-    </span>
+    </Badge>
   );
 }
 
@@ -157,15 +155,11 @@ export function BotList({
   return (
     <nav aria-label="Workspaces" className="flex h-full min-h-0 flex-col">
       <div className="space-y-2 px-3 py-2.5">
-        <button
-          type="button"
-          onClick={onNewWorkspace}
-          className="flex h-9 w-full items-center gap-2 rounded-lg bg-brand px-3 text-[13px] font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-        >
+        <Button type="button" onClick={onNewWorkspace} size="lg" className="w-full gap-2 text-[13px]">
           <Icon name="plus" className="size-3.5" />
           新建工作区
-        </button>
-        <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line bg-field px-2 text-fg-muted focus-within:border-line-strong">
+        </Button>
+        <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-input px-2 text-muted-foreground focus-within:border-ring dark:bg-input/30">
           <Icon name="search" className="size-3.5" />
           <input
             type="search"
@@ -173,21 +167,21 @@ export function BotList({
             placeholder="搜索工作区"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-fg placeholder:text-fg-faint focus:outline-none"
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
         </label>
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-2 pb-2">
-        {loading && visibleWorkspaces.length === 0 && <p className="px-2 py-4 text-sm text-fg-muted">加载中…</p>}
+        {loading && visibleWorkspaces.length === 0 && <p className="px-2 py-4 text-sm text-muted-foreground">加载中…</p>}
         {!loading && visibleWorkspaces.length === 0 && (
-          <p className="px-2 py-4 text-sm text-fg-muted">还没有工作区。点击上方「新建工作区」，选择一个仓库开始。</p>
+          <p className="px-2 py-4 text-sm text-muted-foreground">还没有工作区。点击上方「新建工作区」，选择一个仓库开始。</p>
         )}
-        {visibleWorkspaces.length > 0 && filtered.length === 0 && <p className="px-2 py-4 text-sm text-fg-muted">没有匹配的工作区。</p>}
+        {visibleWorkspaces.length > 0 && filtered.length === 0 && <p className="px-2 py-4 text-sm text-muted-foreground">没有匹配的工作区。</p>}
 
         {[...groups].map(([repo, items]) => (
           <section key={repo} aria-label={`项目 ${repo}`}>
-            <h3 className="flex items-center gap-1.5 truncate px-2 pb-1 text-[11.5px] font-medium text-fg-muted" title={repo}>
+            <h3 className="flex items-center gap-1.5 truncate px-2 pb-1 text-[11.5px] font-medium text-muted-foreground" title={repo}>
               <Icon name="folder" className="size-3" />
               <span className="truncate">{repo}</span>
             </h3>
@@ -206,36 +200,39 @@ export function BotList({
                         type="button"
                         onClick={() => onSelectWorkspace(w.id)}
                         aria-current={selected ? "true" : undefined}
+                        data-active={selected || undefined}
                         className={`flex min-w-0 flex-1 flex-col gap-0.5 rounded-[10px] border px-2.5 py-2 text-left ${focusRing} ${
-                          selected ? "border-[#262626] bg-selected" : "border-transparent hover:bg-hover"
+                          selected ? "border-border bg-accent" : "border-transparent hover:bg-muted"
                         }`}
                       >
                         <span className="flex items-center gap-2">
                           <StatusDot status={w.status} />
-                          <span className={`min-w-0 flex-1 truncate text-[13px] font-medium ${selected ? "text-white" : "text-fg"}`}>{w.name}</span>
+                          <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-foreground">{w.name}</span>
                           {!selected && <ApprovalBadge count={pendingTotal} />}
-                          {age && <span className="shrink-0 font-mono text-[11px] text-fg-muted">{age}</span>}
+                          {age && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{age}</span>}
                         </span>
-                        <span className="flex min-w-0 items-center gap-1.5 pl-4 text-[11.5px] text-fg-muted">
+                        <span className="flex min-w-0 items-center gap-1.5 pl-4 text-[11.5px] text-muted-foreground">
                           <span className="shrink-0">{repoName(w.repo)}</span>
                           <Icon name="branch" className="size-3" />
                           <span className="truncate font-mono">{w.branch}</span>
                         </span>
                       </button>
-                      <button
+                      <Button
                         type="button"
+                        variant="ghost"
+                        size="icon-xs"
                         aria-label="更多操作"
                         title="更多操作"
                         aria-haspopup="menu"
                         aria-expanded={menuOpen}
                         onClick={() => setMenuOf(menuOpen ? undefined : w.id)}
-                        className={`mt-2 flex size-6 shrink-0 items-center justify-center rounded-md text-fg-muted hover:bg-hover hover:text-fg ${focusRing}`}
+                        className="mt-2 text-muted-foreground"
                       >
                         <span aria-hidden="true">⋯</span>
-                      </button>
+                      </Button>
                     </div>
                     {menuOpen && (
-                      <div role="menu" aria-label={`${w.name} 的更多操作`} className="absolute right-1 top-9 z-10 min-w-28 rounded-md border border-line-strong bg-raised py-1 shadow-xl">
+                      <div role="menu" aria-label={`${w.name} 的更多操作`} className="absolute right-1 top-9 z-10 min-w-32 rounded-lg bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10">
                         <button
                           type="button"
                           role="menuitem"
@@ -244,14 +241,14 @@ export function BotList({
                             setMenuOf(undefined);
                             setAddingTo(w);
                           }}
-                          className="block w-full px-3 py-1.5 text-left text-xs text-fg hover:bg-hover disabled:opacity-40"
+                          className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm outline-none focus:bg-accent focus:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                         >
                           添加 Session
                         </button>
                       </div>
                     )}
                     {selected && sessions.length > 0 && (
-                      <ul aria-label={`${w.name} 的会话`} className="mb-1 ml-5 mt-1 space-y-0.5 border-l border-line pl-2">
+                      <ul aria-label={`${w.name} 的会话`} className="mb-1 ml-5 mt-1 space-y-0.5 border-l border-border pl-2">
                         {sessions.map((bot) => {
                           const botSelected = bot.id === selectedBotId;
                           const parentName = bot.parent ? (bots.find((b) => b.id === bot.parent?.botId)?.name ?? "unknown") : undefined;
@@ -263,19 +260,20 @@ export function BotList({
                                 type="button"
                                 onClick={() => onSelectBot(bot.id)}
                                 aria-current={botSelected ? "true" : undefined}
-                                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12.5px] ${focusRing} ${
-                                  botSelected ? "bg-[#161616] text-white" : "text-fg-dim hover:bg-hover"
+                                data-active={botSelected || undefined}
+                                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs ${focusRing} ${
+                                  botSelected ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-muted"
                                 }`}
                               >
                                 <span className="min-w-0 flex-1">
-                                  <span className="block truncate font-medium">
+                                  <span className="block truncate font-medium" title={bot.name}>
                                     {bot.name}
-                                    <span data-testid="session-status-label" className={`ml-1.5 text-[11px] font-normal ${sessionStatus === "done" ? "text-fg-faint" : "text-fg-muted"}`}>
+                                    <span data-testid="session-status-label" className="ml-1.5 text-[11px] font-normal text-muted-foreground">
                                       {SESSION_STATUS_LABEL[sessionStatus]}
                                     </span>
                                   </span>
                                   {(parentName || bot.queued > 0 || bot.readOnly) && (
-                                    <span className="block truncate text-[11px] text-fg-muted">
+                                    <span className="block truncate text-[11px] text-muted-foreground">
                                       {parentName && <span title={`Forked from ${parentName}`}>↳ {parentName}</span>}
                                       {bot.readOnly && <span>{parentName ? " · 只读" : "只读"}</span>}
                                       {(parentName || bot.readOnly) && bot.queued > 0 && " · "}
@@ -287,7 +285,7 @@ export function BotList({
                                 <span
                                   role="img"
                                   aria-label={bot.busy ? "busy" : "idle"}
-                                  className={`size-2 shrink-0 rounded-full ${bot.busy ? "animate-pulse bg-warn" : "bg-fg-faint"}`}
+                                  className={`size-2 shrink-0 rounded-full ${bot.busy ? "animate-pulse bg-warn" : "bg-muted-foreground"}`}
                                 />
                               </button>
                             </li>

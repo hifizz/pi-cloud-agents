@@ -154,7 +154,9 @@ test("describeEvent and eventMessage label external content as untrusted and cli
   const gh = createGithubClient({ token: "t", fetch: async () => new Response(JSON.stringify(feed), { status: 200 }), apiBase: "http://x" });
   const events = await gh.listEvents(REPO);
   assert.equal(events.length, 3, "PushEvent dropped");
-  assert.deepEqual(events[0], { id: "1", kind: "issue", action: "opened", number: 3, title: "T", url: "u", actor: "a", at: "t", isPr: false });
+  // Phase2: normalizeEvent also carries loop-poll fields (labels/label/entityUpdatedAt/commentId/reviewId/headSha/
+  // baseRef); the Issue13 sync ignores them but they are part of the canonical shape.
+  assert.deepEqual(events[0], { id: "1", kind: "issue", action: "opened", number: 3, title: "T", url: "u", actor: "a", at: "t", labels: [], label: null, entityUpdatedAt: null, isPr: false });
   assert.equal(events[1].kind, "review");
   assert.equal(events[1].state, "approved");
   assert.equal(events[2].isPr, true, "a comment on a PR issue object is a PR comment");

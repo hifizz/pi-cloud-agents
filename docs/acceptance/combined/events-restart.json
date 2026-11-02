@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "pollCount": 1,
+  "nextSyncAt": "2026-10-31T15:49:31.872Z",
+  "prChecks": [
+    {
+      "pr": 15,
+      "headSha": "84c0513b0761c4cdbffb0bbc7b6f69b889353791",
+      "state": "success"
+    }
+  ],
+  "lastError": null
+}

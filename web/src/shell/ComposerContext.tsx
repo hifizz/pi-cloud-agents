@@ -3,7 +3,7 @@ import type { StreamStatus } from "../types";
 
 export function StatusLine({ busy, queued, status }: { busy: boolean; queued: number; status: StreamStatus }) {
   let text: string;
-  let color = "bg-fg-faint";
+  let color = "bg-muted-foreground/50";
   if (status !== "open") {
     text = status === "reconnecting" ? "Reconnecting…" : status === "connecting" ? "Connecting…" : "Disconnected";
     color = "bg-warn";
@@ -17,7 +17,7 @@ export function StatusLine({ busy, queued, status }: { busy: boolean; queued: nu
     color = "bg-[#8fb98f]";
   }
   return (
-    <div className="flex items-center gap-1.5 px-3.5 pt-2 text-[11.5px] text-fg-faint">
+    <div className="flex items-center gap-1.5 px-3.5 pt-2 text-[11.5px] text-muted-foreground/70">
       <span className={`size-1.5 rounded-full ${color}`} aria-hidden="true" />
       <span>{text}</span>
     </div>

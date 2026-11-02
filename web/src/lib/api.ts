@@ -22,7 +22,7 @@ export function onUnauthorized(fn: () => void): () => void {
   };
 }
 
-export async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: body === undefined ? undefined : { "content-type": "application/json" },
@@ -60,6 +60,10 @@ export const api = {
       requestId: opts.requestId ?? newRequestId(),
     }),
   abort: (botId: string, background = false) => request<{ ok: true }>("POST", `/api/bots/${enc(botId)}/abort`, background ? { background: true } : {}),
+  setApprovalPolicy: (botId: string, policy: "ask" | "auto") =>
+    request<{ bot: BotSummary }>("PATCH", `/api/bots/${enc(botId)}/approval-policy`, { policy }),
+  setModel: (botId: string, modelId: string) =>
+    request<{ bot: BotSummary }>("PATCH", `/api/bots/${enc(botId)}/model`, { modelId }),
   compact: (botId: string, instructions?: string) =>
     request<{ taskId: unknown }>("POST", `/api/bots/${enc(botId)}/compact`, instructions ? { instructions } : {}),
   reset: (botId: string, note?: string) => request<{ ok: true }>("POST", `/api/bots/${enc(botId)}/reset`, note ? { note } : {}),

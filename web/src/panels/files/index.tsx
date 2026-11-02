@@ -4,6 +4,8 @@
 // refused. The panel talks to /api/bots/:id/files/* directly — nothing is mocked.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
 import { Icon } from "../../components/Chat/primitives/Icon";
 import { cx } from "../../lib/cx";
 import type { PanelContext, PanelDefinition } from "../types";
@@ -182,66 +184,69 @@ function FilesView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
 
   return (
     <div className="flex h-full flex-col text-sm">
-      <div className="flex items-center gap-1 border-b border-zinc-800 px-2 py-1.5">
-        <button
+      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+        <Button
           type="button"
-          className="rounded px-1.5 py-0.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => void load(".")}
           title="Session root"
           aria-label="Session root"
         >
           <Icon name="folder" className="inline h-4 w-4" />
-        </button>
+        </Button>
         <nav aria-label="Path" className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           {crumbs(dir).map((c) => (
             <button
               key={c.path}
               type="button"
-              className="whitespace-nowrap rounded px-1 py-0.5 text-zinc-300 hover:bg-zinc-800"
+              className="whitespace-nowrap rounded px-1 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => void load(c.path)}
             >
               {c.label}
             </button>
           ))}
         </nav>
-        <button
+        <Button
           type="button"
-          className="rounded px-1.5 py-0.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => void load(dir)}
           disabled={loading}
           aria-label="Refresh"
           title="Refresh"
         >
           <Icon name="history" className="inline h-4 w-4" />
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="rounded px-1.5 py-0.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+          variant="ghost"
+          size="icon-sm"
           onClick={() => fileInput.current?.click()}
-          disabled={uploading || !list}
+          disabled={uploading || !list || bot.readOnly || Boolean(bot.loopRun && bot.loopRun.capabilities?.code !== "readwrite")}
           aria-label="Upload file"
           title="Upload file"
         >
           <Icon name="filePlus" className="inline h-4 w-4" />
-        </button>
+        </Button>
         <input ref={fileInput} type="file" className="hidden" aria-label="Choose file" onChange={onPick} />
       </div>
       {error && (
-        <div role="alert" className="border-b border-red-900/60 bg-red-950/40 px-3 py-1.5 text-red-300">
+        <div role="alert" className="border-b border-destructive/40 bg-destructive/10 px-3 py-1.5 text-destructive">
           {error}
         </div>
       )}
       <div className="flex min-h-0 flex-1">
-        <ul className="w-2/5 shrink-0 overflow-y-auto border-r border-zinc-800" aria-label="Directory listing">
-          {loading && <li className="px-3 py-2 text-zinc-500">Loading…</li>}
-          {!loading && list?.entries.length === 0 && <li className="px-3 py-2 text-zinc-500">(empty)</li>}
+        <ul className="w-2/5 shrink-0 overflow-y-auto border-r border-border" aria-label="Directory listing">
+          {loading && <li className="px-3 py-2 text-muted-foreground">Loading…</li>}
+          {!loading && list?.entries.length === 0 && <li className="px-3 py-2 text-xs text-muted-foreground">(empty)</li>}
           {list?.entries.map((e) => (
             <li key={e.path}>
               <button
                 type="button"
                 className={cx(
-                  "flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-zinc-800/70",
-                  open?.path === e.path && "bg-zinc-800",
+                  "flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-muted/70",
+                  open?.path === e.path && "bg-muted",
                   e.protected && "opacity-50",
                 )}
                 title={e.protected ? `${e.name} (protected)` : e.path}
@@ -250,30 +255,30 @@ function FilesView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
                   else void openFile(e);
                 }}
               >
-                <Icon name={e.kind === "directory" ? "folder" : "file"} className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-                <span className="min-w-0 flex-1 truncate text-zinc-200">{e.name}</span>
-                {e.kind === "symlink" && <span className="text-zinc-500">↗</span>}
-                {e.kind === "file" && <span className="shrink-0 text-[11px] text-zinc-500">{formatSize(e.size)}</span>}
+                <Icon name={e.kind === "directory" ? "folder" : "file"} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-foreground">{e.name}</span>
+                {e.kind === "symlink" && <span className="text-muted-foreground">↗</span>}
+                {e.kind === "file" && <span className="shrink-0 text-[11px] text-muted-foreground">{formatSize(e.size)}</span>}
               </button>
             </li>
           ))}
-          {list?.truncated && <li className="px-3 py-1 text-[11px] text-zinc-500">…truncated</li>}
+          {list?.truncated && <li className="px-3 py-1 text-[11px] text-muted-foreground">…truncated</li>}
         </ul>
         <div className="min-w-0 flex-1 overflow-auto">
           {open ? (
             <div className="p-2">
-              <div className="mb-1 flex items-center justify-between gap-2 px-1 text-[12px] text-zinc-400">
+              <div className="mb-1 flex items-center justify-between gap-2 px-1 text-[12px] text-muted-foreground">
                 <span className="truncate" title={open.path}>
                   {open.path}
                 </span>
                 <span className="shrink-0">{formatSize(open.reply.size)}</span>
               </div>
-              <pre className="whitespace-pre-wrap break-all rounded bg-zinc-900 p-2 text-[12px] leading-relaxed text-zinc-200">
+              <pre className="whitespace-pre-wrap break-all rounded bg-muted p-2 text-[12px] leading-relaxed text-foreground">
                 {openedText}
               </pre>
             </div>
           ) : (
-            <div className="p-4 text-zinc-500">Select a file to view its contents.</div>
+            <div className="p-4 text-muted-foreground">Select a file to view its contents.</div>
           )}
         </div>
       </div>
@@ -282,7 +287,12 @@ function FilesView({ bot }: { bot: NonNullable<PanelContext["bot"]> }) {
 }
 
 const Component = ({ bot }: PanelContext) => {
-  if (!bot) return <div className="p-4 text-sm text-zinc-500">Select a session to browse its files.</div>;
+  if (!bot)
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">Select a session to browse its files.</EmptyDescription>
+      </Empty>
+    );
   return <FilesView bot={bot} />;
 };
 

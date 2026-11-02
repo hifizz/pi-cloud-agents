@@ -1,9 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation";
 import { deriveFeed } from "../../lib/turns";
 import type { ChatMessage } from "../../types";
 import { FeedRowList } from "./FeedRow";
 import { Icon } from "./primitives/Icon";
 import { Spinner } from "./primitives/Spinner";
+
+// use-stick-to-bottom (inside Conversation) needs ResizeObserver, which jsdom lacks.
+// Every real browser has it, so this only fills the gap in test environments.
+if (typeof window !== "undefined" && typeof window.ResizeObserver === "undefined") {
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
 
 export function MessageList({
   messages,
@@ -18,9 +29,6 @@ export function MessageList({
   /** When given, changed-files cards show an "Open diff" button. */
   onOpenDiff?: (turnKey: string, path?: string) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
-  const [away, setAway] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   const rows = useMemo(() => deriveFeed(messages, { busy, expanded }), [messages, busy, expanded]);
@@ -38,57 +46,28 @@ export function MessageList({
     [onFork, onOpenDiff],
   );
 
-  useEffect(() => {
-    const el = ref.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [rows]);
-
   const working = busy && !messages.some((m) => m.pending);
 
   return (
-    <div className="relative min-h-0 flex-1">
-      <div
-        ref={ref}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-          stick.current = near;
-          setAway(!near);
-        }}
-        className="h-full overflow-y-auto overflow-x-hidden px-[18px]"
-        role="log"
-        aria-live="polite"
-        aria-label="Conversation"
-      >
-        <div className="mx-auto flex max-w-[720px] flex-col pb-24 pt-[26px]">
-          {rows.length === 0 && (
-            <div className="mt-10 text-center">
-              <Icon name="sparkle" className="mx-auto size-5 text-fg-faint" />
-              <p className="mt-3 text-sm text-fg-muted">No messages yet. Give this bot a task below.</p>
-            </div>
-          )}
-          <FeedRowList rows={rows} handlers={handlers} />
-          {working && (
-            <p className="mt-4 flex items-center gap-2 text-xs text-fg-muted">
-              <Spinner />
-              Working…
-            </p>
-          )}
-        </div>
-      </div>
-      {away && (
-        <button
-          type="button"
-          onClick={() => {
-            const el = ref.current;
-            if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-          }}
-          className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[#2e2e2e] bg-[#1c1c1c] px-3 py-1 text-xs text-fg-dim shadow-lg shadow-black/50 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
-        >
-          <Icon name="arrowDown" className="size-3" />
-          Jump to latest
-        </button>
-      )}
-    </div>
+    <Conversation className="min-h-0 overflow-y-auto overflow-x-hidden" aria-live="polite" aria-label="Conversation">
+      <ConversationContent className="mx-auto w-full max-w-[720px] gap-0 px-[18px] pb-24 pt-[26px]">
+        {rows.length === 0 && (
+          <div className="mt-10 text-center">
+            <Icon name="sparkle" className="mx-auto size-5 text-muted-foreground/60" />
+            <p className="mt-3 text-sm text-muted-foreground">No messages yet. Give this bot a task below.</p>
+          </div>
+        )}
+        <FeedRowList rows={rows} handlers={handlers} />
+        {working && (
+          <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+            <Spinner />
+            Working…
+          </p>
+        )}
+      </ConversationContent>
+      <ConversationScrollButton className="h-auto gap-1.5 border-border bg-card px-3 py-1 text-xs text-muted-foreground shadow-lg shadow-black/50 hover:text-foreground [&_svg]:size-3">
+        Jump to latest
+      </ConversationScrollButton>
+    </Conversation>
   );
 }

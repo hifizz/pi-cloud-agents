@@ -231,7 +231,9 @@ test("discussion: issue body names a real branch → it wins and its SHA is pinn
     const add = env.rt.calls.find((c) => c.includes("worktree add --detach"));
     assert.ok(add, `no worktree command: ${JSON.stringify(env.rt.calls)}`);
     assert.ok(add.includes(`--detach '${d.dir}' '${OTHER_SHA}'`), `detached at pinned SHA: ${add}`);
-    assert.ok(add.includes(`fetch origin 'feature/xyz'`), `fetches the baseline branch ref: ${add}`);
+    // fetch and add are separate execs now (addOrReuseWorktree); both must name the baseline branch ref
+    const fetch = env.rt.calls.find((c) => c.includes("fetch origin"));
+    assert.ok(fetch?.includes(`fetch origin 'feature/xyz'`), `fetches the baseline branch ref: ${JSON.stringify(env.rt.calls)}`);
     assert.ok(!/\bcheckout\b/.test(add) && !/\breset\b/.test(add), "no checkout/reset of the original dir");
     // fresh conversation linked to the same workspace, distinct cwd
     const spec = env.bots.created[0];
@@ -640,7 +642,7 @@ test("discussion message: safety rules are restated, approval stays installed, h
     const { status, json } = await env.post(`/api/workspaces/${env.ws.id}/issue-loop/discuss`, { issue: 12 });
     assert.equal(status, 200, json?.error);
     const msg = env.bots.submits.get(json.discussion.botId)[0].content;
-    assert.match(msg, /== 安全规则 ==/, "explicit safety section present");
+    assert.match(msg, /## 安全规则/, "explicit safety section present");
     assert.match(msg, /Never print, echo, log or write any credential or token/, "no-credentials rule present");
     assert.match(msg, /Never force-push/, "no force rule present");
     assert.match(msg, /do not run \`git push\`, \`gh pr create\` or \`gh pr merge\`/, "no push / PR / merge rule present");
@@ -713,7 +715,8 @@ test("review: pins the real PR head SHA, same Sprite detached worktree, fresh re
     // detached worktree at the pinned head SHA, fetched via the PR head ref (same-repo and fork PRs)
     const add = env.rt.calls.find((c) => c.includes("worktree add"));
     assert.ok(add, `no worktree command: ${JSON.stringify(env.rt.calls)}`);
-    assert.ok(add.includes(`fetch origin 'pull/5/head'`), `fetches the PR head ref: ${add}`);
+    const fetch = env.rt.calls.find((c) => c.includes("fetch origin"));
+    assert.ok(fetch?.includes(`fetch origin 'pull/5/head'`), `fetches the PR head ref: ${JSON.stringify(env.rt.calls)}`);
     assert.ok(add.includes(`--detach '${r.dir}' '${PR_SHA}'`), `detached at the pinned head SHA: ${add}`);
     assert.ok(!/\bcheckout\b|\breset\b| -b /.test(add), "no checkout/reset of the original dir, no new branch");
     // fresh conversation, same workspace (same Sprite), preamble removed, review metadata — never issueLoop
@@ -732,7 +735,7 @@ test("review: pins the real PR head SHA, same Sprite detached worktree, fresh re
     assert.ok(msg.includes(PR_SHA), "message pins the head SHA");
     assert.ok(msg.includes("diff --git a/f b/f"), "message carries the real diff");
     assert.match(msg, /不改代码、不提交、不推送、不在 GitHub 上评论、不审批或合并/, "review-only instruction");
-    assert.match(msg, /== 安全规则 ==/, "safety rules restated");
+    assert.match(msg, /## 安全规则/, "safety rules restated");
   } finally {
     await env.close();
   }

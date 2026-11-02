@@ -9,7 +9,7 @@ const textOf = (m: ChatMessage) => m.parts.map((p) => (p.type === "text" ? p.tex
 export function SystemNote({ message }: { message: ChatMessage }) {
   const error = message.tone === "error";
   return (
-    <div role="note" className={cx("flex items-start justify-center gap-1.5 text-center text-xs", error ? "text-bad" : "text-fg-muted")}>
+    <div role="note" className={cx("flex items-start justify-center gap-1.5 text-center text-xs", error ? "text-destructive" : "text-muted-foreground")}>
       {error && <Icon name="alert" className="mt-0.5" />}
       <span className="whitespace-pre-wrap">{textOf(message)}</span>
     </div>
@@ -19,9 +19,9 @@ export function SystemNote({ message }: { message: ChatMessage }) {
 /** Collapsed summary left behind by a context compaction. */
 export function CompactionNote({ message }: { message: ChatMessage }) {
   return (
-    <details className="rounded-lg border border-dashed border-line px-3 py-2 text-xs text-fg-muted">
-      <summary className="cursor-pointer select-none hover:text-fg-dim focus-visible:outline-2 focus-visible:outline-accent">Context compacted — summary</summary>
-      <div className="mt-2 text-fg-dim">
+    <details className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+      <summary className="cursor-pointer select-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">Context compacted — summary</summary>
+      <div className="mt-2 text-muted-foreground">
         <Markdown text={textOf(message)} />
       </div>
     </details>
@@ -32,7 +32,7 @@ export function CompactionNote({ message }: { message: ChatMessage }) {
 export function TurnNotice({ message }: { message: ChatMessage }) {
   if (message.error)
     return (
-      <p role="alert" className="flex items-start gap-1.5 text-xs text-bad">
+      <p role="alert" className="flex items-start gap-1.5 text-xs text-destructive">
         <Icon name="alert" className="mt-0.5" />
         <span>Error: {message.error}</span>
       </p>

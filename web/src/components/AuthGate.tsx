@@ -23,7 +23,7 @@ export function AuthGate() {
 
   if (state.kind === "loading") {
     return (
-      <div role="status" className="flex h-dvh items-center justify-center bg-surface text-sm text-fg-muted">
+      <div role="status" className="flex h-dvh items-center justify-center bg-background text-sm text-muted-foreground">
         加载中…
       </div>
     );

@@ -5,6 +5,10 @@
 // real bash appear on refresh.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "../../components/Chat/primitives/Icon";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
+import { Toggle } from "../../components/ui/toggle";
 import { request } from "../../lib/api";
 import { cx } from "../../lib/cx";
 import { describeError } from "../../lib/workspaces";
@@ -94,19 +98,19 @@ const ROW_CLS: Record<RowKind, string> = {
   add: "bg-diff-add border-l-2 border-l-ok",
   del: "bg-diff-del border-l-2 border-l-bad",
   ctx: "border-l-2 border-l-transparent",
-  hunk: "bg-raised text-fg-muted",
-  meta: "text-fg-faint",
+  hunk: "bg-muted text-muted-foreground",
+  meta: "text-muted-foreground/70",
 };
 
 function DiffBody({ text, wrap, emptyNote }: { text: string; wrap: boolean; emptyNote?: string }) {
   const rows = useMemo(() => diffRows(text), [text]);
-  if (!text.trim()) return <p className="px-4 py-3 text-xs text-fg-muted">{emptyNote ?? "（无 diff 内容：空文件或无可显示变更）"}</p>;
+  if (!text.trim()) return <p className="px-4 py-3 text-xs text-muted-foreground">{emptyNote ?? "（无 diff 内容：空文件或无可显示变更）"}</p>;
   return (
     <div className={cx("py-1 font-mono text-[12.5px] leading-[1.7]", !wrap && "overflow-x-auto")}>
       <div className={cx(!wrap && "w-max min-w-full")}>
         {rows.map((r, i) => (
           <div key={i} className={cx("flex", ROW_CLS[r.kind])} data-kind={r.kind}>
-            <span className="w-[18px] shrink-0 select-none text-center text-fg-faint">{r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""}</span>
+            <span className="w-[18px] shrink-0 select-none text-center text-muted-foreground/70">{r.kind === "add" ? "+" : r.kind === "del" ? "−" : ""}</span>
             <span className={cx("min-w-0 flex-1 pr-3", wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre")}>{r.text}</span>
           </div>
         ))}
@@ -118,15 +122,11 @@ function DiffBody({ text, wrap, emptyNote }: { text: string; wrap: boolean; empt
 const KIND_LABEL: Record<GitFile["kind"], string> = { staged: "已暂存", unstaged: "未暂存", both: "部分暂存", untracked: "未跟踪" };
 const KIND_CLS: Record<GitFile["kind"], string> = {
   staged: "text-ok",
-  unstaged: "text-fg-dim",
-  both: "text-fg-dim",
-  untracked: "text-fg-faint",
+  unstaged: "text-muted-foreground",
+  both: "text-muted-foreground",
+  untracked: "text-muted-foreground/70",
 };
 
-const btn = "flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs hover:bg-hover";
-const btnIdle = cx(btn, "border-line text-fg-dim");
-
-/** Status file row: click loads that file's diff in the matching scope. */
 function FileRow({ file, active, onPick }: { file: GitFile; active: boolean; onPick: () => void }) {
   return (
     <button
@@ -134,21 +134,21 @@ function FileRow({ file, active, onPick }: { file: GitFile; active: boolean; onP
       aria-pressed={active}
       onClick={onPick}
       className={cx(
-        "flex w-full items-center gap-2 border-b border-line px-3 py-1.5 text-left text-xs",
-        active ? "bg-selected text-fg" : "text-fg hover:bg-hover",
+        "flex w-full items-center gap-2 border-b border-border px-3 py-1.5 text-left text-xs",
+        active ? "bg-muted text-foreground" : "text-foreground hover:bg-muted/60",
       )}
     >
       <span className={cx("w-14 shrink-0 font-mono", KIND_CLS[file.kind])}>{KIND_LABEL[file.kind]}</span>
       <span className="min-w-0 flex-1 truncate font-mono" title={file.path}>
         {file.path}
       </span>
-      <span className="shrink-0 font-mono text-fg-faint">{file.status.trim()}</span>
+      <span className="shrink-0 font-mono text-muted-foreground/70">{file.status.trim()}</span>
     </button>
   );
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h3 className="px-3 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-fg-muted">{children}</h3>;
+  return <h3 className="px-3 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{children}</h3>;
 }
 
 export function GitPanel({ bot }: PanelContext) {
@@ -302,32 +302,36 @@ export function GitPanel({ bot }: PanelContext) {
   };
 
   if (!botId) {
-    return <p className="p-4 text-sm text-fg-muted">选择一个会话查看它的 git 状态。</p>;
+    return (
+      <Empty className="h-full">
+        <EmptyDescription className="max-w-xs">选择一个会话查看它的 git 状态。</EmptyDescription>
+      </Empty>
+    );
   }
 
   const shortHead = status?.head.slice(0, 7);
 
   return (
-    <div className="flex h-full flex-col bg-surface">
-      <div className="flex h-[42px] shrink-0 items-center gap-2 border-b border-line px-3 text-xs">
-        <Icon name="branch" className="text-fg-muted" />
-        <span className="min-w-0 truncate font-mono text-fg" title={status?.dir}>
+    <div className="flex h-full flex-col bg-background">
+      <div className="flex h-[42px] shrink-0 items-center gap-2 border-b border-border px-3 text-xs">
+        <Icon name="branch" className="text-muted-foreground" />
+        <span className="min-w-0 truncate font-mono text-foreground" title={status?.dir}>
           {status ? (status.branch ?? `detached @ ${shortHead}`) : loading ? "加载中…" : "git"}
         </span>
-        {status && <span className="shrink-0 font-mono text-fg-faint">{status.branch ? `@${shortHead}` : ""}</span>}
+        {status && <span className="shrink-0 font-mono text-muted-foreground/70">{status.branch ? `@${shortHead}` : ""}</span>}
         <div className="ml-auto flex items-center gap-2">
-          <button type="button" aria-pressed={wrap} onClick={() => setWrap((w) => !w)} className={cx(btn, wrap ? "border-line-strong bg-selected text-fg" : "border-line text-fg-dim")}>
+          <Toggle type="button" pressed={wrap} onPressedChange={() => setWrap((w) => !w)} size="sm" variant="outline" aria-pressed={wrap}>
             Wrap
-          </button>
-          <button type="button" onClick={() => void refresh()} disabled={loading} className={btnIdle}>
+          </Toggle>
+          <Button type="button" variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
             <Icon name="history" />
             {loading ? "刷新中…" : "刷新"}
-          </button>
+          </Button>
         </div>
       </div>
 
       {error && (
-        <p role="alert" className="border-b border-line px-4 py-2 text-xs text-bad">
+        <p role="alert" className="border-b border-border px-4 py-2 text-xs text-destructive">
           {error}
         </p>
       )}
@@ -336,20 +340,20 @@ export function GitPanel({ bot }: PanelContext) {
         {status && (
           <section aria-label="工作区改动">
             <SectionTitle>改动（{status.files.length}）</SectionTitle>
-            {status.files.length === 0 && <p className="px-4 py-2 text-xs text-fg-muted">工作区干净，没有改动。</p>}
+            {status.files.length === 0 && <p className="px-4 py-2 text-xs text-muted-foreground">工作区干净，没有改动。</p>}
             {status.files.map((f) => (
               <FileRow key={f.path} file={f} active={selectedPath === f.path} onPick={() => pickFile(f)} />
             ))}
-            {status.filesTruncated && <p className="px-4 py-2 text-xs text-fg-muted">文件过多，仅显示前 {status.files.length} 项。</p>}
+            {status.filesTruncated && <p className="px-4 py-2 text-xs text-muted-foreground">文件过多，仅显示前 {status.files.length} 项。</p>}
           </section>
         )}
 
-        <section aria-label="分支比较" className="border-t border-line">
+        <section aria-label="分支比较" className="border-t border-border">
           <div className="flex items-center gap-2 px-3 pb-2 pt-3">
             <SectionTitle>与基线比较</SectionTitle>
             <select
               aria-label="比较基线"
-              className="h-6 min-w-0 flex-1 rounded-md border border-line bg-field px-1.5 text-xs text-fg"
+              className="h-6 min-w-0 flex-1 rounded-md border border-input bg-transparent px-1.5 text-xs text-foreground"
               value={base ?? ""}
               onMouseDown={() => void loadRefs()}
               onFocus={() => void loadRefs()}
@@ -365,26 +369,26 @@ export function GitPanel({ bot }: PanelContext) {
           </div>
           {compareFiles && (
             <div>
-              {compareFiles.length === 0 && <p className="px-4 py-2 text-xs text-fg-muted">与 {base} 无差异。</p>}
+              {compareFiles.length === 0 && <p className="px-4 py-2 text-xs text-muted-foreground">与 {base} 无差异。</p>}
               {compareFiles.map((f) => (
                 <button
                   key={f.path}
                   type="button"
                   onClick={() => pickCompareFile(f.path)}
-                  className="flex w-full items-center gap-2 border-b border-line px-3 py-1.5 text-left text-xs text-fg hover:bg-hover"
+                  className="flex w-full items-center gap-2 border-b border-border px-3 py-1.5 text-left text-xs text-foreground hover:bg-muted/60"
                 >
-                  <span className="w-8 shrink-0 font-mono text-fg-faint">{f.status}</span>
+                  <span className="w-8 shrink-0 font-mono text-muted-foreground/70">{f.status}</span>
                   <span className="min-w-0 flex-1 truncate font-mono" title={f.path}>
                     {f.path}
                   </span>
                 </button>
               ))}
-              {compareTruncated && <p className="px-4 py-2 text-xs text-fg-muted">文件过多，仅显示前 {compareFiles.length} 项。</p>}
+              {compareTruncated && <p className="px-4 py-2 text-xs text-muted-foreground">文件过多，仅显示前 {compareFiles.length} 项。</p>}
             </div>
           )}
         </section>
 
-        <section aria-label="最近提交" className="border-t border-line">
+        <section aria-label="最近提交" className="border-t border-border">
           <SectionTitle>最近提交（{commits.length}）</SectionTitle>
           {commits.map((c) => (
             <button
@@ -392,29 +396,31 @@ export function GitPanel({ bot }: PanelContext) {
               type="button"
               aria-pressed={openCommit === c.sha}
               onClick={() => pickCommit(c.sha)}
-              className={cx("flex w-full items-baseline gap-2 border-b border-line px-3 py-1.5 text-left text-xs hover:bg-hover", openCommit === c.sha && "bg-selected")}
+              className={cx("flex w-full items-baseline gap-2 border-b border-border px-3 py-1.5 text-left text-xs hover:bg-muted/60", openCommit === c.sha && "bg-muted")}
             >
-              <span className="shrink-0 font-mono text-accent">{c.short}</span>
-              <span className="min-w-0 flex-1 truncate text-fg" title={c.subject}>
+              <span className="shrink-0 font-mono text-primary">{c.short}</span>
+              <span className="min-w-0 flex-1 truncate text-foreground" title={c.subject}>
                 {c.subject || "（无标题）"}
               </span>
-              <span className="shrink-0 text-fg-faint">{c.author}</span>
+              <span className="shrink-0 text-muted-foreground/70">{c.author}</span>
             </button>
           ))}
-          {status && commits.length === 0 && <p className="px-4 py-2 text-xs text-fg-muted">没有提交记录。</p>}
+          {status && commits.length === 0 && <p className="px-4 py-2 text-xs text-muted-foreground">没有提交记录。</p>}
         </section>
       </div>
 
       {(diffLabel || diffLoading || diffError) && (
-        <div className="flex max-h-[55%] shrink-0 flex-col border-t border-line-strong">
-          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line bg-raised px-3 text-xs">
-            <Icon name="diff" className="text-fg-muted" />
-            <span className="min-w-0 flex-1 truncate font-mono text-fg" title={diffLabel}>
+        <div className="flex max-h-[55%] shrink-0 flex-col border-t border-border">
+          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-muted px-3 text-xs">
+            <Icon name="diff" className="text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate font-mono text-foreground" title={diffLabel}>
               {diffLabel}
             </span>
-            {diff?.truncated && <span className="shrink-0 text-fg-muted">已截断</span>}
-            <button
+            {diff?.truncated && <Badge variant="secondary" className="shrink-0">已截断</Badge>}
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               aria-label="关闭 diff"
               onClick={() => {
                 setDiff(undefined);
@@ -423,19 +429,18 @@ export function GitPanel({ bot }: PanelContext) {
                 setSelectedPath(undefined);
                 setOpenCommit(undefined);
               }}
-              className="rounded p-1 text-fg-muted hover:bg-hover hover:text-fg"
             >
               <Icon name="x" />
-            </button>
+            </Button>
           </div>
           <div className="flex-1 overflow-y-auto">
             {diffError && (
-              <p role="alert" className="px-4 py-3 text-xs text-bad">
+              <p role="alert" className="px-4 py-3 text-xs text-destructive">
                 {diffError}
               </p>
             )}
-            {diffLoading && <p className="px-4 py-3 text-xs text-fg-muted">加载 diff…</p>}
-            {diff?.symlink && <p className="px-4 py-3 text-xs text-fg-muted">符号链接：不读取目标内容。</p>}
+            {diffLoading && <p className="px-4 py-3 text-xs text-muted-foreground">加载 diff…</p>}
+            {diff?.symlink && <p className="px-4 py-3 text-xs text-muted-foreground">符号链接：不读取目标内容。</p>}
             {diff && !diff.symlink && <DiffBody text={diff.diff} wrap={wrap} />}
           </div>
         </div>

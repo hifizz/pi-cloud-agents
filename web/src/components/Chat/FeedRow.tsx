@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { gapBefore, type FeedRow as Row } from "../../lib/turns";
 import { AssistantText } from "./parts/AssistantText";
 import { FilesChanged } from "./parts/FilesChanged";
@@ -33,14 +34,16 @@ function PartView({ row }: { row: Extract<Row, { type: "part" }> }) {
 
 function ForkButton({ entryId, onFork, className }: { entryId: number | string; onFork: (id: number | string) => void; className?: string }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="xs"
       onClick={() => onFork(entryId)}
-      className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-line bg-surface px-1.5 py-0.5 text-xs text-fg-dim opacity-0 shadow-sm hover:bg-hover hover:text-fg focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent group-hover/row:opacity-100 ${className ?? ""}`}
+      className={`shrink-0 gap-1 whitespace-nowrap text-muted-foreground opacity-0 shadow-sm hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100 ${className ?? ""}`}
     >
       <Icon name="fork" className="size-3" />
       Fork from here
-    </button>
+    </Button>
   );
 }
 

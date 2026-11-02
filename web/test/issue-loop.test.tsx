@@ -286,7 +286,7 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
       { number: 12, title: "Fix upload", url: "https://github.com/hifizz/tars-sandbox-playground/issues/12", discussionBotId: "d1" },
       { number: 10, title: "Fresh bug", url: "https://github.com/hifizz/tars-sandbox-playground/issues/10", discussionBotId: null },
     ],
-    pulls: [{ number: 7, title: "WIP feature", url: "https://github.com/hifizz/tars-sandbox-playground/pull/7", headRef: "feat-a" }],
+    pulls: [{ number: 7, title: "WIP feature", url: "https://github.com/hifizz/tars-sandbox-playground/pull/7", state: "open", headRef: "feat-a" }],
   };
 
   it("clicking the workspace row opens the overview (one GET, no chat/composer), issues with a discussion reuse it, new issues go through discuss, PRs link to GitHub only", async () => {
@@ -304,6 +304,8 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
       if (path === "/api/workspaces") return jsonRes([ws()]);
       if (path === "/api/routines") return jsonRes([]);
       if (path === "/api/workspaces/w1/overview") return jsonRes(overview);
+      if (path === "/api/workspaces/w1/loops") return jsonRes([]);
+      if (path === "/api/workspaces/w1/env") return jsonRes({ enabled: true, vars: [] });
       if (path === "/api/workspaces/w1/issue-loop/discuss") {
         return jsonRes({ discussion: { botId: "new1", name: "issue-10-discuss", conversationId: 9010, workspaceId: "w1", issue: 10, baseBranch: "main", pinnedSha: "3157db095cb9344e5b9cf0669657bf613d036b46", dir: "/d10" } });
       }
@@ -333,21 +335,23 @@ describe("workspace overview (SPIKE-workspace-overview)", () => {
     await screen.findByTestId("workspace-overview");
     expect(overviewGets()).toHaveLength(2);
 
-    // PR rows link to GitHub and carry a Review action that creates a review session
+    // PR rows link to GitHub and carry an explicitly named Review-session action (not a diff viewer)
     const prLink = screen.getByRole("link", { name: /WIP feature/ });
     expect(prLink).toHaveAttribute("href", "https://github.com/hifizz/tars-sandbox-playground/pull/7");
     expect(prLink).toHaveAttribute("target", "_blank");
-    await user.click(screen.getByRole("button", { name: "Review" }));
+    await user.click(screen.getByRole("button", { name: /打开 Review Session/ }));
     await waitFor(() => expect(calls.some((c) => c.path === "/api/workspaces/w1/review" && c.method === "POST")).toBe(true));
     expect(calls.find((c) => c.path === "/api/workspaces/w1/review")?.body).toEqual({ pr: 7 });
 
-    // issue #10 has no discussion: the click goes through the discuss flow, then opens the new session.
-    // While the request is in flight every issue button is disabled (no repeated creation clicks).
-    const freshBug = screen.getByRole("button", { name: /Fresh bug/ });
-    const fixUpload = screen.getByRole("button", { name: /Fix upload/ });
-    await user.click(freshBug);
-    await waitFor(() => expect(fixUpload).toBeDisabled());
-    expect(freshBug).toBeDisabled();
+    // Workspace-IA demo: clicking an issue row only expands it; the discuss flow starts from the explicit action
+    // button. While that request is in flight every issue action button is disabled (no repeated creation clicks).
+    await user.click(screen.getByRole("button", { name: /Fix upload/ }));
+    await user.click(screen.getByRole("button", { name: /Fresh bug/ }));
+    expect(screen.getByTestId("issue-detail-10")).toBeInTheDocument();
+    expect(calls.some((c) => c.path === "/api/workspaces/w1/issue-loop/discuss")).toBe(false);
+    const freshBugAction = screen.getByTestId("issue-discuss-10");
+    await user.click(freshBugAction);
+    await waitFor(() => expect(freshBugAction).toBeDisabled());
     const discusses = () => calls.filter((c) => c.path === "/api/workspaces/w1/issue-loop/discuss");
     await screen.findByLabelText("Message");
     expect(discusses()).toHaveLength(1);

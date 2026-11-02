@@ -11,6 +11,9 @@ import { Timing } from "./ext/timing.mjs";
 import { Exec } from "./ext/exec.mjs";
 import { Integrations } from "./ext/integrations.mjs";
 import { createWorkspaceEnv } from "./workspace-env.mjs";
+import { loopSched } from "./loops/index.mjs";
+import { LoopGithubPollExt } from "./loops/github-poller.mjs";
+import { LoopApproval, LoopGithubToolsExt } from "./loops/tools.mjs";
 
 /**
  * Extensions installed in production, in order. `Exec` comes after CodingTools so its `bash` replaces the built-in one
@@ -19,7 +22,11 @@ import { createWorkspaceEnv } from "./workspace-env.mjs";
 export async function productionExtensions() {
   // Timing after Approval: its beforeTool runs once a verdict exists, so approval wait is not counted.
   // Integrations before Approval: load_skill + workspace MCP tools all pass through approval review.
-  return [Preamble, CodingTools, Exec, Search, History, Routines, Integrations, Approval, Timing];
+  // LoopApproval is installed globally so `extensions.add` can resolve it by name for every loop session;
+  // LoopGithubToolsExt likewise (bound to the live deps by createLoops — the object identity must be stable).
+  // Loop tools/extensions sit BEFORE Integrations + Approval: a loop run's added tools are capability-scoped
+  // (loop sessions are skipped by the integrations applier), and every tool still passes through Approval last.
+  return [Preamble, CodingTools, Exec, Search, History, Routines, loopSched.Extension, LoopGithubPollExt, LoopApproval, LoopGithubToolsExt, Integrations, Approval, Timing];
 }
 
 /** Production ExecutionEnv factory: read/write/edit run inside the conversation's workspace Sprite. */

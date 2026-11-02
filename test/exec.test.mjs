@@ -274,7 +274,14 @@ async function openWorld({ sb, responses, link = true, build, execOptions = {}, 
       const ws = theStore.links.workspaceOf(String(conversationId));
       if (!ws) return undefined;
       const binding = theStore.bindings.current(ws.id);
-      return { store: theStore, workspace: ws, binding, runner: recordingRunner(client, log, binding.runtimeId) };
+      return {
+        store: theStore,
+        workspace: ws,
+        binding,
+        runner: recordingRunner(client, log, binding.runtimeId),
+        ...(execOptions.env ? { execEnv: execOptions.env } : {}),
+        ...(execOptions.unset ? { execEnvUnset: execOptions.unset } : {}),
+      };
     });
   }
   const extensions = build ? build({ exec }) : [CodingTools, exec];
@@ -317,6 +324,7 @@ async function openWorld({ sb, responses, link = true, build, execOptions = {}, 
 function fakeRunner(overrides = {}) {
   const calls = [];
   const defaults = {
+    install: async () => ({ installed: false }),
     prepare: async () => ({ prepared: "new", state: "claimed" }),
     start: async () => ({ started: "new", state: "running" }),
     status: async () => ({ state: "running", cmdSha256: undefined }),
@@ -673,6 +681,47 @@ if (CHILD) {
       }
     });
 
+    it("execEnv/execEnvUnset: a real command sees injected values and a disabled var is truly unset", async () => {
+      // REAL end-to-end: resolver -> prepare(names) -> start(per-call env) -> runner.sh __wrap -> real sh.
+      // The parent environment holds LEAK_ME; the session disabled it, so the command must NOT see it.
+      const SECRET = `tok_${randomBytes(8).toString("hex")}`;
+      sb.env.LEAK_ME = "should-not-leak";
+      assert.equal((await sb.bash('printf %s "$LEAK_ME"')).stdout, "should-not-leak");
+      const world = await openWorld({
+        sb,
+        defaultExec: true,
+        execOptions: { env: { INJECTED: SECRET, EMPTY_OK: "" }, unset: ["LEAK_ME"] },
+        responses: [
+          call("bash", { command: 'echo "inj=[$INJECTED] empty=[$EMPTY_OK] leak=[${LEAK_ME-unset}] parent=[$PATH]"' }),
+          answer("done"),
+        ],
+      });
+      try {
+        const [r] = await world.run();
+        assert.equal(r.isError, false, r.text);
+        assert.ok(r.output.includes(`inj=[${SECRET}]`));
+        assert.ok(r.output.includes("empty=[]"));
+        assert.ok(r.output.includes("leak=[unset]"));
+        delete sb.env.LEAK_ME;
+      } finally {
+        await world.close();
+      }
+    });
+
+    it("ready workspace upgrades an old runner by SHA before a disabled-env execution", async () => {
+      const old = readFileSync(sb.runnerSource, "utf8").replace("      --unset-file) unsetf=$2 ;;", "      --unset-file) die old-protocol ;;");
+      writeFileSync(join(sb.home, "runner.sh"), old, { mode: 0o755 });
+      const world = await openWorld({ sb, defaultExec: true, execOptions: { unset: ["OLD_DEFAULT"] },
+        responses: [call("bash", { command: 'printf "%s" "${OLD_DEFAULT-unset}"' }), answer("done")] });
+      try {
+        const [r] = await world.run();
+        assert.equal(r.isError, false, r.text);
+        assert.equal(r.output, "unset");
+        assert.equal(readFileSync(join(sb.home, "runner.sh"), "utf8"), readFileSync(sb.runnerSource, "utf8"));
+        assert.deepEqual(world.log.slice(0, 3).map((x) => x.op), ["install", "prepare", "start"]);
+      } finally { await world.close(); }
+    });
+
     it("non-zero exit is an error result carrying the output and the exit code (like the built-in bash)", async () => {
       const world = await openWorld({ sb, responses: [call("bash", { command: "echo partial; exit 7" }), answer("done")] });
       try {
@@ -1013,9 +1062,10 @@ if (CHILD) {
         cwd: sb.work,
         commandHash: commandHash("echo hi", sb.work),
       });
-      assert.deepEqual(runner.ops().slice(0, 2), ["prepare", "start"]);
-      assert.equal(runner.calls[0][1].id, d.runIdOf(21));
-      assert.ok(!("env" in runner.calls[0][1]));
+      assert.deepEqual(runner.ops().slice(0, 3), ["install", "prepare", "start"]);
+      const prepared = runner.calls.find(([op]) => op === "prepare")[1];
+      assert.equal(prepared.id, d.runIdOf(21));
+      assert.ok(!("env" in prepared));
     });
 
     it("replay of a call that already pinned its intent: an unresolvable world is 结果待确认, not a hard failure; a first call still fails hard", async () => {
@@ -1096,7 +1146,7 @@ if (CHILD) {
       const { result, error } = await callDirect(d, { command: "echo hi", taskId: 25, runner, memos, cwd: "/somewhere/else" });
       assert.ifError(error);
       assert.ok(!result.isError);
-      assert.equal(runner.calls[0][1].cwd, "/pinned/cwd");
+      assert.equal(runner.calls.find(([op]) => op === "prepare")[1].cwd, "/pinned/cwd");
     });
 
     it("prepare dies with a connection error: result unconfirmed, prepare tried once, start never", async () => {
@@ -1105,7 +1155,7 @@ if (CHILD) {
       const { result, error } = await callDirect(d, { command: "echo hi", taskId: 31, runner });
       assert.ifError(error);
       assert.ok(isUnconfirmed(result));
-      assert.deepEqual(runner.ops(), ["prepare"]);
+      assert.deepEqual(runner.ops(), ["install", "prepare"]);
       assert.equal(d.store.executions.get(d.runIdOf(31)).state, "unknown");
     });
 
@@ -1116,7 +1166,7 @@ if (CHILD) {
         const { result, error } = await callDirect(d, { command: "echo hi", taskId: 32, runner });
         assert.ifError(error);
         assert.ok(isUnconfirmed(result));
-        assert.deepEqual(runner.ops(), ["prepare", "start"]);
+        assert.deepEqual(runner.ops(), ["install", "prepare", "start"]);
       }
     });
 
@@ -1126,7 +1176,7 @@ if (CHILD) {
       const { error, result } = await callDirect(d, { command: "echo hi", taskId: 33, runner });
       assert.equal(result, undefined);
       assert.match(error.message, /bash 未执行/);
-      assert.deepEqual(runner.ops(), ["prepare"]);
+      assert.deepEqual(runner.ops(), ["install", "prepare"]);
     });
 
     it("an already-claimed run is only queried (status), never prepared or started again", async () => {
@@ -1151,7 +1201,7 @@ if (CHILD) {
       assert.ok(isUnconfirmed(result));
       assert.match(result.diagnostics[0].message, /仍可能在运行/);
       assert.ok(n >= 2, "retried with backoff before giving up");
-      assert.deepEqual(runner.ops().filter((o) => o !== "wait"), ["prepare", "start"]);
+      assert.deepEqual(runner.ops().filter((o) => o !== "wait"), ["install", "prepare", "start"]);
     });
 
     it("a transient wait failure is retried and the run completes", async () => {

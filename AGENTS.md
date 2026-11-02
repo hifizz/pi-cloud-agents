@@ -63,7 +63,17 @@ fly logs                                          # 线上日志
 fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --regid=node --init-groups node /app/scripts/set-password.mjs <email>
 ```
 
+## 本地演示环境
+
+- 演示服务（后端 8092 + vite 5183）**只在固定 worktree `/Users/zilin/side/pca-wia-demo`（分支 `demo/wia`）里运行**，与主 checkout 隔离：主树切分支、改代码不影响演示。要更新演示内容：在 worktree 里把目标提交合进 `demo/wia`，再 restart。
+- 唯一操作入口：`node /Users/zilin/side/pca-wia-demo/scripts/demo.mjs`（`status` / `restart wia`）。重启命令只从这份清单读，**不凭记忆重构启动命令**。
+- 端口归属：8090 原服务（有定时 loops 在跑，**绝不主动重启**）；8091 env-demo（只看状态）；8092 + 5183 wia 演示（由 manifest 管理）。并行 worker 不占用这些端口。
+- `TARSBOT_ENV_KEY` 固化在 `/tmp/pca-wia-demo-data/env.key`（重启幂等）；进程日志在 `/tmp/pca-wia-demo.log` 与 `/tmp/pca-wia-vite.log`。
+- `/tmp/pca-wia-demo-data` 是一次性拷贝的演示数据副本；演示登录账号见 `docs/acceptance/`，不写入本文件。
+
 ## 开发规则
+
+- 新需求、新功能或行为变更的 PR 描述，默认先读取并遵循项目 skill：`.agents/skills/feature-pr-description/SKILL.md`。按「功能定义、具体例子、主要流程、对象与状态、接口与数据格式、生效时机/失败行为/限制」组织正文，手动验收和验证证据放附录；此项目约定优先于通用 PR 简短模板。
 
 - 新功能以扩展（`src/ext/`）或路由插件（`src/routes/`）的形式加入，在 `src/runtime.mjs` 集成；不要把逻辑散落到 `server.mjs` / `api.mjs`。
 - 对 pi-durable 的依赖收敛在 `env.mjs`、`ext/`、`server.mjs` 三处，方便 API 变动时迁移。
@@ -75,7 +85,8 @@ fly ssh console   # 线上设置密码：进入后执行 setpriv --reuid=node --
 
 - 所有 API 与 WebSocket 必须经鉴权（`src/routes/auth.mjs` 守卫）；不要新增绕过守卫的入口。
 - `TARSBOT_AUTH_DISABLED=1` 仅限本地 loopback 开发；`TARSBOT_HOST` 非 loopback 时必须启动即抛错，不得削弱这一检查。
-- 所有密钥（`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET` 等）只从 `process.env` / `.env` / Fly secrets 读取；禁止打印、写日志、写入 Sprite、测试快照或截图。不要读取或回显 `.env`。
+- 所有密钥（`TOKEN_ROUTER_BASE_URL`、`TOKEN_ROUTER_API_KEY`、`EXA_API_KEY`、`SPRITES_TOKEN`、`GITHUB_TOKEN`、`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`TARSBOT_ENV_KEY` 等）只从 `process.env` / `.env` / Fly secrets 读取；禁止打印、写日志、写入 Sprite、测试快照或截图。不要读取或回显 `.env`。
+- 用户环境变量（ENV-DEMO，UI「工作区环境变量 / 本 Session 环境变量」面板）是上述规则的**唯一例外**：用户在面板中主动写入自己的应用变量，经 `src/env-config.mjs` 以 `TARSBOT_ENV_KEY` AES-GCM 加密后存 `control.sqlite`（`env_vars` / `session_env_overrides`），注入 Agent bash / 命令控制台 / PTY 的**新进程**。它们同样禁止回显、进日志、进测试快照；API 只暴露名字与 masked 状态。缺 `TARSBOT_ENV_KEY` 时功能显式禁用，不得回落明文存储。保留名（`PATH`/`HOME`/`SHELL`/`BASH_ENV`/`ENV`/`LD_*`/`DYLD_*`/`NODE_*`/`PCA_*`/`GH_TOKEN`/`GITHUB_TOKEN`/`TARSBOT_*`/`TOKEN_ROUTER_*`/`EXA_*`/`SPRITES_*`/`FLY_*`/`GIT_*`/`GOOGLE_*` 等）一律拒绝，防止覆盖控制环境或凭据。同工作区 Session 共享一台 Sprite，用户变量**不是强隔离边界**；用户程序自己输出值无法阻止。
 - Sprite 内 `bash` 是完全信任边界：能执行 bash 的主体拥有 Sprite 内全部登录态。危险操作走 `src/ext/approval.mjs` 审批。
 - 不要删除 Fly Volume `/data`、本地 `data/`，不要删除 Sprite `pi-cloud-agents`。
 - 远端资源只操作：旧共享 Sprite `pi-cloud-agents`；本应用按工作区创建的 Sprite（名称以 `pca-` 开头**且**带标签 `app:pi-cloud-agents`，代码里由 `provider.isManaged()` 判定，任何创建、删除路径都必须先过它）；Fly app `pi-cloud-agents`；测试仓库 `hifizz/tars-sandbox-playground`。org 下其他 Sprite 与 Fly app 一律不得改动。

@@ -20,7 +20,7 @@ function StatusLabel({ status }: { status: ToolStatus }) {
       );
     case "error":
       return (
-        <span className="flex items-center gap-1 text-bad">
+        <span className="flex items-center gap-1 text-destructive">
           <Icon name="alert" className="size-3" />
           failed
         </span>
@@ -91,7 +91,7 @@ function Elapsed({ tool }: { tool: ToolPart }) {
   const label = formatDuration(ms);
   return (
     <span
-      className="font-mono text-[11px] tabular-nums text-fg-muted"
+      className="font-mono text-[11px] tabular-nums text-muted-foreground"
       title={running ? "Elapsed (since this page saw it start)" : "Execution time (approval wait excluded)"}
       aria-label={running ? `elapsed ${label}` : `took ${label}`}
       data-testid="tool-duration"

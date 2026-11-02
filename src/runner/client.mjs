@@ -232,7 +232,7 @@ export function createRunnerClient({
     return { installed: true, version: Number(localVersion) };
   }
 
-  async function prepare({ id, cwd, command, env } = {}) {
+  async function prepare({ id, cwd, command, env, unset } = {}) {
     assertId(id);
     if (typeof cwd !== "string" || !cwd.startsWith("/") || cwd.includes("\n")) throw new TypeError("cwd must be an absolute path without newlines");
     const bytes = toBytes(command);
@@ -240,7 +240,8 @@ export function createRunnerClient({
     if (bytes.length > MAX_COMMAND_BYTES) throw new RangeError(`command is ${bytes.length} bytes; limit is ${MAX_COMMAND_BYTES}`);
     if (bytes.includes(0)) throw new RangeError("command contains a NUL byte");
     const envEntries = Object.entries(env ?? {});
-    if (envEntries.length > 0) {
+    const unsetNames = [...(unset ?? [])];
+    if (envEntries.length > 0 || unsetNames.length > 0) {
       if (bash.supportsEnv !== true) {
         throw new RunnerError(
           "RUNNER_ENV_UNSUPPORTED",
@@ -250,6 +251,9 @@ export function createRunnerClient({
       for (const [k, v] of envEntries) {
         if (!ENV_NAME_RE.test(k) || k.startsWith("PCA_")) throw new TypeError(`invalid environment variable name: ${k}`);
         if (typeof v !== "string") throw new TypeError(`environment variable ${k} must be a string`);
+      }
+      for (const k of unsetNames) {
+        if (!ENV_NAME_RE.test(k) || k.startsWith("PCA_")) throw new TypeError(`invalid environment variable name: ${k}`);
       }
     }
     const names = envEntries.map(([k]) => k);
@@ -261,25 +265,41 @@ export function createRunnerClient({
     const stage = sub(...stageDir);
     const parts = [`cd ${stage}`, `cat ${stage}/'cmd.part.'* > ${stage}/cmd`];
     const args = [`prepare`, shellQuote([id]), "--cwd", shellQuote([cwd]), "--cmd-file", `${stage}/cmd`, "--cmd-sha256", sha256Hex(bytes)];
+    // --env-file stages the SET names; --unset-file stages the DISABLED names separately — a disabled var is
+    // NOT an env value the command needs, it is a name the wrapper must remove, so it must not sit in env_names
+    // (start would refuse it as missing) nor carry a value.
     if (names.length > 0) {
       await writeParts(stageDir, "env", Buffer.from(`${names.join("\n")}\n`, "utf8"));
       parts.push(`cat ${stage}/'env.part.'* > ${stage}/env`);
       args.push("--env-file", `${stage}/env`);
     }
+    if (unsetNames.length > 0) {
+      await writeParts(stageDir, "unset", Buffer.from(`${unsetNames.join("\n")}\n`, "utf8"));
+      parts.push(`cat ${stage}/'unset.part.'* > ${stage}/unset`);
+      args.push("--unset-file", `${stage}/unset`);
+    }
     // From here on the run may be claimed: no retry, no swallowing.
     const r = await exec(`${parts.join(" && ")} && ${runner(...args)}`, { timeoutMs: 60_000, what: "prepare" });
     const { kv } = parseReply(r, "prepare");
-    if (names.length > 0) pendingEnv.set(id, Object.fromEntries(envEntries));
+    if (names.length > 0 || unsetNames.length > 0) pendingEnv.set(id, { env: Object.fromEntries(envEntries), unset: unsetNames });
     return { prepared: kv.prepared, ...normalizeState(kv) };
   }
 
-  async function start(id, { env } = {}) {
+  async function start(id, { env, unset } = {}) {
     assertId(id);
-    const values = env ?? pendingEnv.get(id);
-    if (values && Object.keys(values).length > 0 && bash.supportsEnv !== true) {
+    const pending = pendingEnv.get(id);
+    const values = env ?? pending?.env;
+    const unsetList = unset ?? pending?.unset ?? [];
+    const startEnv = { ...(values ?? {}) };
+    // A disabled var is a REAL unset: the runner protocol cannot express "missing", so the reserved name
+    // PCA_ENV_UNSET carries the names and runner.sh unsets them in the wrapper before the command runs. An
+    // explicit empty value stays an empty string; unset removes the name even when the parent env has it.
+    for (const k of unsetList) startEnv[k] = "";
+    if (unsetList.length > 0) startEnv.PCA_ENV_UNSET = unsetList.join(",");
+    if (Object.keys(startEnv).length > 0 && bash.supportsEnv !== true) {
       throw new RunnerError("RUNNER_ENV_UNSUPPORTED", "this bash primitive cannot pass per-call environment variables");
     }
-    const r = await exec(runner("start", shellQuote([id])), { timeoutMs: 60_000, env: values && Object.keys(values).length > 0 ? values : undefined, what: "start" });
+    const r = await exec(runner("start", shellQuote([id])), { timeoutMs: 60_000, env: Object.keys(startEnv).length ? startEnv : undefined, what: "start" });
     const { kv } = parseReply(r, "start");
     pendingEnv.delete(id);
     return { started: kv.started, reason: kv.reason, ...normalizeState(kv) };

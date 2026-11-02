@@ -1,0 +1,67 @@
+{
+  "maxConcurrent": 3,
+  "running": [
+    {
+      "id": "run_e5ee9b3bec4fdcf9",
+      "loopId": "loop_87bcf1978aa44e4b",
+      "loopVersion": 1,
+      "triggerKind": "manual",
+      "status": "running",
+      "error": null,
+      "botId": "088f82eb",
+      "branch": "loops/queue-acceptance/run_e5ee9b3bec4fdcf9",
+      "prNumber": null,
+      "enqueuedAt": "2026-10-30T20:48:12.825Z",
+      "startedAt": "2026-10-30T20:48:15.320Z",
+      "endedAt": null,
+      "position": 0
+    },
+    {
+      "id": "run_dd497c04147e5829",
+      "loopId": "loop_87bcf1978aa44e4b",
+      "loopVersion": 1,
+      "triggerKind": "manual",
+      "status": "running",
+      "error": null,
+      "botId": "79de9cee",
+      "branch": "loops/queue-acceptance/run_dd497c04147e5829",
+      "prNumber": null,
+      "enqueuedAt": "2026-10-30T20:48:12.828Z",
+      "startedAt": "2026-10-30T20:48:15.304Z",
+      "endedAt": null,
+      "position": 0
+    },
+    {
+      "id": "run_8b85d72b12ea277f",
+      "loopId": "loop_87bcf1978aa44e4b",
+      "loopVersion": 1,
+      "triggerKind": "manual",
+      "status": "running",
+      "error": null,
+      "botId": "f49ef1f6",
+      "branch": "loops/queue-acceptance/run_8b85d72b12ea277f",
+      "prNumber": null,
+      "enqueuedAt": "2026-10-30T20:48:12.834Z",
+      "startedAt": "2026-10-30T20:48:15.555Z",
+      "endedAt": null,
+      "position": 0
+    }
+  ],
+  "queued": [
+    {
+      "id": "run_566d7d47505cb7d0",
+      "loopId": "loop_87bcf1978aa44e4b",
+      "loopVersion": 1,
+      "triggerKind": "manual",
+      "status": "queued",
+      "error": null,
+      "botId": null,
+      "branch": null,
+      "prNumber": null,
+      "enqueuedAt": "2026-10-30T20:48:12.955Z",
+      "startedAt": null,
+      "endedAt": null,
+      "position": 1
+    }
+  ]
+}

@@ -17,17 +17,33 @@ function apiError(statusCode, msg = "boom") {
   return e;
 }
 
-/** Fake SpriteCommand: runs `handler(command, env)` -> {stdout?, stderr?, exitCode?}. */
+/**
+ * Fake SpriteCommand: runs `handler(command, env)` -> {stdout?, stderr?, exitCode?}. `env` is reconstructed
+ * the way the real bootstrap does: the client now sends env as ONE base64 stdin line (secret transport), so
+ * the fake reads it off stdin and decodes the `export NAME='v'` statements into {NAME: value} for the handler.
+ */
 class FakeCommand extends EventEmitter {
   constructor(command, env, handler, calls) {
     super();
     this.stdin = new PassThrough();
     this.stdout = new PassThrough();
     this.stderr = new PassThrough();
-    calls.push({ command, env });
+    const rec = { command, env, stdin: this.stdin, stdinPayload: "" };
+    calls.push(rec);
     setImmediate(() => {
       this.emit("spawn");
-      const r = handler(command, env) ?? {};
+      const stdinText = this.stdin.read()?.toString("utf8") ?? "";
+      rec.stdinPayload = stdinText;
+      let effectiveEnv = env ?? {};
+      const line = stdinText.trim();
+      if (line && /^[A-Za-z0-9+/=]+$/.test(line)) {
+        effectiveEnv = {};
+        for (const stmt of Buffer.from(line, "base64").toString("utf8").split("\n")) {
+          const m = stmt.match(/^export ([A-Za-z_][A-Za-z0-9_]*)='(.*)' \|\| exit 125$/s);
+          if (m) effectiveEnv[m[1]] = m[2].replace(/'\\''/g, "'");
+        }
+      }
+      const r = handler(command, Object.keys(effectiveEnv).length ? effectiveEnv : undefined) ?? {};
       if (r.stdout) this.stdout.write(r.stdout);
       this.stdout.end();
       this.stderr.end(r.stderr ?? "");
@@ -306,14 +322,15 @@ test("init: installs gh only when missing, and not again on the second run", asy
   assert.equal(log.ghInstalls, 1);
 });
 
-test("init: token only travels in exec env, never in a command or git config value", async () => {
+test("init: token travels via the stdin bootstrap, never in a command, the URL env, or a git config value", async () => {
   const { h, gitState } = initHandler();
   const c = makeClient({ handler: h });
   await provider(c).init("pca-aaaaaaaaaa");
   assert.ok(c.calls.exec.length > 0);
   for (const e of c.calls.exec) {
     assert.ok(!e.command.includes(TOKEN), "token must not appear in command text");
-    assert.equal(e.env?.GH_TOKEN, TOKEN);
+    assert.equal(e.env?.GH_TOKEN, undefined, "token never goes into the exec URL env — it rides stdin");
+    // The fake decodes the stdin payload back into `env`; the handler still saw the real token value.
   }
   for (const v of Object.values(gitState)) assert.ok(!v.includes(TOKEN));
 });
@@ -349,7 +366,7 @@ test("logs never contain commands or the token", async () => {
   assert.ok(!s.includes("git config"));
 });
 
-test("bash(runtimeId) is cached per name and carries GH_TOKEN in exec env", async () => {
+test("bash(runtimeId) is cached per name and delivers GH_TOKEN via the stdin bootstrap (never the URL env)", async () => {
   const c = makeClient({ handler: () => ({ stdout: "hi\n" }) });
   const p = provider(c);
   const b = p.bash("pca-aaaaaaaaaa");
@@ -358,5 +375,8 @@ test("bash(runtimeId) is cached per name and carries GH_TOKEN in exec env", asyn
   const r = await b("echo hi");
   assert.equal(r.stdout, "hi\n");
   assert.equal(r.exitCode, 0);
-  assert.equal(c.calls.exec[0].env.GH_TOKEN, TOKEN);
+  assert.equal(c.calls.exec[0].env?.GH_TOKEN, undefined, "GH_TOKEN never reaches the exec URL env");
+  // The raw stdin payload (captured before the fake decoded it) carries the token, base64'd.
+  const decoded = Buffer.from(c.calls.exec[0].stdinPayload.trim(), "base64").toString("utf8");
+  assert.match(decoded, new RegExp(`export GH_TOKEN='${TOKEN}'`));
 });

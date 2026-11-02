@@ -11,61 +11,22 @@
 // app.ctx.runtimeBash (the active binding's Sprite) and app.ctx.bots.
 // A Workspace in a response is the control-store record plus `steps`, `botId` and `binding` {provider, runtimeId,
 // version}. `requestId` and `cwd` are left out (internal), and nothing here ever sees a token.
-import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { HttpError, toJson } from "../api.mjs";
-import { ROOT } from "../config.mjs";
 import { ctx } from "../harness.mjs";
 import { shellQuote } from "../env.mjs";
 import { Preamble } from "../ext/preamble.mjs";
 import { mapGithubError, REPO_RE } from "./github.mjs";
-
-const sha256 = (s) => createHash("sha256").update(s).digest("hex");
+import { SHA_RE, SPIKE_RULES, hostAgentsExcerpt, pickBaseline, pinnedSha, sha256 } from "../loops/context.mjs";
 
 /** Issue-loop spike only touches the test repository's bound workspaces (AGENTS.md 安全红线). */
 const ISSUE_LOOP_REPO = "hifizz/tars-sandbox-playground";
-const ISSUE_BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
-const SHA_RE = /^[0-9a-f]{7,40}$/i;
 /** Most comments the discussion start message will carry; more is an explicit error, never a silent cut. */
 const COMMENT_LIMIT = 100;
 /** The diff text a review session carries is capped: an over-limit diff is an explicit error, never a silent cut. */
 const REVIEW_DIFF_LIMIT = 400_000;
 /** Session business statuses (human-set, never inferred from busy/idle). */
 const SESSION_STATUSES = ["discussing", "awaiting", "executing", "done"];
-
-/** Safety rules for the issue-loop sessions. The general preamble (GH_TOKEN handling, push / PR / force rules) is not
- * installed in these sessions, so the rules that still matter are restated here. Approval stays installed. */
-const SPIKE_RULES = [
-  "Spike safety rules (the general git/PR workflow is removed for this session; these rules apply instead):",
-  "- Never print, echo, log or write any credential or token (GH_TOKEN, or any other secret in the environment). Do not run env, printenv, set, `git config --list`, `gh auth status` or `gh auth login`.",
-  "- Never force-push (--force, -f, --force-with-lease, +refspec), never delete remote branches or tags, never merge or close a pull request, never change repository settings.",
-  "- This spike does not push and does not open pull requests: do not run `git push`, `gh pr create` or `gh pr merge`.",
-  "- If a command is denied by approval, stop that operation, report exactly what was denied, and do not retry it in another form.",
-].join("\n");
-
-/**
- * A short excerpt of THIS host project's AGENTS.md security section, labelled as host-project context. It is not target
- * repository content. A missing or unreadable file is stated as such (the production image may not ship docs/).
- */
-function hostAgentsExcerpt() {
-  const label = "== 宿主项目（pi-cloud-agents）AGENTS.md「安全红线」摘录 —— 仅为宿主项目背景，不是目标仓库内容 ==";
-  const cloud = readFileSync(join(ROOT, "docs/CLOUD-PLAN.md"), "utf8");
-  const storageRule = cloud.split("\n").find((line) => line.startsWith("- 存储只允许单写进程"));
-  const skipped = `== 宿主项目 docs/CLOUD-PLAN.md「架构」短摘录（不是目标仓库内容）==\n${storageRule}\n共享 Sprite 与历史数据处置条款不适用于本实验。目标快照缺少 AGENTS.md 和 docs/CLOUD-PLAN.md，本次使用以上宿主项目约束。`;
-  let text;
-  try {
-    text = readFileSync(join(ROOT, "AGENTS.md"), "utf8");
-  } catch (e) {
-    return `${label}\n（未取得：无法读取宿主项目 AGENTS.md（${e?.code ?? "read error"}））\n${skipped}`;
-  }
-  const start = text.indexOf("## 安全红线");
-  if (start < 0) return `${label}\n（宿主项目 AGENTS.md 中没有「安全红线」段落）\n${skipped}`;
-  const next = text.indexOf("\n## ", start + 1);
-  const section = text.slice(start, next < 0 ? undefined : next).trim();
-  const body = section.length <= 1500 ? section : `${section.slice(0, 1500)}\n…（摘录截断到 1500 字符；完整内容见宿主项目 AGENTS.md）`;
-  return `${label}\n${body}\n${skipped}`;
-}
 
 let warned = false;
 
@@ -255,18 +216,20 @@ export function register(app) {
    * (never a caller-supplied repo), plus the botId of an existing discussion per issue. Issues list is paginated and
    * PRs are read from /pulls so they are never mixed in as issues. */
   // GET /api/workspaces/:id/overview
-  app.get("/api/workspaces/:id/overview", async (_req, _res, { params }) => {
+  app.get("/api/workspaces/:id/overview", async (req, _res, { params }) => {
     const ws = workspaceOr404(params.id);
+    // Workspace-IA demo: ?prs=all also returns closed/merged PRs (with state) so the UI can filter; default stays open-only.
+    const allPrs = req.query?.prs === "all";
     let issues;
     let pulls;
     try {
-      [issues, pulls] = await Promise.all([github.listIssues(ws.repo), github.listPulls(ws.repo)]);
+      [issues, pulls] = await Promise.all([github.listIssues(ws.repo), github.listPulls(ws.repo, { state: allPrs ? "all" : "open" })]);
     } catch (e) {
       throw mapError(e);
     }
     return {
       issues: issues.map((i) => ({ ...i, discussionBotId: findDiscussion(ws.id, i.number)?.id ?? null })),
-      pulls: pulls.filter((p) => p.state === "open" && !p.merged),
+      pulls: allPrs ? pulls : pulls.filter((p) => p.state === "open" && !p.merged),
     };
   });
 
@@ -277,6 +240,34 @@ export function register(app) {
     if (r?.timedOut) throw new HttpError(500, "sprite command timed out");
     if (r?.exitCode !== 0) throw new HttpError(500, `sprite command failed (${r?.exitCode}): ${String(r?.stderr ?? r?.stdout ?? "").trim().slice(0, 300)}`);
     return String(r?.stdout ?? "").trim();
+  }
+
+  /** Idempotent session worktree. Deterministic session dirs mean a leftover worktree from an earlier session of
+   * the same workspace+issue/PR key makes `git worktree add` fail with "already exists"; when the existing
+   * worktree is registered to this repo and sits exactly at the wanted commit (and branch, when given), it is
+   * precisely the state we were about to create — reuse it. Anything else is a 409 naming the path; leftover
+   * state is never auto-deleted (AGENTS.md 安全红线). */
+  async function addOrReuseWorktree(ws, { dir, sha, branch }) {
+    const repoDir = shellQuote([ws.cwd]);
+    const qDir = shellQuote([dir]);
+    const add = branch
+      ? `git -C ${repoDir} worktree add -b ${shellQuote([branch])} ${qDir} ${shellQuote([sha])}`
+      : `git -C ${repoDir} worktree add --detach ${qDir} ${shellQuote([sha])}`;
+    try {
+      await sh(ws, `mkdir -p ${shellQuote([posixDir(dir)])} && ${add}`);
+    } catch (e) {
+      if (!String(e?.message ?? e).includes("already exists")) throw e;
+      const verify =
+        `test "$(git -C ${qDir} rev-parse HEAD 2>/dev/null)" = ${shellQuote([sha])}` +
+        (branch ? ` && test "$(git -C ${qDir} symbolic-ref --short HEAD 2>/dev/null)" = ${shellQuote([branch])}` : "") +
+        ` && git -C ${repoDir} worktree list --porcelain | grep -qxF "worktree ${dir}"`;
+      try {
+        await sh(ws, verify);
+        return; // already exactly this worktree — reuse instead of failing
+      } catch {
+        throw new HttpError(409, `会话工作目录 ${dir} 已存在但不符合复用条件（commit 或注册状态不匹配）。它可能属于既有会话；不会自动删除，请先处理该 worktree 再重试。`);
+      }
+    }
   }
 
   /** Unique conversation/bot display name for a new session. */
@@ -299,95 +290,61 @@ export function register(app) {
   }
 
   /** Pick the baseline branch: the first complete real branch name in the issue body, else the workspace's recorded
-   * default branch (the bound repo's real default — never a guessed main/master). */
-  async function pickBaseline(repo, body) {
-    const branches = await github.listBranches(repo);
-    const names = new Set(branches.map((b) => b.name));
-    const text = String(body ?? "");
-    // Candidates are whole tokens in the body that are real branch names; earliest wins, ties prefer the longer name.
-    const candidates = [];
-    const wordRe = /[A-Za-z0-9][A-Za-z0-9._/-]*/g;
-    let m;
-    while ((m = wordRe.exec(text))) {
-      const token = m[0].replace(/[._/-]+$/, "");
-      if (token && names.has(token) && ISSUE_BRANCH_RE.test(token)) candidates.push({ token, index: m.index });
-    }
-    let branch;
-    let reason;
-    if (candidates.length) {
-      candidates.sort((a, b) => a.index - b.index || b.token.length - a.token.length);
-      branch = candidates[0].token;
-      reason = `issue 正文中最先出现的真实分支名 “${branch}”`;
-    } else {
-      // The repository's real default branch, read directly. No fallback: a missing default is a visible error, never
-      // the workspace's own (possibly feature) baseBranch and never a guessed main/master.
-      const info = await github.getRepo(repo);
-      if (!info?.defaultBranch) throw new HttpError(502, `无法读取 ${repo} 的默认分支，停止`);
-      branch = info.defaultBranch;
-      reason = `使用仓库默认分支 ${branch}（正文未出现有效分支名）`;
-    }
-    return { branch, reason, all: [...names] };
-  }
+   * default branch (the bound repo's real default — never a guessed main/master). Shared with src/loops/context.mjs. */
+  const pickBaselineIn = (repo, body) => pickBaseline(github, repo, body);
 
   /** Resolve a branch to its SHA or throw. */
-  async function pinnedSha(repo, branch) {
-    const b = await github.getBranch(repo, branch);
-    if (!b?.sha || !SHA_RE.test(b.sha)) throw new HttpError(502, `无法取得分支 ${branch} 的 commit SHA，停止`);
-    return b.sha;
-  }
+  const pinnedShaIn = (repo, branch) => pinnedSha(github, repo, branch);
 
   /** Build the discussion start message: issue + baseline + related PRs + sibling sessions + host docs excerpt. */
   async function discussionMessage({ ws, issue, comments, baseline, relatedPulls, siblings, docsNote }) {
     // comments are the full list read from GitHub (a failed read never gets here); the body is never cut silently
+    // Markdown layout: the chat renders user messages as GFM, so real headings/lists/fences separate the
+    // prepared task from boilerplate (baseline, rules, host excerpt). All factual content is unchanged.
     const commentLines =
       comments.length === 0
         ? "（无评论）"
-        : comments.map((c, i) => `  ${i + 1}. ${c.author ?? "unknown"}: ${String(c.body).trim()}`).join("\n");
+        : comments.map((c, i) => `${i + 1}. **${c.author ?? "unknown"}**：${String(c.body).trim()}`).join("\n\n");
     // Open PRs whose base is the selected baseline branch. This is NOT a search for PRs referencing the issue.
     const prLines =
       relatedPulls === null
         ? "（未取得：读取所选基线的 open PR 失败）"
         : relatedPulls.length === 0
           ? "（所选基线没有 open PR；不代表 issue 没有关联 PR）"
-          : relatedPulls.map((p) => `  - #${p.number} ${p.url ?? ""} (head ${p.headRef} → base ${p.baseRef})`).join("\n");
+          : relatedPulls.map((p) => `- #${p.number} ${p.url ?? ""}（head \`${p.headRef}\` → base \`${p.baseRef}\`）`).join("\n");
     const sibLines =
       siblings.length === 0
         ? "（同空间仅此会话）"
-        : siblings.map((s) => `  - ${s.name}：${s.busy === null ? "busy/queued 未取得" : `${s.busy ? "busy" : "not busy"}，queued ${s.queued}`}`).join("\n");
+        : siblings.map((s) => `- ${s.name}：${s.busy === null ? "busy/queued 未取得" : `${s.busy ? "busy" : "not busy"}，queued ${s.queued}`}`).join("\n");
     return [
-      `Issue 讨论（issue-loop spike）。不要开始实现：先分析问题、相关代码和待确认事项。`,
+      `# Issue 讨论：#${issue.number} ${issue.title}`,
       ``,
-      `== Issue 来源 ==`,
-      `${issue.url}`,
-      `标题: ${issue.title}`,
+      `> **任务**：只做分析，不要开始实现。请先阅读当前目录（detached @ \`${baseline.sha.slice(0, 12)}\`）的相关代码与本 issue，给出问题分析、可能涉及的代码位置和待确认事项；在你确认前不要写实现代码。`,
       ``,
-      `== Issue 正文 ==`,
+      `## 背景`,
+      `- **来源**：${issue.url}`,
+      `- **基线**：\`${baseline.branch}\`（${baseline.reason}）@ \`${baseline.sha}\``,
+      `- **工作目录**：\`${baseline.dir}\`（detached HEAD，无新功能分支；不要切换或 reset 原仓库目录）`,
+      ``,
+      `## Issue 正文`,
       String(issue.body).trim() || "（空）",
       ``,
-      `== 评论 ==`,
+      `## 评论（${comments.length}）`,
       commentLines,
       ``,
-      `== 基线 ==`,
-      `分支: ${baseline.branch}（${baseline.reason}）`,
-      `commit: ${baseline.sha}`,
-      `工作目录: ${baseline.dir}（detached HEAD，无新功能分支；不要切换或 reset 原仓库目录）`,
-      ``,
-      `== 所选基线的 open PR（不是关联搜索）==`,
+      `## 所选基线的 open PR（不是关联搜索）`,
       prLines,
       ``,
-      `== 同空间其他会话（不复制其聊天）==`,
+      `## 同空间其他会话（不复制其聊天）`,
       sibLines,
       ``,
-      `== 安全规则 ==`,
+      `## 安全规则`,
       SPIKE_RULES,
       ``,
-      `== 审批 ==`,
-      `审批扩展仍然生效；被拒绝的操作不重试。`,
+      `> 审批扩展仍然生效；被拒绝的操作不重试。`,
       ``,
-      `== 宿主项目摘录（不是目标仓库内容）==`,
+      `## 宿主项目摘录（不是目标仓库内容）`,
       docsNote,
-      ``,
-      `请先阅读当前目录（detached @ ${baseline.sha.slice(0, 12)}）的相关代码与本 issue，给出问题分析、可能涉及的代码位置和待确认事项；在你确认前不要写实现代码。`,
     ].join("\n");
   }
 
@@ -429,8 +386,8 @@ export function register(app) {
 
     let baseline;
     try {
-      baseline = await pickBaseline(ws.repo, issue.body);
-      baseline.sha = await pinnedSha(ws.repo, baseline.branch);
+      baseline = await pickBaselineIn(ws.repo, issue.body);
+      baseline.sha = await pinnedShaIn(ws.repo, baseline.branch);
     } catch (e) {
       throw mapError(e);
     }
@@ -450,16 +407,8 @@ export function register(app) {
     // Detached worktree at the pinned commit, outside the original repo dir. Never touches ws.cwd, never makes a branch.
     const repoDir = shellQuote([ws.cwd]);
     // Fetch the baseline BRANCH (a refspec that always resolves), then detach the worktree at the pinned SHA object.
-    const addCmd =
-      `mkdir -p ${shellQuote([posixDir(dir)])} && ` +
-      `git -C ${repoDir} fetch origin ${shellQuote([baseline.branch])} && ` +
-      `git -C ${repoDir} worktree add --detach ${shellQuote([dir])} ${shellQuote([baseline.sha])}`;
-    try {
-      await sh(ws, addCmd);
-    } catch (e) {
-      if (!(e instanceof HttpError)) throw e;
-      throw e; // recorded: the worktree may or may not exist; nothing auto-deleted
-    }
+    await sh(ws, `git -C ${repoDir} fetch origin ${shellQuote([baseline.branch])}`);
+    await addOrReuseWorktree(ws, { dir, sha: baseline.sha });
 
     const name = freeSessionName(`issue-${issueNo}-discuss`);
     const message = await discussionMessage({
@@ -558,7 +507,7 @@ export function register(app) {
       const info = await github.getRepo(ws.repo);
       if (!info?.defaultBranch) throw new HttpError(502, `无法读取 ${ws.repo} 的默认分支，停止`);
       baseBranch = info.defaultBranch;
-      sha = await pinnedSha(ws.repo, baseBranch);
+      sha = await pinnedShaIn(ws.repo, baseBranch);
     } catch (e) {
       throw mapError(e);
     }
@@ -614,14 +563,7 @@ export function register(app) {
     const branch = `tarsbot/issue-${issueNo}-${src.id}`;
     const dir = `${app.ctx.homeDir?.() ?? "/home/sprite"}/issue-loop/${ws.id}/execution-${dirId}`;
 
-    const repoDir = shellQuote([ws.cwd]);
-    const addCmd = `mkdir -p ${shellQuote([posixDir(dir)])} && git -C ${repoDir} worktree add -b ${shellQuote([branch])} ${shellQuote([dir])} ${shellQuote([pinnedSha])}`;
-    try {
-      await sh(ws, addCmd);
-    } catch (e) {
-      if (!(e instanceof HttpError)) throw e;
-      throw e;
-    }
+    await addOrReuseWorktree(ws, { dir, sha: pinnedSha, branch });
 
     const name = freeSessionName(`issue-${issueNo}-exec`);
     const bot = await bots.createBot({
@@ -663,32 +605,33 @@ export function register(app) {
 
   /** Build the review start message: PR metadata + the real diff, labelled and capped. */
   function reviewMessage({ ws, pull, dir, diff }) {
+    // Same Markdown layout as the issue discussion message: task blockquote first, labelled sections, fenced diff.
     return [
-      `PR Review Session（review-loop spike）。只审查，不改代码、不提交、不推送、不在 GitHub 上评论、不审批或合并这个 PR。`,
+      `# PR Review：#${pull.number} ${pull.title || "（无标题）"}`,
       ``,
-      `== Pull Request ==`,
-      `#${pull.number} ${pull.url}`,
-      `标题: ${pull.title || "（无标题）"}`,
-      `作者: ${pull.author ?? "unknown"} · 状态: ${pull.state ?? "unknown"}`,
-      `base: ${pull.baseRef ?? "?"} @ ${pull.baseSha ?? "?"}`,
-      `head: ${pull.headRef ?? "?"} @ ${pull.headSha}`,
+      `> **任务**：只审查，不改代码、不提交、不推送、不在 GitHub 上评论、不审批或合并这个 PR。请审查以下 diff 与当前目录中的相关代码，列出：具体问题（带证据与文件位置）、影响、以及建议的人工验证方式。不要修改任何文件。`,
       ``,
-      `== PR 正文 ==`,
+      `## Pull Request`,
+      `- **链接**：${pull.url}`,
+      `- **作者**：@${pull.author ?? "unknown"} · **状态**：${pull.state ?? "unknown"}`,
+      `- **base**：\`${pull.baseRef ?? "?"}\` @ \`${pull.baseSha ?? "?"}\``,
+      `- **head**：\`${pull.headRef ?? "?"}\` @ \`${pull.headSha}\``,
+      ``,
+      `## PR 正文`,
       String(pull.body ?? "").trim() || "（空）",
       ``,
-      `== 工作目录 ==`,
-      `${dir}（detached HEAD @ ${pull.headSha}，PR head；不要切换或 reset 原仓库目录 ${ws.cwd}）`,
+      `## 工作目录`,
+      `\`${dir}\`（detached HEAD @ \`${pull.headSha}\`，PR head；不要切换或 reset 原仓库目录 \`${ws.cwd}\`）`,
       ``,
-      `== 真实 diff（${REVIEW_DIFF_LIMIT} 字符上限；超限则整体失败，不静默截断）==`,
+      `## 真实 diff（${REVIEW_DIFF_LIMIT} 字符上限；超限则整体失败，不静默截断）`,
+      "```diff",
       diff.trim() || "（diff 为空）",
+      "```",
       ``,
-      `== 安全规则 ==`,
+      `## 安全规则`,
       SPIKE_RULES,
       ``,
-      `== 审批 ==`,
-      `审批扩展仍然生效；被拒绝的操作不重试。`,
-      ``,
-      `请审查以上 diff 与当前目录中的相关代码，列出：具体问题（带证据与文件位置）、影响、以及建议的人工验证方式。不要修改任何文件。`,
+      `> 审批扩展仍然生效；被拒绝的操作不重试。`,
     ].join("\n");
   }
 
@@ -748,11 +691,8 @@ export function register(app) {
     const dirId = sha256(`${ws.id}:review:${prNumber}:${pull.headSha}`).slice(0, 8);
     const dir = `${app.ctx.homeDir?.() ?? "/home/sprite"}/reviews/${ws.id}/pr-${prNumber}-${dirId}`;
     const repoDir = shellQuote([ws.cwd]);
-    const addCmd =
-      `mkdir -p ${shellQuote([posixDir(dir)])} && ` +
-      `git -C ${repoDir} fetch origin ${shellQuote([`pull/${prNumber}/head`])} && ` +
-      `git -C ${repoDir} worktree add --detach ${shellQuote([dir])} ${shellQuote([pull.headSha])}`;
-    await sh(ws, addCmd);
+    await sh(ws, `git -C ${repoDir} fetch origin ${shellQuote([`pull/${prNumber}/head`])}`);
+    await addOrReuseWorktree(ws, { dir, sha: pull.headSha });
 
     const name = freeSessionName(`pr-${prNumber}-review`);
     const message = reviewMessage({ ws, pull, dir, diff });

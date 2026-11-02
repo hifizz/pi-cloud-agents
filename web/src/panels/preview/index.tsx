@@ -6,6 +6,10 @@
 // The probe (GET .../preview?port=N) is a real check: "无服务" means the server could not reach anything on that port,
 // never a cached guess. The port list is server-probed common dev ports plus whatever the user types.
 import { useContext, useMemo, useRef, useState } from "react";
+import { Button } from "../../components/ui/button";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import { request } from "../../lib/api";
 import { WorkspaceContext, describeError, mapBotsToWorkspaces } from "../../lib/workspaces";
 import type { PanelContext, PanelDefinition } from "../types";
@@ -30,11 +34,6 @@ const probePreviewPort = (workspaceId: string, port: number) =>
   request<ProbeResult>("GET", `/api/workspaces/${encodeURIComponent(workspaceId)}/preview?port=${port}`);
 const mintPreviewToken = (workspaceId: string, port: number) =>
   request<CapResult>("POST", `/api/workspaces/${encodeURIComponent(workspaceId)}/preview/token`, { port });
-
-const inputCls =
-  "w-24 rounded-md border border-line bg-raised px-2 py-1 text-sm text-fg outline-none focus:border-fg-muted";
-const btnCls =
-  "rounded-md border border-line bg-raised px-2.5 py-1 text-sm text-fg hover:bg-overlay disabled:opacity-50";
 
 type State =
   | { kind: "idle" }
@@ -78,56 +77,55 @@ function PreviewBody({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <label htmlFor="preview-port" className="text-xs text-fg-muted">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+        <Label htmlFor="preview-port" className="text-xs text-muted-foreground">
           端口
-        </label>
-        <input
+        </Label>
+        <Input
           id="preview-port"
-          className={inputCls}
+          className="w-24"
           value={port}
           inputMode="numeric"
           onChange={(e) => setPort(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void open()}
         />
-        <button type="button" className={btnCls} disabled={state.kind === "probing"} onClick={() => void open()}>
+        <Button type="button" variant="outline" size="sm" disabled={state.kind === "probing"} onClick={() => void open()}>
           {state.kind === "probing" ? "检查中…" : "打开预览"}
-        </button>
+        </Button>
         {state.kind === "ready" && (
           <>
-            <button
+            <Button
               type="button"
-              className={btnCls}
+              variant="outline"
+              size="sm"
               onClick={() => {
                 setReloadSeq((s) => s + 1);
                 void open(state.port); // re-probe: a dead server becomes 无服务 instead of a stale frame
               }}
             >
               刷新
-            </button>
+            </Button>
             <a
-              className="text-xs text-fg-muted underline underline-offset-2"
+              className="text-xs text-muted-foreground underline underline-offset-2"
               href={state.url}
               target="_blank"
               rel="noreferrer"
             >
               新标签打开
             </a>
-            <span className="ml-auto text-xs text-fg-muted">:{state.port}</span>
+            <span className="ml-auto text-xs text-muted-foreground">:{state.port}</span>
           </>
         )}
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
         {state.kind === "idle" && (
-          <p className="p-4 text-sm text-fg-muted">输入端口后「打开预览」：页面来自当前工作区 Sprite 内真实运行的服务。</p>
+          <PreviewEmpty>输入端口后「打开预览」：页面来自当前工作区 Sprite 内真实运行的服务。</PreviewEmpty>
         )}
-        {state.kind === "probing" && <p className="p-4 text-sm text-fg-muted">正在检查端口…</p>}
+        {state.kind === "probing" && <PreviewEmpty>正在检查端口…</PreviewEmpty>}
         {state.kind === "empty" && (
-          <p className="p-4 text-sm text-fg-muted">
-            无服务：该端口在当前工作区 Sprite 内没有进程监听。先在会话里让 Bot 启动开发服务器，再打开预览。
-          </p>
+          <PreviewEmpty>无服务：该端口在当前工作区 Sprite 内没有进程监听。先在会话里让 Bot 启动开发服务器，再打开预览。</PreviewEmpty>
         )}
-        {state.kind === "error" && <p className="p-4 text-sm text-red-400">{state.message}</p>}
+        {state.kind === "error" && <PreviewEmpty>{state.message}</PreviewEmpty>}
         {state.kind === "ready" && (
           <iframe
             key={`${state.port}:${reloadSeq}`}
@@ -148,6 +146,14 @@ function PreviewBody({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+function PreviewEmpty({ children }: { children: React.ReactNode }) {
+  return (
+    <Empty className="h-full">
+      <EmptyDescription className="max-w-xs">{children}</EmptyDescription>
+    </Empty>
+  );
+}
+
 function PreviewPanel({ bot, bots }: PanelContext) {
   const wsCtx = useContext(WorkspaceContext);
   // Resolve the bot's workspace the same way the rest of the UI does; the App's selected workspace is a hint only.
@@ -159,8 +165,8 @@ function PreviewPanel({ bot, bots }: PanelContext) {
     return mapBotsToWorkspaces(bots, [wsCtx.workspace]).get(bot.id) ?? wsCtx.workspace.id;
   }, [bot, bots, wsCtx]);
 
-  if (!bot) return <p className="p-4 text-sm text-fg-muted">选择一个会话后，可预览其工作区 Sprite 内运行的服务。</p>;
-  if (!workspaceId) return <p className="p-4 text-sm text-fg-muted">当前会话不属于任何工作区，无法预览。</p>;
+  if (!bot) return <PreviewEmpty>选择一个会话后，可预览其工作区 Sprite 内运行的服务。</PreviewEmpty>;
+  if (!workspaceId) return <PreviewEmpty>当前会话不属于任何工作区，无法预览。</PreviewEmpty>;
   return <PreviewBody workspaceId={workspaceId} />;
 }
 

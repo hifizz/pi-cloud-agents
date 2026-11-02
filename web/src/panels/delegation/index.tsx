@@ -4,6 +4,12 @@
 // inferred from busy/idle — the panel says so next to every live signal.
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ApiError, request } from "../../lib/api";
+import { Alert } from "../../components/ui/alert";
+import { Empty, EmptyDescription } from "../../components/ui/empty";
+import { Button } from "../../components/ui/button";
+import { Card } from "../../components/ui/card";
+import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
 import type { PanelContext, PanelDefinition } from "../types";
 
 interface DelegationParent {
@@ -36,13 +42,6 @@ interface DelegationView {
 }
 
 const POLL_MS = 10_000;
-
-const field =
-  "w-full rounded-md border border-line-strong bg-field px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent";
-const btn =
-  "rounded-md border border-line-strong bg-raised px-2.5 py-1 text-xs font-medium text-fg hover:bg-hover disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent";
-const primary =
-  "rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-black hover:opacity-90 disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent";
 
 function liveLabel(task: DelegationTask): string {
   if (task.state === "failed") return "创建失败";
@@ -85,9 +84,14 @@ function DelegationBody({ bot }: PanelContext) {
     return () => clearInterval(t);
   }, [load]);
 
-  if (!bot) return <div className="p-4 text-sm text-fg-muted">选择一个会话后可委派子任务。</div>;
-  if (error && !view) return <div className="p-4 text-sm text-fg-muted">{error}</div>;
-  if (!view) return <div className="p-4 text-sm text-fg-muted">加载中…</div>;
+  const emptyNote = (text: string) => (
+    <Empty className="h-full">
+      <EmptyDescription className="max-w-xs">{text}</EmptyDescription>
+    </Empty>
+  );
+  if (!bot) return emptyNote("选择一个会话后可委派子任务。");
+  if (error && !view) return emptyNote(error);
+  if (!view) return emptyNote("加载中…");
 
   const addAttachment = async (e: FormEvent) => {
     e.preventDefault();
@@ -160,20 +164,20 @@ function DelegationBody({ bot }: PanelContext) {
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
-      <div className="rounded-lg border border-line bg-raised p-3 text-xs leading-5 text-fg-dim">
+      <Card size="sm" className="gap-2 text-xs leading-5 text-muted-foreground">
         <div>
-          委派会给当前会话创建一个<span className="text-fg">独立 worktree + 独立会话</span>的子任务（默认 swe-2 / high，同工作区同一
-          Sprite），<span className="text-fg">不复制本会话历史</span>。子任务不 push、不开 PR。
+          委派会给当前会话创建一个<span className="text-foreground">独立 worktree + 独立会话</span>的子任务（默认 swe-2 / high，同工作区同一
+          Sprite），<span className="text-foreground">不复制本会话历史</span>。子任务不 push、不开 PR。
         </div>
         <div>
-          结果<span className="text-fg">不会自动回来</span>：由你显式「读取结果」才会作为消息送回本会话；子会话空闲不等于完成。
+          结果<span className="text-foreground">不会自动回来</span>：由你显式「读取结果」才会作为消息送回本会话；子会话空闲不等于完成。
         </div>
-      </div>
+      </Card>
 
       {view.parent.canDelegate && !atChildLimit ? (
-        <form onSubmit={delegate} className="flex flex-col gap-2 rounded-lg border border-line p-3">
-          <textarea
-            className={field}
+        <Card size="sm">
+          <form onSubmit={delegate} className="flex flex-col gap-2">
+          <Textarea
             rows={3}
             placeholder="明确的子任务描述（子会话只看到这段文字和你选的附件）"
             value={task}
@@ -181,74 +185,79 @@ function DelegationBody({ bot }: PanelContext) {
             maxLength={4000}
           />
           <div className="flex items-center gap-2">
-            <input
-              className={field}
+            <Input
               placeholder={`worktree 内文件路径（可选），如 src/a.ts — 相对 ${view.parent.dir}`}
               value={path}
               onChange={(e) => setPath(e.target.value)}
             />
-            <button type="button" className={btn} disabled={busyKey === "file" || !path.trim()} onClick={addAttachment}>
+            <Button type="button" variant="outline" size="sm" disabled={busyKey === "file" || !path.trim()} onClick={addAttachment}>
               添加附件
-            </button>
+            </Button>
           </div>
           {attachments.length > 0 && (
             <ul className="flex flex-col gap-1">
               {attachments.map((a) => (
-                <li key={a.path} className="flex items-center justify-between rounded-md bg-raised px-2 py-1 text-xs text-fg-dim">
+                <li key={a.path} className="flex items-center justify-between rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
                   <span className="truncate">{a.path}（{a.size} bytes）</span>
-                  <button type="button" className="text-fg-muted hover:text-fg" onClick={() => setAttachments(attachments.filter((x) => x.path !== a.path))}>
+                  <Button type="button" variant="ghost" size="xs" onClick={() => setAttachments(attachments.filter((x) => x.path !== a.path))}>
                     移除
-                  </button>
+                  </Button>
                 </li>
               ))}
             </ul>
           )}
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-fg-muted">
+            <span className="text-[11px] text-muted-foreground">
               子任务 {view.tasks.length}/{view.parent.maxChildren} · 层级 {view.parent.depth}/{view.parent.maxDepth}
             </span>
-            <button type="submit" className={primary} disabled={submitting || !task.trim()}>
+            <Button type="submit" size="sm" disabled={submitting || !task.trim()}>
               {submitting ? "创建中…" : "委派子任务"}
-            </button>
+            </Button>
           </div>
-        </form>
+          </form>
+        </Card>
       ) : (
-        <div className="rounded-lg border border-line p-3 text-xs text-fg-muted">
+        <Card size="sm" className="text-xs text-muted-foreground">
           {atChildLimit ? `子任务数已达上限（${view.parent.maxChildren}）。` : view.parent.depth >= view.parent.maxDepth ? "本会话已是子任务，不能继续委派（层级上限）。" : "工作区未就绪时不能委派。"}
-        </div>
+        </Card>
       )}
 
-      {error && <div className="rounded-md border border-red-900 bg-red-950/40 px-3 py-2 text-xs text-red-300">{error}</div>}
+      {error && <Alert variant="destructive" className="text-xs">{error}</Alert>}
 
       <ul className="flex flex-col gap-2">
-        {view.tasks.length === 0 && <li className="text-xs text-fg-muted">还没有委派的子任务。</li>}
+        {view.tasks.length === 0 && <li className="text-xs text-muted-foreground">还没有委派的子任务。</li>}
         {view.tasks.map((t) => (
-          <li key={t.id} className="flex flex-col gap-2 rounded-lg border border-line p-3">
+          <li key={t.id}>
+            <Card size="sm" className="gap-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="truncate text-sm text-fg">{t.task}</div>
-                <div className="mt-0.5 text-[11px] text-fg-muted">
+                <div className="truncate text-sm text-foreground">{t.task}</div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">
                   {new Date(t.createdAt).toLocaleString()} · {t.branch ?? "—"} · {t.state === "read" ? "已读取结果" : liveLabel(t)}
                 </div>
               </div>
               {t.child.botId && (
-                <a className={btn} href={`?bot=${encodeURIComponent(t.child.botId)}`} title={`打开子会话 ${t.child.name ?? t.child.botId}`}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  render={<a href={`?bot=${encodeURIComponent(t.child.botId)}`} />}
+                  title={`打开子会话 ${t.child.name ?? t.child.botId}`}
+                >
                   打开子会话
-                </a>
+                </Button>
               )}
             </div>
-            {t.error && <div className="text-xs text-red-300">{t.error}</div>}
+            {t.error && <Alert variant="destructive" className="text-xs">{t.error}</Alert>}
             {t.result && (
-              <div className="rounded-md bg-raised px-2 py-1.5 text-xs text-fg-dim">
-                <div className="mb-0.5 text-fg-muted">已送回本会话的结果（{new Date(t.result.readAt).toLocaleString()}）：</div>
+              <div className="rounded-md bg-muted px-2 py-1.5 text-xs text-muted-foreground">
+                <div className="mb-0.5">已送回本会话的结果（{new Date(t.result.readAt).toLocaleString()}）：</div>
                 <div className="whitespace-pre-wrap break-words">{t.result.summary.slice(0, 500)}{t.result.summary.length > 500 ? "…" : ""}</div>
               </div>
             )}
             {(t.state === "running" || t.state === "read") && t.child.exists && (
               <div className="flex flex-col gap-2">
                 <div className="flex gap-2">
-                  <input
-                    className={field}
+                  <Input
                     placeholder="给子会话发跟进消息…"
                     value={msgFor[t.id] ?? ""}
                     onChange={(e) => setMsgFor({ ...msgFor, [t.id]: e.target.value })}
@@ -259,23 +268,23 @@ function DelegationBody({ bot }: PanelContext) {
                       }
                     }}
                   />
-                  <button type="button" className={btn} disabled={busyKey === `msg:${t.id}` || !(msgFor[t.id] ?? "").trim()} onClick={() => void sendMessage(t.id)}>
+                  <Button type="button" variant="outline" size="sm" disabled={busyKey === `msg:${t.id}` || !(msgFor[t.id] ?? "").trim()} onClick={() => void sendMessage(t.id)}>
                     发送
-                  </button>
+                  </Button>
                 </div>
                 <div className="flex gap-2">
-                  <input
-                    className={field}
+                  <Input
                     placeholder="读取结果时的备注（可选）"
                     value={note[t.id] ?? ""}
                     onChange={(e) => setNote({ ...note, [t.id]: e.target.value })}
                   />
-                  <button type="button" className={primary} disabled={busyKey === `read:${t.id}`} onClick={() => void readResult(t.id)}>
+                  <Button type="button" size="sm" disabled={busyKey === `read:${t.id}`} onClick={() => void readResult(t.id)}>
                     读取结果送回本会话
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
+            </Card>
           </li>
         ))}
       </ul>

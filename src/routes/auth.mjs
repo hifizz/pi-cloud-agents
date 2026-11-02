@@ -88,8 +88,27 @@ export function register(app, opts = {}) {
   // ---- global guard ----
   // Fail closed: an app without a guard hook would leave every route open.
   if (typeof app.guard !== "function") throw new Error("auth: app.guard is required (src/api.mjs)");
-  app.guard((req, { kind, path }) => {
+  // Machine-credential entry points (Issue14 loops webhook): exact method+path only, verified asynchronously by a
+  // verifier the loops route module installs via app.ctx.machineAuth. Not an anonymous exemption: the verifier runs
+  // the real Bearer/Standard-Webhooks signature check inside this guard; a failure throws 401 and nothing reaches
+  // the route. Everything else still requires a login session.
+  const machineEntries = new Map(); // "POST /api/loops/:id/webhook"-style matcher list
+  app.ctx = app.ctx ?? {};
+  app.ctx.registerMachineAuth = ({ method, pathRe, verify }) => {
+    if (typeof verify !== "function") throw new TypeError("registerMachineAuth requires a verify(req) function");
+    machineEntries.set(`${method} ${pathRe}`, { method, pathRe, verify });
+  };
+  app.guard(async (req, { kind, path }) => {
     if (settings.disabled) return true;
+    // Machine-auth entries only ever apply to plain HTTP requests on their exact path (no startsWith wildcard).
+    if (kind === "http") {
+      for (const { method, pathRe, verify } of machineEntries.values()) {
+        if (req.method === method && pathRe.test(path)) {
+          await verify(req); // throws HttpError(401) on any failure — never falls through to session logic
+          return true;
+        }
+      }
+    }
     const mutating = kind === "ws" || (req.method !== "GET" && req.method !== "HEAD");
     if (mutating) checkOrigin(req);
     if (kind === "http" && (path.startsWith("/api/auth/") || path === "/api/auth" || path === "/api/health")) return true;

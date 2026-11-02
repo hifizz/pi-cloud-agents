@@ -21,6 +21,11 @@ function baseUrl() {
   return url.replace(/\/+$/, "");
 }
 
+/** Whitelisted model ids a session may switch to (PATCH /api/bots/:id/model). */
+export function availableModelIds() {
+  return MODEL_SPECS.map((s) => s.id);
+}
+
 export function tokenRouterProvider(extraModelIds = []) {
   const url = baseUrl();
   const specs = [...MODEL_SPECS];

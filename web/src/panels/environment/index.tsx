@@ -1,4 +1,5 @@
 import { EnvironmentPane } from "../../components/EnvironmentPane";
+import { ScrollArea } from "../../components/ui/scroll-area";
 import type { PanelDefinition } from "../types";
 
 export const environmentPanel: PanelDefinition = {
@@ -6,8 +7,8 @@ export const environmentPanel: PanelDefinition = {
   title: "Environment",
   icon: "box",
   Component: ({ bot, vm }) => (
-    <div className="h-full overflow-y-auto">
+    <ScrollArea className="h-full">
       <EnvironmentPane bot={bot} vm={vm} />
-    </div>
+    </ScrollArea>
   ),
 };

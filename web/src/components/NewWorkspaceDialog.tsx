@@ -2,15 +2,21 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { newRequestId } from "../lib/api";
 import { describeError, workspacesApi, type GithubBranch, type GithubRepo, type NewWorkspaceInput, type Workspace } from "../lib/workspaces";
 import { MODEL_OPTIONS } from "./BotList";
+import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
 
 export interface NewWorkspaceDialogProps {
   onCreated: (ws: Workspace) => void;
   onClose: () => void;
 }
 
-const field =
-  "w-full rounded-md border border-line-strong bg-field px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";
-const label = "mb-1 block text-xs text-fg-muted";
+// Native <select> stays (ForkDialog precedent): tests drive it with selectOptions.
+const selectCls =
+  "h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30";
+const labelCls = "mb-1.5 block text-xs font-medium text-muted-foreground";
 
 export function NewWorkspaceDialog({ onCreated, onClose }: NewWorkspaceDialogProps) {
   // One requestId per opened dialog: double clicks and retries after a failure all reuse it, so the server
@@ -111,25 +117,19 @@ export function NewWorkspaceDialog({ onCreated, onClose }: NewWorkspaceDialogPro
   const noRepos = repos !== undefined && repos.length === 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={(e) => e.target === e.currentTarget && !submitting && onClose()}>
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-workspace-title"
-        onKeyDown={(e) => e.key === "Escape" && !submitting && onClose()}
-        className="max-h-full w-[30rem] max-w-full overflow-y-auto rounded-lg border border-line-strong bg-raised p-4 shadow-xl"
-      >
-        <h2 id="new-workspace-title" className="text-sm font-semibold text-fg">
+    <Dialog open onOpenChange={(open) => !open && !submitting && onClose()}>
+      <DialogContent aria-labelledby="new-workspace-title" showCloseButton={false} className="max-h-full w-[30rem] overflow-y-auto">
+        <DialogTitle id="new-workspace-title" className="text-sm font-semibold">
           新建工作区
-        </h2>
-        <p className="mt-0.5 text-xs text-fg-muted">选择仓库，准备一台独立的云环境，然后让 Agent 开始工作。</p>
+        </DialogTitle>
+        <DialogDescription className="-mt-2 text-xs">选择仓库，准备一台独立的云环境，然后让 Agent 开始工作。</DialogDescription>
 
-        <form onSubmit={submit} className="mt-3 space-y-3" aria-label="新建工作区">
+        <form onSubmit={submit} className="space-y-3" aria-label="新建工作区">
           <div>
-            <label htmlFor="ws-repo-filter" className={label}>
+            <Label htmlFor="ws-repo-filter" className={labelCls}>
               仓库
-            </label>
-            <input
+            </Label>
+            <Input
               id="ws-repo-filter"
               ref={filterRef}
               type="search"
@@ -138,10 +138,10 @@ export function NewWorkspaceDialog({ onCreated, onClose }: NewWorkspaceDialogPro
               placeholder="输入以过滤仓库"
               aria-label="过滤仓库"
               disabled={!repos}
-              className={`${field} mb-1.5`}
+              className="mb-1.5"
               autoComplete="off"
             />
-            <select id="ws-repo" aria-label="仓库" value={repo} onChange={(e) => setRepo(e.target.value)} disabled={!repos || noRepos} className={field}>
+            <select id="ws-repo" aria-label="仓库" value={repo} onChange={(e) => setRepo(e.target.value)} disabled={!repos || noRepos} className={selectCls}>
               {!repos && !reposError && <option value="">加载仓库…</option>}
               {reposError && <option value="">无法加载仓库</option>}
               {noRepos && <option value="">没有可用仓库</option>}
@@ -153,20 +153,20 @@ export function NewWorkspaceDialog({ onCreated, onClose }: NewWorkspaceDialogPro
               ))}
             </select>
             {reposError && (
-              <p role="alert" className="mt-1 text-xs text-bad">
+              <p role="alert" className="mt-1 text-xs text-destructive">
                 无法加载仓库列表：{reposError}
               </p>
             )}
-            {noRepos && <p className="mt-1 text-xs text-fg-muted">GitHub 账号下没有可用仓库。</p>}
-            {repos && repos.length > 0 && visibleRepos.length <= (repo ? 1 : 0) && q && <p className="mt-1 text-xs text-fg-muted">没有匹配的仓库。</p>}
+            {noRepos && <p className="mt-1 text-xs text-muted-foreground">GitHub 账号下没有可用仓库。</p>}
+            {repos && repos.length > 0 && visibleRepos.length <= (repo ? 1 : 0) && q && <p className="mt-1 text-xs text-muted-foreground">没有匹配的仓库。</p>}
           </div>
 
           <div>
-            <label htmlFor="ws-branch" className={label}>
+            <Label htmlFor="ws-branch" className={labelCls}>
               起始分支
-            </label>
+            </Label>
             {branches && !branchesError ? (
-              <select id="ws-branch" value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} className={field}>
+              <select id="ws-branch" value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} className={selectCls}>
                 {branchNames.map((b) => (
                   <option key={b} value={b}>
                     {b}
@@ -174,42 +174,40 @@ export function NewWorkspaceDialog({ onCreated, onClose }: NewWorkspaceDialogPro
                 ))}
               </select>
             ) : (
-              <input
+              <Input
                 id="ws-branch"
                 value={baseBranch}
                 onChange={(e) => setBaseBranch(e.target.value)}
                 disabled={!repo}
                 placeholder={branchesError ? "手动输入分支名" : repo ? "加载分支…" : "先选择仓库"}
-                className={field}
                 autoComplete="off"
               />
             )}
             {branchesError && (
-              <p role="alert" className="mt-1 text-xs text-bad">
+              <p role="alert" className="mt-1 text-xs text-destructive">
                 无法加载分支列表：{branchesError}。可以手动输入分支名。
               </p>
             )}
           </div>
 
           <div>
-            <label htmlFor="ws-task" className={label}>
+            <Label htmlFor="ws-task" className={labelCls}>
               需求
-            </label>
-            <textarea
+            </Label>
+            <Textarea
               id="ws-task"
               value={task}
               onChange={(e) => setTask(e.target.value)}
               rows={4}
               placeholder="希望 Agent 完成什么？可以描述问题、预期行为与验证方式。"
-              className={field}
             />
           </div>
 
           <div>
-            <label htmlFor="ws-model" className={label}>
+            <Label htmlFor="ws-model" className={labelCls}>
               模型
-            </label>
-            <select id="ws-model" value={modelId} onChange={(e) => setModelId(e.target.value)} className={field}>
+            </Label>
+            <select id="ws-model" value={modelId} onChange={(e) => setModelId(e.target.value)} className={selectCls}>
               {MODEL_OPTIONS.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -218,18 +216,18 @@ export function NewWorkspaceDialog({ onCreated, onClose }: NewWorkspaceDialogPro
             </select>
           </div>
 
-          <details className="rounded-md border border-line">
-            <summary className="cursor-pointer px-2.5 py-1.5 text-xs text-fg-dim focus-visible:outline-2 focus-visible:outline-accent">展开设置</summary>
-            <div className="border-t border-line p-2.5">
-              <label htmlFor="ws-install" className={label}>
+          <details className="rounded-md border border-border">
+            <summary className="cursor-pointer px-2.5 py-1.5 text-xs text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring">展开设置</summary>
+            <div className="border-t border-border p-2.5">
+              <Label htmlFor="ws-install" className={labelCls}>
                 安装命令
-              </label>
-              <input
+              </Label>
+              <Input
                 id="ws-install"
                 value={installCommand}
                 onChange={(e) => setInstallCommand(e.target.value)}
                 placeholder="例如 npm ci（留空则不安装依赖）"
-                className={`${field} font-mono`}
+                className="font-mono"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -237,29 +235,20 @@ export function NewWorkspaceDialog({ onCreated, onClose }: NewWorkspaceDialogPro
           </details>
 
           {error && (
-            <p role="alert" className="break-words text-xs text-bad">
+            <p role="alert" className="break-words text-xs text-destructive">
               创建失败：{error}。输入已保留，可以再次提交。
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="rounded-md border border-line-strong px-3 py-1.5 text-sm text-fg-dim hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
-            >
+            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
               取消
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || !repo}
-              className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
-            >
+            </Button>
+            <Button type="submit" disabled={submitting || !repo}>
               {submitting ? "创建中…" : "创建工作区"}
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
