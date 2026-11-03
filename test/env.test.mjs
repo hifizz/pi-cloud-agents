@@ -396,9 +396,9 @@ test("watch is a polling watcher that reports created, changed and removed paths
   const w = (await env.watch([{ path: "/w", recursive: true }], (c) => changes.push(c), ctx)).value;
   assert.equal(w.mode, "polling");
   await new Promise((r) => setTimeout(r, 200));
-  await w.close(ctx);
+  await w.stop(ctx);
   const after = changes.length;
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(changes.length, after, "no reports after close");
-  assert.deepEqual(changes, [{ paths: ["/w/f", "/w/g"] }, { paths: ["/w/f"] }]);
+  assert.deepEqual(changes, [{ kind: "paths", paths: ["/w/f", "/w/g"] }, { kind: "paths", paths: ["/w/f"] }]);
 });

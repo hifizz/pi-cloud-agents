@@ -237,8 +237,10 @@ export interface ConversationVM {
   compacting: number;
   /** Last stream-level error reported by the server. */
   error?: string;
-  /** Internal: tool state that arrived before its assistant message. Always empty between batches in practice. */
+  /** Internal, kept for compatibility: always empty (the view protocol has no out-of-order tool state). */
   toolStash: Record<string, ToolPart>;
+  /** Internal to lib/reducer.ts: the protocol state the next frame builds on. Opaque to components. */
+  wire?: unknown;
 }
 
 export type StreamStatus = "connecting" | "open" | "reconnecting" | "closed";

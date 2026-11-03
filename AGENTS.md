@@ -6,7 +6,7 @@ pi-cloud-agents 在云端常驻运行基于 Pi Durable（`@earendil-works/pi-dur
 
 ## 术语
 
-- **Pi Durable**：持久对话、任务恢复、定时例程的底座（`@earendil-works/pi-durable` 1.4.0，API 处于实验阶段）。
+- **Pi Durable**：持久对话、任务恢复、定时例程的底座（`@earendil-works/pi-durable` 1.5.0，API 处于实验阶段；`chord`、`pi-ai`、`pi-schema` 同版本精确锁定）。
 - **Sprite**：Fly.io Sprites 云沙箱，Bot 的 bash / 文件操作都在其中执行（工作区的 `cwd`，默认在 `/home/sprite/workspace` 下）。
 - **工作区（workspace）**：一个仓库 + 分支 + 一台 Sprite + 控制库里的一组记录；会话必须属于工作区。
 - **runner**：`src/runner/runner.sh`，装在 Sprite 里，让命令在服务重启、页面关闭后仍可接续。
@@ -17,7 +17,7 @@ pi-cloud-agents 在云端常驻运行基于 Pi Durable（`@earendil-works/pi-dur
 - 后端：Node ≥ 24，纯 ESM `.mjs`，**不用 TypeScript**；依赖版本全部精确锁定。
 - 前端：`web/`，React 19 + Vite + Tailwind 4 + TypeScript，生产构建产物 `web/dist/` 由 server 托管。
 - API 类型真相以 `node_modules/**/*.d.ts` 为准，不凭记忆猜：
-  - pi-durable：`node_modules/@earendil-works/pi-durable/dist/**/*.d.ts`
+  - pi-durable：`node_modules/@earendil-works/pi-durable/dist/**/*.d.ts`（升级说明看同目录 `CHANGELOG.md`）
   - Sprites：`node_modules/@fly/sprites/` 下的类型
 - 参考源码：`vendor-ref/durable-examples/`、`vendor-ref/coding-agent-durable/`（gitignored，仅本地）。
 - 接口契约：`docs/CONTRACTS.md`。与代码冲突时以代码为准并回报。

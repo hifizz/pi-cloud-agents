@@ -1,4 +1,5 @@
-// Records the real WS frame stream of the API into web/test/fixtures/*.json (used by the web reducer tests).
+// Records the real WS frame stream of the API (conversation view: one `view` frame, then `ops` frames) into
+// web/test/fixtures/*.json (used by the web reducer tests).
 //   node scratch/record-events.mjs
 // Scenarios: run-basic (thinking + text + bash + answer), run-tool (failing bash command), run-abort (tool interrupted
 // by abort), and run-real (real model, only when TOKEN_ROUTER_API_KEY is set). Secrets are never written.
@@ -11,6 +12,7 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { CodingTools } from "@earendil-works/pi-durable/tools";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { WebSocket } from "ws";
+import { apply as applyOps } from "@earendil-works/chord/delta";
 import { ROOT, defaultModel } from "../src/config.mjs";
 import { ctx, openHarness } from "../src/harness.mjs";
 import { BotRegistry } from "../src/bots.mjs";
@@ -52,6 +54,9 @@ async function record({ file, prompt, responses, real = false, abortOnTool = fal
   const frames = [];
   let posted = false;
   let aborted = false;
+  let view;
+  let started = false;
+  let ending = false;
   await new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/api/bots/${bot.id}/stream`);
     const timer = setTimeout(() => {
@@ -61,18 +66,23 @@ async function record({ file, prompt, responses, real = false, abortOnTool = fal
     ws.on("message", async (data) => {
       const frame = JSON.parse(data.toString());
       frames.push(frame);
-      if (frame.type === "snapshot" && !posted) {
+      if (frame.type === "view") view = structuredClone(frame.view);
+      else if (frame.type === "ops") view = applyOps(view, structuredClone(frame.ops));
+      if (frame.type === "view" && !posted) {
         posted = true;
         await post(`/api/bots/${bot.id}/input`, { text: prompt, requestId: "rec-1" });
       }
-      if (frame.type === "events") {
-        if (abortOnTool && !aborted && frame.events.some((e) => e.type === "tool_execution_start")) {
+      if (frame.type === "ops") {
+        const live = view?.docs?.["pi.live"] ?? {};
+        if (live.run !== undefined) started = true;
+        if (abortOnTool && !aborted && (live.tools ?? []).some((t) => t.status === "running")) {
           aborted = true;
           await new Promise((r) => setTimeout(r, 200));
           await post(`/api/bots/${bot.id}/abort`, {});
         }
-        if (frame.events.some((e) => e.type === "run_end")) {
-          // linger briefly so trailing events (submission settle, usage_changed) are captured
+        if (started && live.run === undefined && !ending) {
+          ending = true;
+          // linger briefly so trailing commits (usage) are captured
           setTimeout(() => {
             clearTimeout(timer);
             ws.close();
@@ -91,8 +101,8 @@ async function record({ file, prompt, responses, real = false, abortOnTool = fal
     throw new Error(`${file}: fixture appears to contain a secret; not written`);
   }
   writeFileSync(join(OUT, file), JSON.stringify(JSON.parse(json), null, 1));
-  const kinds = new Set(frames.flatMap((f) => (f.type === "events" ? f.events.map((e) => e.type) : [f.type])));
-  console.log(`${file}: ${frames.length} frames; event types: ${[...kinds].join(", ")}`);
+  const verbs = new Set(frames.flatMap((f) => (f.type === "ops" ? f.ops.map((o) => o[0]) : [f.type])));
+  console.log(`${file}: ${frames.length} frames; op verbs: ${[...verbs].join(", ")}`);
 }
 
 await record({

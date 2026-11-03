@@ -30,16 +30,20 @@ Bot 记录（bots.json）：`{ id, name, conversationId, model:{provider,modelId
 
 `src/env.mjs` 的 `SandboxEnv`（`ExecutionEnv` 实现）只依赖传入的 `bash` 原语（必填，没有全局默认沙箱），文件读写、编辑等均经 `bash` 完成。哪个会话用哪台 Sprite 由 `src/workspace-env.mjs` 决定（§7）。
 
-## 3. pi-durable 关键契约（1.4.0）
+## 3. pi-durable 关键契约（1.5.0）
 
 - `ExecutionEnv = FileSystem & Shell`，见 `node_modules/@earendil-works/pi-durable/dist/env/index.d.ts`。所有方法返回 `Result`（`ok()`/`err()`，失败用 `FileError(code, msg, path)` / `ExecutionError(code, msg)`），不抛异常。
 - CodingTools 实际用到：`exec`、`absolutePath`、`joinPath`、`exists`、`canonicalPath`、`fileInfo`、`readTextFile`、`writeFile`、`openBinaryReader`（`info`/`read`/`scanLines`/`close`；可用 `LineScanner` 在内存中计算）。
-- 工具：`defineTool({name, description, parameters: Type.Object(...), replay?: "safe", execute: async (args, api, context) => ({output:[{type:"text",text}|{type:"image",data,mimeType}], details?})})`（1.2.0 起 `content` 改名为 `output`）；`Type` 从 `@earendil-works/pi-ai` 导入。
+- 工具：`defineTool({name, description, parameters: obj({...}, { open: true }), replay?: "safe", execute: async (args, api, context) => ({output:[{type:"text",text}|{type:"image",data,mimeType}], details?})})`（1.2.0 起 `content` 改名为 `output`）。1.5.0 起参数是 JSON Schema，用 `@earendil-works/pi-schema` 的构造器（`obj`/`str`/`num`/`int`/`bool`/`arr`/`opt`/`lit`/`union`）；`pi-ai` 不再导出 TypeBox `Type`。`obj()` 默认封闭（`additionalProperties:false`），本仓库统一传 `{ open: true }`，与原 `Type.Object` 的开放语义一致。
 - 文档：`defineDoc({..., checkpointWhen})`，1.4.0 起 `checkpointWhen` 必填（`() => false` 保持增量写入）。
 - 定时等待：1.4.0 移除 `TaskRuntime.sleep()`；任务以 `runtime.sleepUntil(until, checkpoint, ctx)` 或 `commit()` 返回 `{status:"sleeping", until, checkpoint}` 结束当前阶段，持久化休眠，到点后从 checkpoint 恢复。时钟用 `HarnessOptions.now` / `setTimer` 注入。
 - 扩展：`defineExtension({name, tools?, sections?, hooks?, tasks?})`。
-- 事件流：`watchEvents(harness, conversationId, ctx)` → `{snapshot, start(listener(events)), stop()}`；事件类型见 `dist/harness/events.d.ts`（`snapshot`、`run_start/end`、`message_start/update/end`、`tool_execution_start/update/end`、`inbox_update`、`usage_changed`、`task_failed`、`compaction_start/end`、`entry_appended`、`agent_changed`、`submission`…）。
-- 提交：`conv.submit({type:"input", content, whenBusy?:"steer"|"followUp"|"reject", requestId?}, ctx)`；`conv.abort(ctx,{background?})`、`conv.compact(instr, ctx)`、`conv.reset(note, ctx)`、`conv.fork(entryId, {ownership:{kind:"ownerless"}, agent?}, ctx)`、`harness.usage(ctx)`、`conv.viewState(ctx)`（`docs["pi.usage"]`、`docs["pi.live"]`、`docs["pi.inbox"]`）。
+- 会话视图（1.5.0 起取代已删除的 `watchEvents()` 事件流与 `conv.viewState()`）：`conv.watch(ctx, window?)` → Chord `WatchHandle<ConversationView>`：`value` 为首个值 `{conversation, entries, before?, docs}`，`entries` 是转录的窗口（按 entry ID 升序，默认最新 50 条，超过 `max` 时一次 splice 掉最旧的），`docs` 是内置文档（`pi.live`、`pi.inbox`、`pi.agent`、`pi.usage`…）；`start(async (call, ctx) => { if (call.kind === "value") use(call.value, call.ops) })`，`stop()`，`closed` 以 `WatchEnd`（`kind`: `stopped`/`aborted`/`ended`/`listener_error`/`failed`）结束。事件到状态的对应见 pi-durable CHANGELOG 1.5.0：运行中 = `pi.live.run !== undefined`（空闲的 `pi.live` 可能带 `runFailure`，**不要**与 `{}` 比较）；流式回答在 `pi.live.generation.message`；工具槽在 `pi.live.tools[]`（`status` pending/running/done，`output`，完成后 `entry`）；`pi.live.runFailure`（无回答结束的原因）、`pi.live.compactions` / `compactionFailure`（字段 `trigger`，原 `reason`）。
+- 一次性读文档：`readConversationDocs(conv, ctx)`（`src/harness.mjs`，取 `conv.watch(ctx, {min:1})` 的首值后立即 `stop()`）→ `docs`。
+- Bot 流 `WS /api/bots/:id/stream`（`src/api.mjs`，窗口 `STREAM_WINDOW = {min:200, max:400}`）：先发 `{type:"view", view}`，之后每次 watch 回调发 `{type:"ops", ops}`（Chord ops：`r`/`s`/`d`/`a`/`t`/`p`/`m`），出错发 `{type:"error", error}`；watch 结束（Session 关闭/失败）时发 error 并以 1011 关闭，客户端重连拿新 view。**只有** `web/src/lib/reducer.ts` 解析这一协议。
+- 提交：`conv.submit({type:"input", content, whenBusy?:"steer"|"followUp"|"reject", requestId?}, ctx)`；`conv.abort(ctx,{background?})`、`conv.compact(instr, ctx)`、`conv.reset(note, ctx)`、`conv.fork(entryId, {ownership:{kind:"ownerless"}, agent?}, ctx)`、`harness.usage(ctx)`。
+- 其他 1.5.0 形状：`FileSystem.watch()` 的变更为 `{kind:"paths",paths}` / `{kind:"overflow"}` / `{kind:"failed",error}`，`FileWatcher.stop(ctx)`（原 `close`）；`HarnessOptions.onReport(report)` 单参数（`report.kind`、`report.error`）；`SessionEnd` 以 `kind` 区分；`retryTask()` 已删除。
+- 存储迁移：1.5.0 写入的 `pi.live` 为 v3（`pi.tool` v3、`pi.generation` v2），**单向**——1.4.0 读不了 1.5.0 写过的会话，回滚前先备份数据库。
 
 ## 4. 扩展注册约定
 

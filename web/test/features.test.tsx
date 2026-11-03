@@ -43,8 +43,8 @@ describe("reducer: entryId", () => {
 
   it("compaction entries carry entryId and render as collapsed summaries", () => {
     const frame: Frame = {
-      type: "snapshot",
-      entries: [{ id: 7, kind: "pi.compaction", model: [{ role: "user", content: "<summary>\nEarlier work\n</summary>" }] }],
+      type: "view",
+      view: { entries: [{ id: 7, kind: "pi.compaction", model: [{ role: "user", content: "<summary>\nEarlier work\n</summary>" }] }], docs: {} },
     };
     const vm = reduce(emptyVM(), frame);
     expect(vm.messages[0]).toMatchObject({ role: "compaction", entryId: 7 });

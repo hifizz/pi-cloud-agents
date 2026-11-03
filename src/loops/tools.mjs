@@ -13,7 +13,7 @@
 // (manual/schedule/webhook without a GitHub entity) get a clear refusal.
 import { randomUUID } from "node:crypto";
 import { defineExtension, defineTool, hook, ToolTask } from "@earendil-works/pi-durable";
-import { Type } from "@earendil-works/pi-ai";
+import { arr, bool, int, lit, obj, opt, str, union } from "@earendil-works/pi-schema";
 import { approvals, createClassifier } from "../ext/approval.mjs";
 import { shellQuote as shellQuoteStr } from "../env.mjs";
 
@@ -163,11 +163,11 @@ function buildGithubTools(getDeps) {
     description:
       "Post ONE comment on a GitHub issue or pull request in the bound repository. Requires human approval. " +
       "When scopeToTrigger is on, only the entity that triggered this run may be commented on.",
-    parameters: Type.Object({
-      kind: Type.Union([Type.Literal("issue"), Type.Literal("pr")], { description: "issue or pr" }),
-      number: Type.Integer({ minimum: 1 }),
-      body: Type.String({ minLength: 1, description: `Markdown comment body (max ${BODY_LIMIT} chars)` }),
-    }),
+    parameters: obj({
+      kind: union([lit("issue"), lit("pr")], { description: "issue or pr" }),
+      number: int({ minimum: 1 }),
+      body: str({ minLength: 1, description: `Markdown comment body (max ${BODY_LIMIT} chars)` }),
+    }, { open: true }),
     replay: "live",
     async execute(args, api, context) {
       const ctx = await runContext(D(), api, context);
@@ -189,11 +189,11 @@ function buildGithubTools(getDeps) {
     name: "send_github_label",
     deferred: true,
     description: "Add labels to a GitHub issue or PR in the bound repository. Requires human approval.",
-    parameters: Type.Object({
-      kind: Type.Union([Type.Literal("issue"), Type.Literal("pr")]),
-      number: Type.Integer({ minimum: 1 }),
-      labels: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: LABELS_LIMIT }),
-    }),
+    parameters: obj({
+      kind: union([lit("issue"), lit("pr")]),
+      number: int({ minimum: 1 }),
+      labels: arr(str({ minLength: 1 }), { minItems: 1, maxItems: LABELS_LIMIT }),
+    }, { open: true }),
     replay: "live",
     async execute(args, api, context) {
       const ctx = await runContext(D(), api, context);
@@ -211,11 +211,11 @@ function buildGithubTools(getDeps) {
     name: "send_github_open_issue",
     deferred: true,
     description: "Open ONE new GitHub issue in the bound repository. Requires human approval.",
-    parameters: Type.Object({
-      title: Type.String({ minLength: 1, description: `Issue title (max ${TITLE_LIMIT} chars)` }),
-      body: Type.Optional(Type.String({ description: `Body (max ${BODY_LIMIT} chars)` })),
-      labels: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: LABELS_LIMIT })),
-    }),
+    parameters: obj({
+      title: str({ minLength: 1, description: `Issue title (max ${TITLE_LIMIT} chars)` }),
+      body: opt(str({ description: `Body (max ${BODY_LIMIT} chars)` })),
+      labels: opt(arr(str({ minLength: 1 }), { maxItems: LABELS_LIMIT })),
+    }, { open: true }),
     replay: "live",
     async execute(args, api, context) {
       const ctx = await runContext(D(), api, context);
@@ -240,7 +240,7 @@ function buildGithubTools(getDeps) {
       "Push this run's own branch (loops/<slug>/<runId>) to the bound GitHub remote — the ONLY push path in " +
       "a loop session. Server-fixed remote URL and exact refspec; git hooks, credential helpers, config " +
       "redirects and interactive prompts are disabled for the push. Requires human approval.",
-    parameters: Type.Object({}),
+    parameters: obj({}, { open: true }),
     replay: "live",
     async execute(_args, api, context) {
       const ctx = await runContext(D(), api, context);
@@ -310,11 +310,11 @@ function buildGithubTools(getDeps) {
       "Open ONE pull request from this run's own branch (head) against its base branch. Head and base are " +
       "always the run's recorded values — never a model-chosen ref, regardless of scopeToTrigger. The branch " +
       "must have been published with send_git_push first. Requires human approval; records the PR on the run.",
-    parameters: Type.Object({
-      title: Type.String({ minLength: 1, description: `PR title (max ${TITLE_LIMIT} chars)` }),
-      body: Type.Optional(Type.String({ description: `Body (max ${BODY_LIMIT} chars)` })),
-      draft: Type.Optional(Type.Boolean()),
-    }),
+    parameters: obj({
+      title: str({ minLength: 1, description: `PR title (max ${TITLE_LIMIT} chars)` }),
+      body: opt(str({ description: `Body (max ${BODY_LIMIT} chars)` })),
+      draft: opt(bool()),
+    }, { open: true }),
     replay: "live",
     async execute(args, api, context) {
       const ctx = await runContext(D(), api, context);
@@ -353,10 +353,10 @@ function buildGithubTools(getDeps) {
     description:
       "Save a suggested follow-up task for the human to confirm and publish. Nothing executes — the draft is " +
       "attached to this run and the user publishes it explicitly (draft → publish confirmation).",
-    parameters: Type.Object({
-      task: Type.String({ minLength: 1, description: `The task text the human may publish verbatim (max ${BODY_LIMIT} chars)` }),
-      summary: Type.Optional(Type.String({ description: "One-line summary of why this task is suggested" })),
-    }),
+    parameters: obj({
+      task: str({ minLength: 1, description: `The task text the human may publish verbatim (max ${BODY_LIMIT} chars)` }),
+      summary: opt(str({ description: "One-line summary of why this task is suggested" })),
+    }, { open: true }),
     replay: "safe",
     async execute(args, api, context) {
       const ctx = await runContext(D(), api, context);

@@ -53,3 +53,20 @@ export async function openHarness(opts = {}) {
   if (opts.resume !== false) harness.resume();
   return { harness, registry, models };
 }
+
+/**
+ * One-shot read of a conversation's built-in documents (`pi.live`, `pi.inbox`, `pi.agent`, `pi.usage`, ...).
+ * pi-durable 1.5 removed `Conversation.viewState()`; this takes the first value of `Conversation.watch()` and stops the
+ * watch right away. The window is kept to one entry: callers only read `docs`. Idle is `docs["pi.live"]?.run === undefined`
+ * (an idle `pi.live` may still carry `runFailure`).
+ * @param {{ watch: (context: any, window?: object) => Promise<{ value: any, stop: () => Promise<unknown> }> }} conv
+ * @returns {Promise<Record<string, any>>}
+ */
+export async function readConversationDocs(conv, context = ctx) {
+  const watch = await conv.watch(context, { min: 1 });
+  try {
+    return watch.value?.docs ?? {};
+  } finally {
+    await watch.stop();
+  }
+}

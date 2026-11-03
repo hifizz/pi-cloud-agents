@@ -9,16 +9,16 @@
 // HttpError (HTTP: JSON error with that status; WS: 401 and the socket is destroyed). HTTP guards run before route
 // matching for every /api/* request; WS guards run on every upgrade. Static files are never guarded.
 //
-// Bot "busy"/"queued" come from the Bot's conversation view state (`conv.viewState()`):
+// Bot "busy"/"queued" come from the Bot's conversation view docs (`readConversationDocs()`, a one-shot `conv.watch()`):
 //   busy   = docs["pi.live"].run is present  (a run is active, see LiveState.run)
 //   queued = docs["pi.inbox"].items.length   (submissions waiting for a boundary)
 import { createServer } from "node:http";
 import { existsSync, statSync, createReadStream } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
-import { watchEvents, ConversationBusy } from "@earendil-works/pi-durable";
+import { ConversationBusy } from "@earendil-works/pi-durable";
 import { config } from "./config.mjs";
-import { ctx } from "./harness.mjs";
+import { ctx, readConversationDocs } from "./harness.mjs";
 
 /** Replace image content blocks with a text placeholder (transcript serialization for the UI). */
 export function withoutImageContent(value) {
@@ -34,6 +34,12 @@ export function withoutImageContent(value) {
   }
   return value;
 }
+
+/**
+ * Entry window of the bot stream's conversation watch: the first frame holds the newest `min` entries, later entries
+ * are appended, and past `max` the oldest leave in one splice (the web reducer keeps what it already rendered).
+ */
+export const STREAM_WINDOW = { min: 200, max: 400 };
 
 export class HttpError extends Error {
   constructor(status, message) {
@@ -182,13 +188,8 @@ export function createApi({ harness, bots, routes = [], staticDir, extraCtx = {}
   }
   /** Read live/inbox/usage docs from a conversation's view state. */
   async function viewDocs(conv) {
-    const view = await conv.viewState(ctx);
-    try {
-      const docs = view.value?.docs ?? {};
-      return { live: docs["pi.live"], inbox: docs["pi.inbox"], usage: docs["pi.usage"] };
-    } finally {
-      view.dispose();
-    }
+    const docs = await readConversationDocs(conv);
+    return { live: docs["pi.live"], inbox: docs["pi.inbox"], usage: docs["pi.usage"] };
   }
   const emptyUsage = () => ({ models: {}, tools: {} });
 
@@ -287,13 +288,17 @@ export function createApi({ harness, bots, routes = [], staticDir, extraCtx = {}
       socket.close(4404, "bot not found");
       return;
     }
-    let stream;
+    // Wire protocol (consumed only by web/src/lib/reducer.ts): the conversation view of pi-durable's
+    // `Conversation.watch()` — `{type:"view", view}` first (entries window + docs: pi.live, pi.inbox, pi.agent, pi.usage),
+    // then `{type:"ops", ops}` per watch call (Chord ops turning the previous view into the next), `{type:"error"}` on
+    // failure. Like the former watchEvents stream, entries are sent as stored (image blocks included).
+    let watch;
     let closed = false;
     const stop = async () => {
       if (closed) return;
       closed = true;
       try {
-        await stream?.stop();
+        await watch?.stop();
       } catch {
         // already stopped
       }
@@ -309,10 +314,22 @@ export function createApi({ harness, bots, routes = [], staticDir, extraCtx = {}
       socket.send(toJson(frame));
     };
     try {
-      stream = await watchEvents(harness, bot.conversationId, ctx);
+      const conv = await bots.conversation(bot.id);
+      if (!conv) throw new Error(`conversation not found for bot: ${bot.name}`);
+      watch = await conv.watch(ctx, STREAM_WINDOW);
       if (closed || socket.readyState !== socket.OPEN) return void (await stop());
-      sendFrame({ type: "snapshot", ...stream.snapshot });
-      stream.start(async (events) => sendFrame({ type: "events", events }));
+      sendFrame({ type: "view", view: watch.value });
+      watch.start(async (call) => {
+        if (call.kind === "value") sendFrame({ type: "ops", ops: call.ops });
+        else sendFrame({ type: "error", error: String(call.error?.message ?? call.error) });
+      });
+      // The Session closed or failed (or the listener threw): tell the client and let it reconnect for a fresh view.
+      void watch.closed.then((end) => {
+        if (closed || end.kind === "stopped") return;
+        sendFrame({ type: "error", error: `stream ended: ${end.kind}${end.error ? ` (${end.error?.message ?? end.error})` : ""}` });
+        if (socket.readyState === socket.OPEN) socket.close(1011, "stream ended");
+        void stop();
+      });
     } catch (e) {
       sendFrame({ type: "error", error: String(e?.message ?? e) });
       socket.close(1011, "stream failed");

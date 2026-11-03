@@ -451,8 +451,8 @@ test("discussion start message: sibling busy/queued are reported; an unreadable 
           async submit() {
             return { id: "x" };
           },
-          async viewState() {
-            return { value: { docs: { "pi.live": { run: { id: 1 } }, "pi.inbox": { items: [{ id: 1 }] } } }, dispose() {} };
+          async watch() {
+            return { value: { docs: { "pi.live": { run: { taskId: 1, inputs: [], turns: 0 } }, "pi.inbox": { items: [{ id: 1 }] } } }, async stop() { return { kind: "stopped" }; } };
           },
         };
       }
@@ -469,7 +469,7 @@ test("discussion start message: sibling busy/queued are reported; an unreadable 
           async submit() {
             return { id: "y" };
           },
-          async viewState() {
+          async watch() {
             throw new Error("view unavailable");
           },
         };

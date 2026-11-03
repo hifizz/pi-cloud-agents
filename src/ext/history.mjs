@@ -1,7 +1,7 @@
 // search_history: case-insensitive substring search over a conversation's whole stored history, including entries
 // before a reset or compaction that no longer appear in the model context (REQ-F09-2).
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
-import { Type } from "@earendil-works/pi-ai";
+import { int, obj, opt, str } from "@earendil-works/pi-schema";
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 50;
@@ -72,10 +72,10 @@ export const searchHistory = defineTool({
   description:
     "Search this conversation's full stored history (case-insensitive substring), including messages from before a " +
     "reset or compaction that are no longer in your context. Returns matching snippets, newest first.",
-  parameters: Type.Object({
-    query: Type.String({ minLength: 1, description: "Text to look for" }),
-    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_LIMIT, description: `Max matches (default ${DEFAULT_LIMIT})` })),
-  }),
+  parameters: obj({
+    query: str({ minLength: 1, description: "Text to look for" }),
+    limit: opt(int({ minimum: 1, maximum: MAX_LIMIT, description: `Max matches (default ${DEFAULT_LIMIT})` })),
+  }, { open: true }),
   replay: "safe",
   async execute(args, api, context) {
     const query = String(args.query ?? "").trim();

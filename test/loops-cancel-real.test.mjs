@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
-import { openHarness, ctx } from "../src/harness.mjs";
+import { openHarness, ctx, readConversationDocs } from "../src/harness.mjs";
 import { BotRegistry } from "../src/bots.mjs";
 import { Preamble } from "../src/ext/preamble.mjs";
 import { openControlStore } from "../src/control/store.mjs";
@@ -172,13 +172,8 @@ test("B1 real harness: cancel lands AFTER bot creation but before submit -> sess
     assert.equal(final.botId, created.id, "the orphan session id is recorded on the row (auditable, not lost)");
     // The session was aborted by the runner's post-create path — it never got the first message.
     const conv = await env.bots.conversation(created.id);
-    const view = await conv.viewState(ctx);
-    try {
-      const live = view?.value?.docs?.["pi.live"];
-      assert.ok(!live?.run, "no generation running on the aborted session");
-    } finally {
-      view?.dispose?.();
-    }
+    const live = (await readConversationDocs(conv, ctx))["pi.live"];
+    assert.ok(live?.run === undefined, "no generation running on the aborted session");
   } finally {
     await env.close();
   }

@@ -1,5 +1,5 @@
 // WebSocket client with exponential-backoff reconnect (0.5s -> 8s).
-// After every (re)connect the server sends a fresh `snapshot` first; the reducer resets from it.
+// After every (re)connect the server sends a fresh `view` frame first; the reducer resets from it.
 import type { StreamStatus } from "../types";
 import type { Frame } from "./reducer";
 

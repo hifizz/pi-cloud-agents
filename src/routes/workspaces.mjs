@@ -13,7 +13,7 @@
 // version}. `requestId` and `cwd` are left out (internal), and nothing here ever sees a token.
 import { randomUUID } from "node:crypto";
 import { HttpError, toJson } from "../api.mjs";
-import { ctx } from "../harness.mjs";
+import { ctx, readConversationDocs } from "../harness.mjs";
 import { shellQuote } from "../env.mjs";
 import { Preamble } from "../ext/preamble.mjs";
 import { mapGithubError, REPO_RE } from "./github.mjs";
@@ -470,13 +470,9 @@ export function register(app) {
       let queued = null;
       try {
         const conv = await bots.conversation(bot.id);
-        const view = conv ? await conv.viewState(ctx) : undefined;
-        try {
-          busy = view?.value?.docs?.["pi.live"]?.run != null;
-          queued = view?.value?.docs?.["pi.inbox"]?.items?.length ?? 0;
-        } finally {
-          view?.dispose?.();
-        }
+        const docs = conv ? await readConversationDocs(conv, ctx) : {};
+        busy = docs["pi.live"]?.run != null;
+        queued = docs["pi.inbox"]?.items?.length ?? 0;
       } catch {
         // leave null: the start message says the status could not be read
       }

@@ -608,7 +608,7 @@ export class SandboxEnv {
       }
       const next = snap.value;
       if (next.size > MAX_WATCH_ENTRIES) {
-        notify({ error: new FileError("invalid", `Watched tree exceeds ${MAX_WATCH_ENTRIES} entries`) });
+        notify({ kind: "failed", error: new FileError("invalid", `Watched tree exceeds ${MAX_WATCH_ENTRIES} entries`) });
         closed = true;
         return;
       }
@@ -618,9 +618,9 @@ export class SandboxEnv {
       prev = next;
       if (uncertain) {
         uncertain = false;
-        notify({ overflow: true });
+        notify({ kind: "overflow" });
       }
-      if (changed.length) notify({ paths: changed });
+      if (changed.length) notify({ kind: "paths", paths: changed });
     };
     const loop = (async () => {
       while (!closed) {
@@ -632,7 +632,7 @@ export class SandboxEnv {
 
     const watcher = {
       mode: "polling",
-      close: async () => {
+      stop: async () => {
         closed = true;
         clearTimeout(timer);
         wake?.();
@@ -647,6 +647,6 @@ export class SandboxEnv {
   // ---- lifecycle ------------------------------------------------------------------------------------------
 
   async cleanup(context) {
-    await Promise.all([...this.#watchers].map((w) => w.close(context)));
+    await Promise.all([...this.#watchers].map((w) => w.stop(context)));
   }
 }

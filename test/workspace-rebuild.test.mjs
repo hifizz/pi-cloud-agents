@@ -13,7 +13,7 @@ import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Type } from "@earendil-works/pi-ai";
+import { obj, str } from "@earendil-works/pi-schema";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { defineExtension, defineTool, ToolResultEntry } from "@earendil-works/pi-durable";
@@ -122,7 +122,7 @@ function proofExec({ store, runnerFor, logFile }) {
       defineTool({
         name: "bash",
         description: "stand-in for tarsbot.exec",
-        parameters: Type.Object({ command: Type.String() }),
+        parameters: obj({ command: str() }, { open: true }),
         replay: "safe",
         async execute(args, api, context) {
           appendFileSync(logFile, `${JSON.stringify({ ev: "execute", pid: process.pid })}\n`);

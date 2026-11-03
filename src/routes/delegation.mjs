@@ -16,7 +16,7 @@
 // All paths are server-decided (Bot record / workspace record), never client-supplied.
 import { createHash, randomUUID } from "node:crypto";
 import { HttpError } from "../api.mjs";
-import { ctx } from "../harness.mjs";
+import { ctx, readConversationDocs } from "../harness.mjs";
 import { shellQuote } from "../env.mjs";
 import { Preamble } from "../ext/preamble.mjs";
 import { CHILD_BRANCH_RE, MAX_CHILDREN, MAX_DEPTH, MAX_RESULTS, MAX_TEXT_CHARS, RESULT_INLINE_CHARS, RESULT_STORED_CHARS, readWorktreeFile } from "../delegation-env.mjs";
@@ -142,13 +142,8 @@ export function register(app) {
     try {
       const conv = await bots.conversation(bot.id);
       if (!conv) return { busy: null, queued: null };
-      const view = await conv.viewState(ctx);
-      try {
-        const docs = view.value?.docs ?? {};
-        return { busy: docs["pi.live"]?.run != null, queued: docs["pi.inbox"]?.items?.length ?? 0 };
-      } finally {
-        view.dispose?.();
-      }
+      const docs = await readConversationDocs(conv, ctx);
+      return { busy: docs["pi.live"]?.run != null, queued: docs["pi.inbox"]?.items?.length ?? 0 };
     } catch {
       return { busy: null, queued: null };
     }

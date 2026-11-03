@@ -1,7 +1,7 @@
 // Web search tool backed by the Exa Search API (POST https://api.exa.ai/search, header x-api-key).
 // The API key is read from the host process environment only and never appears in output or errors.
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
-import { Type } from "@earendil-works/pi-ai";
+import { bool, int, obj, opt, str } from "@earendil-works/pi-schema";
 
 const EXA_URL = "https://api.exa.ai/search";
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -33,13 +33,13 @@ export function createWebSearchTool({ fetch: fetchImpl, apiKey, timeoutMs = DEFA
     description:
       "Search the web (Exa) and return a numbered list of results with title, URL, publish date and a text excerpt. " +
       "Use for current information, documentation and facts you are unsure about.",
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query" }),
-      numResults: Type.Optional(
-        Type.Integer({ minimum: 1, maximum: MAX_NUM_RESULTS, description: `Number of results (1-${MAX_NUM_RESULTS}, default ${DEFAULT_NUM_RESULTS})` }),
+    parameters: obj({
+      query: str({ description: "Search query" }),
+      numResults: opt(
+        int({ minimum: 1, maximum: MAX_NUM_RESULTS, description: `Number of results (1-${MAX_NUM_RESULTS}, default ${DEFAULT_NUM_RESULTS})` }),
       ),
-      includeText: Type.Optional(Type.Boolean({ description: "Include page text excerpts (default true)" })),
-    }),
+      includeText: opt(bool({ description: "Include page text excerpts (default true)" })),
+    }, { open: true }),
     replay: "safe",
     async execute(args) {
       // Resolve lazily so tests/production can set env or fetch after import.

@@ -4,6 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { WebSocket } from "ws";
+import { apply as applyOps } from "@earendil-works/chord/delta";
 import { openHarness } from "../src/harness.mjs";
 import { BotRegistry } from "../src/bots.mjs";
 import { Preamble } from "../src/ext/preamble.mjs";
@@ -49,7 +50,7 @@ function collectWs(url, until, timeoutMs = 10_000) {
     const ws = new WebSocket(url);
     const timer = setTimeout(() => {
       ws.terminate();
-      reject(new Error(`ws timeout; frames: ${frames.map((f) => f.type + ":" + (f.events?.map((e) => e.type).join(",") ?? "")).join(" | ")}`));
+      reject(new Error(`ws timeout; frames: ${frames.map((f) => f.type + ":" + (f.ops?.length ?? "")).join(" | ")}`));
     }, timeoutMs);
     ws.on("message", (data) => {
       const frame = JSON.parse(data.toString());
@@ -67,7 +68,20 @@ function collectWs(url, until, timeoutMs = 10_000) {
   });
 }
 
-const hasRunEnd = (frame) => frame.type === "events" && frame.events.some((e) => e.type === "run_end");
+/** Replays the stream's frames (`view`, then Chord `ops`) into the current conversation view. */
+function viewOf(frames) {
+  let view;
+  for (const f of frames) {
+    if (f.type === "view") view = structuredClone(f.view);
+    else if (f.type === "ops") view = applyOps(view, f.ops);
+  }
+  return view;
+}
+/** Idle again with an answer in the window: the submitted run has ended. */
+const hasRunEnd = (_frame, frames) => {
+  const view = viewOf(frames);
+  return view?.docs?.["pi.live"]?.run === undefined && (view?.entries ?? []).some((e) => e.kind === "pi.assistant");
+};
 
 test("health + error formats", async () => {
   const t = await setup([]);
@@ -111,7 +125,7 @@ test("list shows busy/queued", async () => {
   }
 });
 
-test("input -> WS snapshot first, then events ending in run_end; requestId dedupe; usage; entries", async () => {
+test("input -> WS view first, then ops until the run ends; requestId dedupe; usage; entries", async () => {
   const t = await setup([fauxAssistantMessage([fauxText("Paris")])]);
   try {
     const bot = await t.bots.createBot({ name: "geo", model: FAUX });
@@ -128,13 +142,15 @@ test("input -> WS snapshot first, then events ending in run_end; requestId dedup
     assert.equal(r2.body.submissionId, r1.body.submissionId);
 
     const frames = await framesP;
-    assert.equal(frames[0].type, "snapshot");
-    assert.ok(Array.isArray(frames[0].entries));
-    assert.ok("usage" in frames[0]);
-    const events = frames.filter((f) => f.type === "events").flatMap((f) => f.events);
-    assert.ok(events.some((e) => e.type === "run_start"));
-    assert.ok(events.some((e) => e.type === "message_end"));
-    assert.ok(events.some((e) => e.type === "run_end"));
+    assert.equal(frames[0].type, "view");
+    assert.ok(Array.isArray(frames[0].view.entries));
+    assert.ok(frames[0].view.docs && typeof frames[0].view.docs === "object");
+    assert.ok(frames.slice(1).every((f) => f.type === "ops" && Array.isArray(f.ops)));
+    const final = viewOf(frames);
+    assert.equal(final.docs["pi.live"].run, undefined, "idle at the end");
+    const kinds = final.entries.map((e) => e.kind);
+    assert.ok(kinds.includes("pi.user") && kinds.includes("pi.assistant"), `kinds: ${kinds}`);
+    assert.ok(final.docs["pi.usage"], "usage doc in the view");
 
     // transcript is oldest -> newest and holds exactly one exchange (requestId dedupe)
     const entries = (await j(t.base, "GET", `/api/bots/${bot.id}/entries?limit=50`)).body;
@@ -156,16 +172,16 @@ test("input -> WS snapshot first, then events ending in run_end; requestId dedup
   }
 });
 
-test("late-joining WS gets a snapshot containing the committed transcript", async () => {
+test("late-joining WS gets a view containing the committed transcript", async () => {
   const t = await setup([fauxAssistantMessage([fauxText("Berlin")])]);
   try {
     const bot = await t.bots.createBot({ name: "late", model: FAUX });
     const conv = await t.bots.conversation(bot.id);
     const { ctx } = await import("../src/harness.mjs");
     await (await conv.submit({ type: "input", content: "Capital of Germany?" }, ctx)).wait(ctx);
-    const frames = await collectWs(`ws://127.0.0.1:${t.port}/api/bots/${bot.id}/stream`, (f) => f.type === "snapshot");
-    assert.equal(frames[0].type, "snapshot");
-    const roles = frames[0].entries.map((e) => e.model?.[0]?.role).filter(Boolean);
+    const frames = await collectWs(`ws://127.0.0.1:${t.port}/api/bots/${bot.id}/stream`, (f) => f.type === "view");
+    assert.equal(frames[0].type, "view");
+    const roles = frames[0].view.entries.map((e) => e.model?.[0]?.role).filter(Boolean);
     assert.ok(roles.includes("user") && roles.includes("assistant"), `roles: ${roles}`);
   } finally {
     await t.close();

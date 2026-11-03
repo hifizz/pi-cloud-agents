@@ -69,8 +69,8 @@ function fakeBots({ assistantTexts = {} } = {}) {
             { id: 7, kind: "pi.assistant", model: [{ role: "assistant", content: [{ type: "toolCall", name: "bash", arguments: {} }] }] },
           ] : [] };
         },
-        async viewState() {
-          return { value: { docs: { "pi.live": bot.__live ?? undefined, "pi.inbox": { items: bot.__inbox ?? [] } } }, dispose() {} };
+        async watch() {
+          return { value: { docs: { "pi.live": bot.__live ?? undefined, "pi.inbox": { items: bot.__inbox ?? [] } } }, async stop() { return { kind: "stopped" }; } };
         },
       };
     },

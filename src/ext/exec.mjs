@@ -19,7 +19,7 @@
 // (currently {GH_TOKEN: ""}) — `prepare` stages only the NAMES; values are injected at `start` via the
 // supportsEnv-capable bash primitive, never written to a file.
 import { withoutAbortSignal } from "@earendil-works/chord/context";
-import { Type } from "@earendil-works/pi-ai";
+import { num, obj, opt, str } from "@earendil-works/pi-schema";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { RunnerError, commandHash, runIdFor, sha256Hex } from "../runner/client.mjs";
 
@@ -31,10 +31,10 @@ const ABORTED = Symbol("aborted");
 const DESCRIPTION =
   "Execute a bash command in the current working directory. Returns combined stdout and stderr. Output is truncated to last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds. If a result says 结果待确认 / result unconfirmed, the command may already have run: check the actual state instead of re-running it.";
 
-const bashSchema = Type.Object({
-  command: Type.String({ description: "Bash command to execute" }),
-  timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
-});
+const bashSchema = obj({
+  command: str({ description: "Bash command to execute" }),
+  timeout: opt(num({ description: "Timeout in seconds (optional, no default timeout)" })),
+}, { open: true });
 
 /** Resolver installed by the server: `({ conversationId }) -> { store, runner, workspace, binding } | undefined`. */
 let currentResolver;

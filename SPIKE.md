@@ -163,7 +163,7 @@
 - 安全规则：移除通用 preamble 后，讨论与执行会话的 instructions 与起始消息都重述：禁止输出凭据、禁止凭据相关命令、禁止 force/删除/合并/改设置、本 spike 不 push 不开 PR。Approval 扩展保留（runtime 未改）。
 - 宿主项目摘录：从本应用 `AGENTS.md` 的「安全红线」节取不超过 1500 字符，明确标注为宿主项目背景，不是目标仓库内容；目标仓库中的文档不读取。
 - 会话移除 preamble 的写法：`extensions: { remove: [Preamble] }`（对象，不是字符串；字符串会被 harness 拒绝，已有真实 harness 回归测试）。
-- 同空间另一会话的 busy/queued 来自 conv.viewState；读不到写“未取得”，不写 idle。
+- 同空间另一会话的 busy/queued 来自会话视图 docs（`readConversationDocs`，即一次性 `conv.watch`）；读不到写“未取得”，不写 idle。
 - 数据：Bot 记录新增可选 `workspaceId` 与 `issueLoop`（issue、baseBranch、pinnedSha、dir、branch、sourceBotId），用于前端直接归属与灰色回链。
 - 前端：左侧列表通过 `bot.workspaceId` 直接归属（不伪装为 fork）；会话头显示自己的 detached SHA 或执行分支；执行会话显示灰色“来自讨论：<名称>”，点击返回讨论；讨论会话出现“发布任务”空表单（不预填）；工作区级 PR/检查点/重建在 issue-loop 会话中隐藏。
 

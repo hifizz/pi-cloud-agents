@@ -7,7 +7,7 @@
 // Resolution reuses Exec's resolver (conversation -> workspace -> binding -> runner): no second resolution
 // path, no fallback to a local env. The image is read with one bounded `base64` exec; nothing is written.
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
-import { Type } from "@earendil-works/pi-ai";
+import { obj, str } from "@earendil-works/pi-schema";
 import { acceptsImageInput } from "../models.mjs";
 import { config } from "../config.mjs";
 import { execResolve } from "./exec.mjs";
@@ -36,9 +36,9 @@ export function createViewImage(opts = {}) {
       "Read one image file (png/jpg/webp/gif, up to 2MB) from the workspace sandbox and attach it so you can see it. " +
       "Requires a vision-capable model; on a text-only model it returns an error. Use it for screenshots and photos " +
       "referenced in the task (download first with bash if the image is at a URL).",
-    parameters: Type.Object({
-      path: Type.String({ description: "Absolute path of the image file inside the workspace sandbox" }),
-    }),
+    parameters: obj({
+      path: str({ description: "Absolute path of the image file inside the workspace sandbox" }),
+    }, { open: true }),
     replay: "safe", // re-reading a file after a restart re-runs the same read; no side effects
     async execute(args, api, context) {
       const path = String(args.path ?? "").trim();

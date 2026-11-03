@@ -20,7 +20,7 @@ import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { Type } from "@earendil-works/pi-ai";
+import { obj, str } from "@earendil-works/pi-schema";
 import { defineExtension, defineTool, section } from "@earendil-works/pi-durable";
 import { shellQuote } from "./env.mjs";
 
@@ -438,7 +438,7 @@ export function createIntegrationsService(opts) {
         defineTool({
           name: t.wireName,
           description: `[MCP ${install.name}] ${t.description ?? t.name}`.slice(0, 1024),
-          parameters: t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : Type.Object({}),
+          parameters: t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : obj({}, { open: true }),
           // External side effects: never re-run after a crash — a replayed call is a fresh call.
           replay: "unsafe",
           async execute(args, api, context) {
@@ -837,9 +837,9 @@ export function createIntegrationsExtension(service) {
     description:
       "Load the full text of a skill installed in this workspace (see the integrations section for names). " +
       "Use it when the task matches a skill's description, then follow the skill's instructions.",
-    parameters: Type.Object({
-      name: Type.String({ minLength: 1, description: "Skill name as listed in the integrations section" }),
-    }),
+    parameters: obj({
+      name: str({ minLength: 1, description: "Skill name as listed in the integrations section" }),
+    }, { open: true }),
     replay: "safe",
     async execute(args, api, context) {
       const available = service.installsForConversation(api.conversationId).filter((i) => i.kind === "skill");

@@ -93,8 +93,8 @@ function fakeBots() {
           submits.get(bot.id).push(input);
           return { id: `${bot.id}-sub`, wait: async () => ({ status: "done" }) };
         },
-        async viewState() {
-          return { value: { docs: { "pi.live": {}, "pi.inbox": { items: [] }, "pi.usage": { models: {}, tools: {} } } }, dispose() {} };
+        async watch() {
+          return { value: { docs: { "pi.live": {}, "pi.inbox": { items: [] }, "pi.usage": { models: {}, tools: {} } } }, async stop() { return { kind: "stopped" }; } };
         },
         async abort() {},
       };

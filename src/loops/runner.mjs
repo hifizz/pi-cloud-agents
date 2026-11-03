@@ -10,7 +10,7 @@
 // In every mode the Approval extension stays installed (it is last in the production extension chain and untouched)
 // and the session instructions restate the safety rules: no merge, no force-push, no credential printing. Phase 1
 // never installs a merge-capable tool; merging remains a human act on GitHub.
-import { ctx } from "../harness.mjs";
+import { ctx, readConversationDocs } from "../harness.mjs";
 import { shellQuote } from "../env.mjs";
 import { Preamble } from "../ext/preamble.mjs";
 import { sha256, pinnedSha, pinDefault, pickBaseline, hostAgentsExcerpt, SHA_RE } from "./context.mjs";
@@ -381,12 +381,7 @@ export function createLoopRunner(deps) {
       // Best-effort usage snapshot.
       let usage;
       try {
-        const view = await conv.viewState(ctx);
-        try {
-          usage = view?.value?.docs?.["pi.usage"] ?? undefined;
-        } finally {
-          view?.dispose?.();
-        }
+        usage = (await readConversationDocs(conv, ctx))["pi.usage"] ?? undefined;
       } catch {
         usage = undefined;
       }
@@ -428,15 +423,10 @@ export function createLoopRunner(deps) {
     const conv = await bots.conversation(run.botId);
     if (!conv) return false;
     try {
-      const view = await conv.viewState(ctx);
-      try {
-        const docs = view?.value?.docs ?? {};
-        if (docs["pi.live"]?.run != null) return true;
-        if ((docs["pi.inbox"]?.items?.length ?? 0) > 0) return true;
-        return false;
-      } finally {
-        view?.dispose?.();
-      }
+      const docs = await readConversationDocs(conv, ctx);
+      if (docs["pi.live"]?.run != null) return true;
+      if ((docs["pi.inbox"]?.items?.length ?? 0) > 0) return true;
+      return false;
     } catch {
       return false;
     }
@@ -456,12 +446,7 @@ export function createLoopRunner(deps) {
     // The in-flight submission ids of the resumed generation.
     let inputs = [];
     try {
-      const view = await conv.viewState(ctx);
-      try {
-        inputs = view?.value?.docs?.["pi.live"]?.run?.inputs ?? [];
-      } finally {
-        view?.dispose?.();
-      }
+      inputs = (await readConversationDocs(conv, ctx))["pi.live"]?.run?.inputs ?? [];
     } catch {
       inputs = [];
     }

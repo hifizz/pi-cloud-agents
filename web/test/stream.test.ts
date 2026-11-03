@@ -43,8 +43,8 @@ describe("BotStream", () => {
     expect(FakeSocket.instances).toHaveLength(1);
 
     sock().onopen?.();
-    sock().onmessage?.({ data: JSON.stringify({ type: "snapshot", entries: [] }) });
-    expect(frames).toEqual([{ type: "snapshot", entries: [] }]);
+    sock().onmessage?.({ data: JSON.stringify({ type: "view", view: { entries: [], docs: {} } }) });
+    expect(frames).toEqual([{ type: "view", view: { entries: [], docs: {} } }]);
 
     sock().onclose?.({ code: 1006 });
     vi.advanceTimersByTime(499);
