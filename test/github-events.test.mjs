@@ -175,7 +175,7 @@ test("configure on a non-test repo or non-ready workspace is refused; enable see
   const { service, store, ws: other } = await makeService({ ws: null });
   // reseed with a foreign repo in the SAME store the service uses
   const foreign = seedWorkspace(store, { repo: "acme/other" });
-  await assert.rejects(service.configure(foreign.id, { enabled: true }), (e) => e.code === "conflict" && /仅在测试仓库/.test(e.message));
+  await assert.rejects(service.configure(foreign.id, { enabled: true }), (e) => e.code === "conflict" && /仅在允许的仓库/.test(e.message));
 
   const prep = seedWorkspace(store, { status: "preparing" });
   await assert.rejects(service.configure(prep.id, { enabled: true }), (e) => e.code === "conflict" && /not ready/.test(e.message));
