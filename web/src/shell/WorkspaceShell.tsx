@@ -4,10 +4,11 @@
 // Open/close still mounts/unmounts that column's Panel; unaffected siblings keep their state.
 // Breakpoints never change the tree: they only flip a column's
 // min/max size and whether its content sits inline or escapes as a fixed overlay drawer.
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../components/ui/resizable";
 import type { Layout, LayoutChangedMeta } from "../components/ui/resizable";
+import { useGroupRef } from "react-resizable-panels";
 import { Sidebar, SidebarProvider } from "../components/ui/sidebar";
 import { useMediaQuery } from "./useMediaQuery";
 
@@ -27,14 +28,16 @@ const RAIL_MIN_PX = 220;
 const RAIL_MAX_PX = 480;
 const PANEL_DEFAULT_PX = 480;
 const PANEL_MIN_PX = 320;
-const PANEL_MAX_PX = 720;
-// Main has NO minSize: it is the flexible middle that absorbs whichever edge is dragged. A minSize
-// would make a rail drag at main's floor push the far panel (and vice versa); leaving it at 0 keeps
-// each handle strictly tied to its own column.
+// Panel's max isn't a static cap — it's whatever is left once main hits its floor. Computed per
+// render from the live group width so a wide monitor can stretch the panel arbitrarily.
+const MAIN_MIN_PX = 360;
 
 interface PersistedLayout {
   rail: number;
   panel: number;
+  /** Drawer width for md..xl where the panel is a fixed overlay (not an inline column). Distinct
+   * from `panel` so the inline drag and the drawer drag don't overwrite each other. */
+  panelDrawer: number;
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -49,13 +52,15 @@ function loadLayout(): PersistedLayout | null {
   try {
     const raw = globalThis.localStorage?.getItem(LAYOUT_KEY);
     if (!raw) return null;
-    const v = JSON.parse(raw) as { rail?: unknown; panel?: unknown } | null;
+    const v = JSON.parse(raw) as { rail?: unknown; panel?: unknown; panelDrawer?: unknown } | null;
     if (!isFiniteNumber(v?.rail) || !isFiniteNumber(v?.panel)) return null;
     // Clamp persisted widths into the live min/max so an old out-of-range value can't reopen past
-    // a column's cap (e.g. a rail stored before RAIL_MAX existed).
+    // a column's cap. Panel has no static ceiling — its cap is enforced against MAIN_MIN_PX at
+    // render time from the live group width.
     return {
       rail: Math.min(Math.max(v.rail, RAIL_MIN_PX), RAIL_MAX_PX),
-      panel: Math.min(Math.max(v.panel, PANEL_MIN_PX), PANEL_MAX_PX),
+      panel: Math.max(v.panel, PANEL_MIN_PX),
+      panelDrawer: isFiniteNumber(v.panelDrawer) ? Math.max(v.panelDrawer, PANEL_MIN_PX) : PANEL_DEFAULT_PX,
     };
   } catch {
     return null;
@@ -91,11 +96,24 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenR
   const panelInline = panelOpen && xl;
 
   const groupElRef = useRef<HTMLDivElement | null>(null);
+  const groupRef = useGroupRef();
   // Last good persisted widths, seeded once from localStorage. A column that is closed or below its
   // inline breakpoint is absent from the live layout (size ~0), so it keeps this value instead of
   // being overwritten with ~0; `persist` updates it on each completed user resize.
-  const [initialWidths] = useState<PersistedLayout>(() => loadLayout() ?? { rail: RAIL_DEFAULT_PX, panel: PANEL_DEFAULT_PX });
+  const [initialWidths] = useState<PersistedLayout>(() => loadLayout() ?? { rail: RAIL_DEFAULT_PX, panel: PANEL_DEFAULT_PX, panelDrawer: PANEL_DEFAULT_PX });
   const widths = useRef<PersistedLayout>(initialWidths);
+  // Bump to rerender when widths.current changes outside the group's onLayoutChanged (e.g. dragging
+  // the drawer handle below xl, where the library isn't driving the column width).
+  const [, setWidthsVersion] = useState(0);
+  // Panel's live max in pixels: group width minus rail minus main's floor. Falls back to the
+  // viewport width on the first render before the ref attaches.
+  const groupWidth = groupElRef.current?.getBoundingClientRect().width ?? globalThis.innerWidth ?? 0;
+  const railNow = railOpen ? widths.current.rail : 0;
+  const panelMaxPx = Math.max(PANEL_MIN_PX, groupWidth - railNow - MAIN_MIN_PX);
+  // Drawer's effective width for md..xl: its own persisted width, capped so main still has
+  // MAIN_MIN_PX. Independent of the inline panel's width so an xl+ drag doesn't blow up the drawer.
+  const drawerCap = Math.min(Math.round(groupWidth * 0.9), Math.max(PANEL_MIN_PX, groupWidth - railNow - MAIN_MIN_PX));
+  const drawerWidth = Math.min(Math.max(widths.current.panelDrawer, PANEL_MIN_PX), drawerCap);
 
   const persist = useCallback(
     (layout: Layout, meta: LayoutChangedMeta) => {
@@ -116,9 +134,31 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenR
     [railInline, panelInline],
   );
 
+  // When a column's open state changes, the group's default realloc splits the freed share
+  // proportionally across all survivors — visible as the rail growing to its max when the panel
+  // closes. Re-normalize: restore each open column to its last persisted pixel width (from
+  // `widths`, which only changes on a completed user drag), give main the remainder.
+  useEffect(() => {
+    // Wait a frame so any newly-mounted panel has registered with the group before we normalize.
+    const t = setTimeout(() => {
+      const g = groupRef.current;
+      if (!g) return;
+      const groupWidth = groupElRef.current?.getBoundingClientRect().width || 1;
+      const pct = (px: number) => (px / groupWidth) * 100;
+      const next: Layout = {
+        [RAIL_ID]: railOpen && railInline ? pct(widths.current.rail) : 0,
+        [MAIN_ID]: 0,
+        [PANEL_ID]: panelOpen && panelInline ? pct(widths.current.panel) : 0,
+      };
+      next[MAIN_ID] = Math.max(0, 100 - next[RAIL_ID] - next[PANEL_ID]);
+      g.setLayout(next);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [railOpen, railInline, panelOpen, panelInline, groupRef]);
+
   return (
     <SidebarProvider open={railOpen} onOpenChange={onOpenRail}>
-      <div className="relative h-dvh overflow-hidden bg-background text-foreground">
+      <div className="relative h-dvh w-full overflow-hidden bg-background text-foreground">
         {/* The rail's own content decides drawer vs column: the shadcn Sidebar renders a Sheet drawer
          * below md (useIsMobile) and an inline column at md+. This ResizablePanel supplies the column
          * slot at md+; below md it collapses to zero width while the Sheet mounts the rail content in
@@ -127,60 +167,100 @@ export function WorkspaceShell({ railOpen, panelOpen, rail, main, panel, onOpenR
           orientation="horizontal"
           className="flex h-full w-full"
           elementRef={groupElRef}
+          groupRef={groupRef}
           onLayoutChanged={persist}
         >
-          {railOpen && (
-            <ResizablePanel
-              id={RAIL_ID}
-              defaultSize={widths.current.rail}
-              minSize={railInline ? RAIL_MIN_PX : 0}
-              maxSize={railInline ? RAIL_MAX_PX : 0}
-              disabled={!railInline}
-              groupResizeBehavior="preserve-pixel-size"
-              className="h-full min-h-0 flex-col bg-sidebar"
-              style={{ overflow: "visible" }}
-            >
-              {/* w-full: the ResizablePanel is the width authority here; Sidebar's own
-               * --sidebar-width would leave a gap whenever the resized column is wider. */}
+          {/* Rail: always mounted (same reason as the panel — a stable column set keeps the group's
+           * layout map consistent). Closed or below-md = zero-width slot; Sidebar's own content
+           * decides whether to draw the column or escape into a Sheet drawer below md. */}
+          <ResizablePanel
+            id={RAIL_ID}
+            defaultSize={railOpen ? widths.current.rail : 0}
+            minSize={railInline ? RAIL_MIN_PX : 0}
+            maxSize={railInline ? RAIL_MAX_PX : 0}
+            disabled={!railInline}
+            groupResizeBehavior="preserve-pixel-size"
+            className="h-full min-h-0 flex-col bg-sidebar"
+            style={{ overflow: "visible" }}
+          >
+            {railOpen && (
+              /* w-full: the ResizablePanel is the width authority here; Sidebar's own
+               * --sidebar-width would leave a gap whenever the resized column is wider. */
               <Sidebar className="h-full w-full border-r border-border bg-sidebar max-md:w-[min(272px,85vw)]">{rail}</Sidebar>
-            </ResizablePanel>
-          )}
-          {railOpen && <ResizableHandle aria-label="调整侧边栏宽度" disabled={!railInline} className="max-md:hidden" />}
+            )}
+          </ResizablePanel>
+          <ResizableHandle aria-label="调整侧边栏宽度" disabled={!railInline} className={railOpen ? "max-md:hidden" : "hidden"} />
 
-          <ResizablePanel id={MAIN_ID} minSize={0} className="h-full min-h-0 flex-col overflow-hidden">
+          <ResizablePanel id={MAIN_ID} minSize={MAIN_MIN_PX} className="h-full min-h-0 flex-col overflow-hidden">
             <main className="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-label="Chat">
               {main}
             </main>
           </ResizablePanel>
 
-          {panelOpen && <ResizableHandle aria-label="调整面板宽度" disabled={!panelInline} className="max-xl:hidden" />}
-          {/* Panel: inline resizable at xl+; below xl it collapses to a zero-width slot and its content
-           * escapes as a fixed right-edge drawer (md..xl) / full-width cover (<md). Stays mounted
-           * across the xl breakpoint so the PTY keeps running. */}
-          {panelOpen && (
-            <ResizablePanel
-              id={PANEL_ID}
-              defaultSize={widths.current.panel}
-              minSize={panelInline ? PANEL_MIN_PX : 0}
-              maxSize={panelInline ? PANEL_MAX_PX : 0}
-              disabled={!panelInline}
-              groupResizeBehavior="preserve-pixel-size"
-              className="h-full min-h-0 flex-col bg-background"
-              style={{ overflow: "visible" }}
-            >
+          {/* Handle only when panel is open and inline-interactive; hidden below xl (drawer mode). */}
+          <ResizableHandle aria-label="调整面板宽度" disabled={!panelInline} className={panelOpen ? "max-xl:hidden" : "hidden"} />
+          {/* Panel: always mounted so the group's layout map keeps a stable column set — unmounting
+           * it would leave a stale % that main never re-absorbs, leaving a gap on the right. Closed
+           * or below-xl = zero-width slot; content escapes as a fixed right-edge drawer (md..xl)
+           * / full-width cover (<md). Mounted across xl keeps the PTY running. */}
+          <ResizablePanel
+            id={PANEL_ID}
+            // defaultSize only applies at mount; use 0 when closed so the group doesn't allocate
+            // the stored pixel width and then clamp it to 0, leaking it to siblings.
+            defaultSize={panelOpen ? widths.current.panel : 0}
+            minSize={panelInline ? PANEL_MIN_PX : 0}
+            maxSize={panelInline ? panelMaxPx : 0}
+            disabled={!panelInline}
+            groupResizeBehavior="preserve-pixel-size"
+            className="h-full min-h-0 flex-col bg-background"
+            style={{ overflow: "visible" }}
+          >
+            {panelOpen && (
               <aside
                 className={
                   "flex h-full min-h-0 flex-col overflow-hidden border-l border-border bg-background " +
                   "w-full max-md:border-l-0 " +
-                  "max-xl:fixed max-xl:inset-y-0 max-xl:right-0 max-xl:z-30 max-xl:w-[min(560px,90vw)] max-xl:shadow-2xl max-xl:shadow-black/60 " +
+                  "max-xl:fixed max-xl:inset-y-0 max-xl:right-0 max-xl:z-30 max-xl:shadow-2xl max-xl:shadow-black/60 " +
                   // Below md the drawer covers the full width so controls stay reachable on phones.
                   "max-md:w-full"
                 }
+                // Drawer width uses its own persisted value (panelDrawer) so an xl+ inline drag
+                // doesn't make the md..xl drawer huge. Below md it stays full-width (the class wins).
+                style={md && !xl ? { width: drawerWidth } : undefined}
               >
+                {/* Drag handle on the drawer's left edge (md..xl only): the ResizablePanel's own
+                 * handle is hidden by `max-xl:hidden`, so we drive widths.current.panel by hand.
+                 * Positioned inside the aside's border-box so overflow-hidden doesn't clip it. */}
+                {md && !xl && (
+                  <div
+                    role="separator"
+                    aria-label="调整面板宽度"
+                    aria-orientation="vertical"
+                    className="absolute inset-y-0 left-0 z-10 w-[9px] cursor-col-resize hover:bg-border"
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      const startX = e.clientX;
+                      const startW = widths.current.panelDrawer;
+                      const onMove = (ev: PointerEvent) => {
+                        const next = Math.min(Math.max(startW + (startX - ev.clientX), PANEL_MIN_PX), drawerCap);
+                        if (next === widths.current.panelDrawer) return;
+                        widths.current = { ...widths.current, panelDrawer: next };
+                        setWidthsVersion((v) => v + 1);
+                      };
+                      const onUp = () => {
+                        globalThis.removeEventListener("pointermove", onMove);
+                        globalThis.removeEventListener("pointerup", onUp);
+                        saveLayout(widths.current);
+                      };
+                      globalThis.addEventListener("pointermove", onMove);
+                      globalThis.addEventListener("pointerup", onUp);
+                    }}
+                  />
+                )}
                 {panel}
               </aside>
-            </ResizablePanel>
-          )}
+            )}
+          </ResizablePanel>
         </ResizablePanelGroup>
       </div>
     </SidebarProvider>

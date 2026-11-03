@@ -11,7 +11,7 @@ const GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo";
 const STATE_TTL_MS = 10 * 60 * 1000;
 const FAIL_WINDOW_MS = 15 * 60 * 1000;
 const FAIL_LIMIT = 5;
-const DEV_ORIGINS = ["http://127.0.0.1:8090", "http://localhost:8090", "http://127.0.0.1:5183", "http://localhost:5183"];
+const DEV_ORIGINS = ["http://127.0.0.1:8090", "http://localhost:8090", "http://127.0.0.1:5183", "http://localhost:5183", "http://127.0.0.1:5184", "http://localhost:5184"];
 const LOGIN_ERROR = "invalid email or password";
 
 const b64url = (buf) => Buffer.from(buf).toString("base64url");
